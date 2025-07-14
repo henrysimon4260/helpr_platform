@@ -1,0 +1,310 @@
+# ===========================
+# COMPREHENSIVE .gitignore
+# ===========================
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Dependencies
+/.pnp
+.pnp.js
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+build/
+dist/
+out/
+.next/
+.nuxt/
+.output/
+web-build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+.nyc_output/
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Snowpack dependency directory (https://snowpack.dev/)
+web_modules/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# ===========================
+# IDE AND EDITOR FILES
+# ===========================
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# IntelliJ IDEA
+.IntelliJIdea*/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# WebStorm
+.webstorm/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ===========================
+# OPERATING SYSTEM FILES
+# ===========================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ===========================
+# EXPO / REACT NATIVE
+# ===========================
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+expo-env.d.ts
+
+# Metro
+.metro-health-check*
+
+# ===========================
+# MOBILE DEVELOPMENT
+# ===========================
+
+# Android
+*.ap_
+*.aab
+*.dex
+*.class
+bin/
+gen/
+.gradle/
+local.properties
+proguard/
+*.keystore
+!debug.keystore
+!release.keystore
+
+# iOS
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.xcuserstate
+project.xcworkspace/
+
+# ===========================
+# CERTIFICATES AND KEYS
+# ===========================
+
+# Certificate files
+*.p12
+*.key
+*.pem
+*.crt
+*.cer
+*.p7b
+*.p7r
+*.spc
+*.pfx
+
+# SSH keys
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# ===========================
+# DATABASES
+# ===========================
+
+# SQLite
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# ===========================
+# TEMPORARY FILES
+# ===========================
+
+# Temporary folders
+tmp/
+temp/
+.tmp/
+.cache/
+
+# Test files
+test-results/
+test-output/
+
+# Coverage reports
+coverage/
+
+# ===========================
+# ARCHIVES
+# ===========================
+
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ===========================
+# CUSTOM IGNORES
+# (Add project-specific ignores here)
+# ===========================
+
+# Local configuration files that shouldn't be committed
+config.local.js
+settings.local.json
+
+# Generated documentation
+docs/generated/
+
+# User-uploaded files
+uploads/
+user-content/

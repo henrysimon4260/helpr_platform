@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "bundler",
+    "jsx": "react-native",
+    "baseUrl": ".",
+    "paths": {
+      "@helpr/*": [
+        "packages/*/src"
+      ]
+    }
+  },
+}

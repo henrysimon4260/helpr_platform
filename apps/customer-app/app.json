@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Helpr",
+    "slug": "customer-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "customerapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.helpr.customer-app"
+    },
+    "android": {
+      "package": "com.helpr.customer_app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0C4309"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0C4309"
+        }
+      ],
+      [
+        "expo-dev-client",
+        {
+          "addGeneratedScheme": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "googlePlacesApiKey": "",
+      "openAiApiKey": "",
+      "router": {},
+      "eas": {
+        "projectId": "8e5947f9-d149-4eea-9f9b-cfc0e25b605e"
+      }
+    }
+  }
+}

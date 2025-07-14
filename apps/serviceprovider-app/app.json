@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Helpr for Pros",
+    "slug": "serviceprovider-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "serviceproviderapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "appDir": "+/",
+    "ios": {
+      "bundleIdentifier": "com.helpr.serviceprovider-app",
+      "devMenu": false,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photo library so you can upload a profile picture.",
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use your camera to capture a new profile picture.",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use your microphone while recording videos for your profile."
+      }
+    },
+    "android": {
+      "package": "com.helpr.serviceprovider_app",
+      "devMenu": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#FFF8E8"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF8E8"
+        }
+      ],
+      [
+        "expo-dev-client",
+        {
+          "addGeneratedScheme": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "38fbc1bb-d6eb-4fe9-8047-812872414957"
+      }
+    }
+  }
+}
