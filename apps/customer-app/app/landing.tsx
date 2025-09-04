@@ -2,30 +2,19 @@ import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSou
 import { useRouter } from 'expo-router';
 import { SvgXml } from 'react-native-svg';
 import { useRef, useState, useEffect } from 'react';
+import { RouteParams } from '../constants/routes';
 // @ts-ignore - Only for native platforms
 import LottieView from 'lottie-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Define valid routes as a type based on _layout.tsx
-type RouteParams = {
-  'landing': undefined;
-  'moving': undefined;
-  'cleaning': undefined;
-  'furniture-assembly': undefined;
-  'home-improvement': undefined;
-  'running-errands': undefined;
-  'wall-mounting': undefined;
-  'booked-services': undefined;
-  'past-services': undefined;
-  'account': undefined;
-  'contact-support': undefined;
-  'user-guide': undefined;
-};
+// Route params are centralized in `../constants/routes`
 
 export default function Landing() {
   const router = useRouter();
   const lottieRef = useRef<any>(null);
+  const helpLottieRef = useRef<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [canRenderLottie, setCanRenderLottie] = useState(Platform.OS !== 'web');
   const insets = useSafeAreaInsets();
 
@@ -52,6 +41,18 @@ export default function Landing() {
     setIsMenuOpen((v) => !v);
   };
 
+   const handleHelpPress = () => {
+    if (Platform.OS === 'web') {
+      setIsHelpMenuOpen((v) => !v);
+      return;
+    }
+    if (helpLottieRef.current) {
+      if (isHelpMenuOpen) helpLottieRef.current.play(24, 0);
+      else helpLottieRef.current.play(0, 24);
+    }
+    setIsHelpMenuOpen((v) => !v);
+  };
+
   const voiceIconSvg = `
     <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" fill="#0c4309"/>
@@ -67,7 +68,15 @@ export default function Landing() {
       <circle cx="12" cy="13" r="4" fill="none" stroke="#ffffff" stroke-width="2"/>
     </svg>
   `;
-
+   
+   const helpIconSvg = `
+    <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="#0c4309" stroke-width="2"/>
+      <path d="M10 10a2 2 0 0 1 2-2c1.1 0 2 .9 2 2 0 .7-.3 1.3-.8 1.7l-.2.2c-.3.3-.5.6-.5 1" fill="none" stroke="#0c4309" stroke-width="2"/>
+      <circle cx="12" cy="16" r="1" fill="#0c4309"/>
+    </svg>
+  `;
+  
   const services: { id: string; title: string; image: ImageSourcePropType; route: keyof RouteParams }[] = [
     { id: '1', title: 'Moving', image: require('../assets/images/moving.png'), route: 'moving' },
     { id: '2', title: 'Cleaning', image: require('../assets/images/cleaning.png'), route: 'cleaning' },
@@ -115,22 +124,25 @@ export default function Landing() {
           <View style={styles.jobDescriptionContainer}>
             <TextInput
               style={styles.jobDescriptionText}
-              placeholder="Describe exactly what you need...              (e. g. I need a deep cleaning of my 2 bedroom apartment, including kitchen and bathroom."
+              placeholder="Describe exactly what you need...                   (For Example: I need my 2 bedroom apartment deep cleaned.)"
               multiline
               numberOfLines={4}
               placeholderTextColor="#666666"
             />
-            <View style={styles.inputButtonsContainer}>
-              <View style={styles.voiceContainer}>
-                <Pressable style={styles.voiceButton}>
-                  <SvgXml xml={voiceIconSvg} width="20" height="20" />
-                </Pressable>
-                <Text style={styles.voiceModeText}>Voice Mode</Text>
+              <View style={styles.inputButtonsContainer}>
+                <View style={styles.voiceContainer}>
+                  <Pressable style={styles.voiceButton}>
+                    <SvgXml xml={voiceIconSvg} width="20" height="20" />
+                  </Pressable>
+                  <Text style={styles.inputButtonsText}>Voice Mode</Text>
+                </View>
+                <View style={styles.cameraContainer}> {/* New container for camera button and text */}
+                  <Text style={styles.inputButtonsText}>Add Photo or Video</Text> {/* New text */}
+                  <Pressable style={styles.cameraButton}>
+                    <SvgXml xml={cameraIconSvg} width="20" height="20" />
+                  </Pressable>
+                </View>
               </View>
-              <Pressable style={styles.cameraButton}>
-                <SvgXml xml={cameraIconSvg} width="20" height="20" />
-              </Pressable>
-            </View>
           </View>
         </View>
       </View>
@@ -140,7 +152,7 @@ export default function Landing() {
         {/* Large animation view (visual only, no touches) */}
         <View style={[styles.menuButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
           {Platform.OS === 'web' || !canRenderLottie ? (
-            <Text style={[styles.menuIconTextLarge, { color: '#0c4309' }]}>☰</Text>  // Make visible if needed
+            <Text style={[styles.menuIconTextLarge, { color: '#0c4309' }]}>☰</Text>
           ) : (
             <LottieView
               ref={lottieRef}
@@ -151,17 +163,37 @@ export default function Landing() {
             />
           )}
         </View>
-
+        
         {/* Small pressable area for toggling (matches closed button size) */}
         <Pressable 
           onPress={handleMenuPress} 
           style={styles.menuTogglePressable}
         />
-              
+
+        <View style={[styles.helpButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
+          {Platform.OS === 'web' || !canRenderLottie ? (
+            <SvgXml xml={helpIconSvg} width="20" height="20" />
+          ) : (
+            <LottieView
+              ref={helpLottieRef}
+              source={require('../assets/animations/helpButtonAnimation.json')}
+              autoPlay={false}
+              loop={false}
+              style={styles.lottieAnimationLarge}
+            />
+          )}
+        </View>
+        
+        {/* Small pressable area for toggling (matches closed button size) */}
+        <Pressable 
+          onPress={handleHelpPress} 
+          style={styles.helpTogglePressable}
+        />
+  
         {/* Invisible overlay with visible menu items */}
         {isMenuOpen && (
           <>
-    {/* Full-screen dismiss overlay (taps here close the menu) */}
+          {/* Full-screen dismiss overlay (taps here close the menu) */}
           <Pressable
             style={styles.dismissOverlay}
             onPress={() => {
@@ -171,6 +203,7 @@ export default function Landing() {
               setIsMenuOpen(false);
             }}
           />
+          {/* Menu Overlay */}
           <View style={styles.menuOverlay}>
             <View style={styles.menuContainer}>
               <Pressable 
@@ -207,6 +240,36 @@ export default function Landing() {
                 <View style={styles.menuItemRow}>
                   <Text style={styles.menuItemText}>Account</Text>
                 </View>
+              </Pressable>
+            </View>
+          </View>
+          </>
+        )}
+        {isHelpMenuOpen && (
+          <>
+          {/* Full-screen dismiss overlay (taps here close the help menu) */}
+          <Pressable
+            style={styles.dismissOverlay}
+            onPress={() => {
+              if (Platform.OS !== 'web' && helpLottieRef.current) {
+                helpLottieRef.current.play(24, 0); // Reverse the open animation
+              }
+              setIsHelpMenuOpen(false);
+            }}
+          />
+          {/* Help Button overlay */}
+          <View style={styles.helpMenuOverlay}>
+            <View style={styles.helpMenuContainer}>
+              <Pressable 
+                style={styles.helpMenuItem} 
+                onPress={() => {
+                  setIsMenuOpen(false);
+                  navigate('customer-service-chat');
+                }}
+              >
+              <View style={styles.menuItemRow}>
+                <Text style={styles.menuItemText}>Customer Service Chat</Text>
+              </View>
               </Pressable>
             </View>
           </View>
@@ -335,17 +398,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'center',
-    gap: 140,
+    gap: 52, // Adjusted gap to account for added text width
   },
   voiceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+  cameraContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8, // Space between text and camera button
+  },
   voiceButton: {
     width: 60,
     height: 40,
-    borderRadius: 20,
+    borderRadius:20,
     backgroundColor: '#fff0cfff',
     justifyContent: 'center',
     alignItems: 'center',
@@ -355,7 +423,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  voiceModeText: {
+  inputButtonsText: {
     fontSize: 10,
     fontWeight: '500',
     color: '#0c4309',
@@ -392,6 +460,15 @@ const styles = StyleSheet.create({
     width: 900,    // consistent size across devices
     height: 900,
   },
+
+  helpButton: {
+    position: 'absolute',
+    left: -200,      // distance from left edge
+    bottom: -305,    // distance from bottom edge (accounts for typical safe areas)
+    width: 900,    // consistent size across devices
+    height: 900,
+  },
+
   menuTogglePressable: {
   position: 'absolute',
   left: 35,  // Adjust as needed for your button's visible position
@@ -401,9 +478,21 @@ const styles = StyleSheet.create({
   borderRadius: 70, // Make it circular
   backgroundColor: 'transp',  // Invisible hit area
   
+  
   // Optional: add hitSlop if you want to slightly enlarge the touch target without changing visual size
   // hitSlop: { top: 10, bottom: 10, left: 10, right: 10 },
-},
+  },
+  
+  helpTogglePressable: {
+    position: 'absolute',
+    right: 35,
+    bottom: 35,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'transparent',
+  },
+
   lottieAnimationLarge: {
     width: '100%',
     height: '100%',
@@ -414,7 +503,6 @@ const styles = StyleSheet.create({
   },
   menuIconTextLarge: {
     fontSize: 120,
-    color: 'transparent',
     fontWeight: 'bold',
   },
   dismissOverlay: {
@@ -438,6 +526,21 @@ const styles = StyleSheet.create({
     marginLeft: 38, // Position relative to menu button
     marginBottom: 98, // Shifted down - reduced from 160 to 80
   },
+  helpMenuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'transparent',
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    zIndex: 1000,
+    pointerEvents: 'box-none',
+  },
+  helpMenuContainer: {
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    marginRight: 70,
+    marginBottom: 125,
+  },
   menuItem: {
     backgroundColor: 'transparent', // Light beige background like your screenshot
     paddingVertical: 17,
@@ -445,6 +548,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginVertical: 2,
     minWidth: 200,
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  helpMenuItem: {
+    backgroundColor: 'transparent', // Light beige background like your screenshot
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginVertical: 2,
+    marginHorizontal: 20,
+    minWidth: 90,
     shadowColor: '#000000',
     shadowOffset: {
       width: 0,

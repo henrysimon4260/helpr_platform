@@ -7,9 +7,9 @@
     "scheme": "customerapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.customer-app"
+    "ios": {},
+    "android": {
+      "package": "com.helpr.customer_app"
     },
     "plugins": [
       "expo-router",
