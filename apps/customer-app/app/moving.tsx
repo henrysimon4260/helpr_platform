@@ -1,7 +1,8 @@
-import { View, Pressable, TextInput, Text, StyleSheet, Image, Animated } from 'react-native';
-import { SvgXml } from 'react-native-svg';
 import { router } from 'expo-router';
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
+import { Animated, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SvgXml } from 'react-native-svg';
+import { RouteParams } from '../constants/routes';
 
 export default function Moving() {
   const [isAuto, setIsAuto] = useState(true);
@@ -9,6 +10,8 @@ export default function Moving() {
   const slideAnimation = useRef(new Animated.Value(0)).current;
   const slideAnimation2 = useRef(new Animated.Value(0)).current;
   
+  const navigate = (route: keyof RouteParams) => router.push(route as any);
+
   const voiceIconSvg = `
     <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" fill="#0c4309"/>
@@ -27,7 +30,7 @@ export default function Moving() {
   return (
     <View style={styles.root}>
       <View style={styles.container}>
-        <View style={styles.mapContainer}>
+        <View style={styles.mapContainer}> 
           <View style={styles.mapPlaceholder}>
             <Image
               source={require('../assets/icons/confirmLocationIconLarge.png')}
@@ -43,19 +46,33 @@ export default function Moving() {
             />
           </Pressable>
           <View style={styles.panel}>
-            <Text style={styles.title}>Details</Text>
-            <View style={styles.DividerContainer}>
-                <View style={styles.DividerLine} />
+            <Text style={styles.title}>Moving Details</Text>
+            <View style={styles.DividerContainer1}>
+                <View style={styles.DividerLine1} />
             </View>
-            <View style={styles.confirmLocationContainer}>
+            <View style={styles.confirmLocationTextBackgroundContainer}>  
               <View style={styles.confirmLocationImageContainer}>
                 <Image
                   source={require('../assets/icons/ConfirmLocationIcon.png')}
                   style={[styles.confirmLocationIcon, { width: 24, height: 24, resizeMode: 'contain' }]}
                 />
-              </View>
+              </View>          
               <View style={styles.confirmLocationTextContainer}>
-                <Text style={styles.confirmLocationText}>Confirm your location</Text>
+                <Text style={styles.confirmLocationText}>Start Location</Text>
+              </View>              
+            </View>  
+            <View style={styles.DividerContainer3}>
+              <View style={styles.DividerLine3} />
+            </View>
+            <View style={styles.confirmLocationTextBackgroundContainer2}>
+              <View style={styles.finishflag}>
+                <Image
+                  source={require('../assets/icons/finish-flag.png')}
+                  style={[styles.confirmLocationIcon, { width: 18, height: 18, resizeMode: 'contain' }]}
+                />
+              </View>              
+              <View style={styles.confirmLocationTextContainer}>
+                <Text style={styles.confirmLocationText}>End Location</Text>
               </View>              
             </View>
             <View style={styles.PriceOfServiceContainer}>
@@ -74,11 +91,12 @@ export default function Moving() {
             <View style={styles.jobDescriptionContainer}>
               <TextInput
                 style={styles.jobDescriptionText}
-                placeholder="Describe exactly what you need...                   (For Example: I need my 2 bedroom apartment deep cleaned.)"
+                placeholder="Describe your task...                                        'I need everything moved to my new apartment. I need someone with a truck and moving equipment.'"
                 multiline
                 numberOfLines={4}
-                placeholderTextColor="#ff0000ff"
+                placeholderTextColor="#333333ab"
               />
+              
                 <View style={styles.inputButtonsContainer}>
                   <View style={styles.voiceContainer}>
                     <Pressable style={styles.voiceButton}>
@@ -86,16 +104,16 @@ export default function Moving() {
                     </Pressable>
                     <Text style={styles.inputButtonsText}>Voice Mode</Text>
                   </View>
-                  <View style={styles.cameraContainer}> {/* New container for camera button and text */}
-                    <Text style={styles.inputButtonsText}>Add Photo or Video</Text> {/* New text */}
+                  <View style={styles.cameraContainer}> 
+                    <Text style={styles.inputButtonsText}>Add Photo or Video</Text> 
                     <Pressable style={styles.cameraButton}>
                       <SvgXml xml={cameraIconSvg} width="20" height="20" />
                     </Pressable>
                   </View>
                 </View>
             </View>
-            <View style={styles.DividerContainer}>
-                <View style={styles.DividerLine} />
+            <View style={styles.DividerContainer2}>
+                <View style={styles.DividerLine2} />
             </View>
             <View style={styles.binarySliderContainer}>
               <Animated.View style={styles.binarySlider}>
@@ -192,7 +210,7 @@ export default function Moving() {
                   </Text>
                   {'\n'}
                   <Text style={[styles.binarySliderLabel, styles.isPersonalSliderSubtitle]}>
-                    {isPersonal ? 'Payment Method' : 'Payment Method'}
+                    {isPersonal ? '*Insert Payment Method*' : '*Insert Payment Method*'}
                   </Text>
                 </Text>
               </View>
@@ -208,9 +226,11 @@ export default function Moving() {
               </View>
             </View>
             <View style={styles.bottomRowContainer}>
-              <View style={styles.confirmHelprContainer}>
+              <Pressable
+                onPress={() => router.push({ pathname: 'booked-services' as any, params: { showOverlay: 'true' } })} style = {styles.confirmHelprContainer}
+                >
                 <Text style={styles.confirmHelprText}>Confirm Helpr</Text>
-              </View>
+              </Pressable>
               <View style={styles.scheduleServiceContainer}>
                 <Image 
                   source={require('../assets/icons/ScheduleServiceIcon.png')} 
@@ -243,7 +263,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   panel: {
-    height: '60%',
+    height: '63%',
     backgroundColor: '#FFF8E8',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
@@ -266,67 +286,110 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     marginBottom: 3,
   },
-  DividerContainer: {
+  DividerContainer1: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 5,
+    marginBottom: 15,
   },
-  DividerLine: {
+  DividerLine1: {
     width: 375,
     height: 1,
     backgroundColor: '#cfbf9dff',
-    marginBottom: 10,
   },
-  confirmLocationContainer:{
+  DividerContainer2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 5,
+    marginBottom: 5,
+  },
+  DividerLine2: {
+    width: 375,
+    height: 1,
+    backgroundColor: '#cfbf9dff',
+    marginBottom: 5,
+  },
+  DividerLine3: {
+    width: 355,
+    height: 1,
+    backgroundColor: '#cfbf9dff',
+    marginLeft: 10,
+  },
+  DividerContainer3: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: '#E5DCC9',
-    borderRadius: 20,
-    paddingTop: 5,
-    marginBottom: 0,
-    height: 40,
-    borderColor: "#ff0000ff",
-    borderWidth: 2,
   },
-  
-  confirmLocationTextContainer:{
+  confirmLocationTextBackgroundContainer:{
     flexDirection: 'row',
     alignItems: 'flex-start',
+    backgroundColor: '#E5DCC9',
+    borderTopRightRadius: 20,
+    borderTopLeftRadius: 20,
+    height: 40,
+    // borderColor: 'red',
+    // borderWidth: 1,
+  },
+  confirmLocationTextContainer:{
+    alignItems: 'flex-start',
     backgroundColor: 'transparent',
-    paddingTop: 5,
-    borderRadius: 10,
-    marginBottom: 0,
-    height: 30,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingTop: 10,
+    height: 31,
+    // borderColor: 'red',
+    // borderWidth: 1,
   },
   confirmLocationImageContainer:{
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    backgroundColor: '#E5DCC9',
+    borderTopLeftRadius: 20,
+    paddingTop: 8,
+    paddingLeft: 5,
+    marginBottom: 0,
+    height: 31,
+    // borderColor: 'red',
+    // borderWidth: 1,
+  },
+  confirmLocationTextBackgroundContainer2:{
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: 'transparent',
-    paddingTop: 3,
-    borderRadius: 10,
-    marginBottom: 0,
-    height: 20,
+    backgroundColor: '#E5DCC9',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    height: 40,
+    marginBottom: 10,
+    // borderColor: 'red',
+    // borderWidth: 1,
   },
   confirmLocationText: {
-    paddingLeft: 5,
+    paddingLeft: 10,
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '400',
     color: '#49454F',
   },
   confirmLocationIcon: {
-    marginLeft: 10,
+    marginLeft: 8,
+    marginBottom: 4,
+    marginTop: 1 
+  },
+  finishflag: {
+    marginTop: 10,
+    marginLeft: 9,
+    marginRight: 2,
   },
   jobDescriptionContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
-    paddingTop: 10,
     marginTop: 15,
     marginBottom: 10,
-    height: 130,
+    height: 140,
     borderColor: "#00000019",
     borderWidth: 1,
   },
@@ -336,7 +399,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5DCC9',
     borderRadius: 10,
     paddingTop: 0,
-    marginTop: 15,
+    marginTop: 5,
     height: 50,
   },
   PriceOfServiceTextContainer:{
@@ -388,14 +451,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '400',
-    color: '#ff0000ff',
+    color: '#0c4309',
   },
   jobDescriptionText: {
-    flex: 1,
     color: '#333333',
     fontSize: 16,
     textAlign: 'left',
     textAlignVertical: 'top',
+    paddingLeft: 15,
+    paddingRight: 20,
+    paddingBottom: 5,
+    paddingTop: 10,
+  },
+  jobDescriptionExampleText: {
+    color: '#999999',
+    textAlign: 'left',
+    textAlignVertical: 'top',
+    fontSize: 16,
     paddingLeft: 15,
     paddingRight: 20,
   },
@@ -430,8 +502,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-    borderColor: "#ff0000ff",
-    borderWidth: 2,
   },
   inputButtonsText: {
     fontSize: 10,
@@ -451,8 +521,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-    borderColor: "#ff0000ff",
-    borderWidth: 2,
   },
   inputButtonIcon: {
     fontSize: 16,
@@ -468,14 +536,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginVertical: 8,
+    marginVertical: 6,
     marginLeft: 20,
   },
   sliderRowContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginVertical: 8,
+    marginVertical: 7,
     paddingRight: 20,
   },
   binarySliderLabel: {
@@ -500,7 +568,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   isPersonalSliderSubtitle: {
-    color: '#ff0000ff',
+    color: '#0c4309',
     fontSize: 12,
     fontWeight: 'normal',
   },
@@ -558,8 +626,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    borderColor: "#ff0000ff",
-    borderWidth: 2,
   },
   pmIcon: {
     width: 20,
@@ -581,8 +647,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginLeft: 20,
     width: '60%',
-    borderColor: "#ff0000ff",
-    borderWidth: 1,
   },
   confirmHelprText: {
     color: '#FFFFFF',
@@ -601,9 +665,6 @@ const styles = StyleSheet.create({
     width: '27%',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderColor: "#ff0000ff",
-    borderWidth: 1,
-    
   },
   scheduleServiceIcon: {
     width: 20,

@@ -120,7 +120,7 @@ export default function Landing() {
             <View style={styles.orLine} />
           </View>
 
-          <Text style={styles.makeYourCustomServiceText}>Make Your Custom Service</Text>
+          <Text style={styles.makeYourCustomServiceText}>Make A Custom Service</Text>
           <View style={styles.jobDescriptionContainer}>
             <TextInput
               style={styles.jobDescriptionText}
@@ -136,8 +136,8 @@ export default function Landing() {
                   </Pressable>
                   <Text style={styles.inputButtonsText}>Voice Mode</Text>
                 </View>
-                <View style={styles.cameraContainer}> {/* New container for camera button and text */}
-                  <Text style={styles.inputButtonsText}>Add Photo or Video</Text> {/* New text */}
+                <View style={styles.cameraContainer}> 
+                  <Text style={styles.inputButtonsText}>Add Photo or Video</Text> 
                   <Pressable style={styles.cameraButton}>
                     <SvgXml xml={cameraIconSvg} width="20" height="20" />
                   </Pressable>
@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
   // New root: no padding so overlay sits at true screen edges
   root: {
     flex: 1,
-    backgroundColor: '#fff0cfff',
+    backgroundColor: '#FFF8E8',
   },
   container: {
     flex: 1,
@@ -376,11 +376,13 @@ const styles = StyleSheet.create({
   jobDescriptionContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#cfbf9dff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     paddingTop: 10,
     marginBottom: 20,
     height: 150,
+    borderWidth: 1,
+    borderColor: '#e1e1e1ff'
   },
   jobDescriptionText: {
     flex: 1,
@@ -414,7 +416,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 40,
     borderRadius:20,
-    backgroundColor: '#fff0cfff',
+    backgroundColor: '#E5DCC9',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
