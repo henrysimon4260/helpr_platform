@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import React, { useRef, useState } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { SvgXml } from 'react-native-svg';
 import { RouteParams } from '../constants/routes';
 
@@ -28,210 +29,207 @@ export default function Moving() {
     </svg>
   `;
   return (
-    <View style={styles.root}>
-      <View style={styles.container}>
-        <View style={styles.mapContainer}>
-          <View style={styles.mapPlaceholder}>
-            <Image
-              source={require('../assets/icons/confirmLocationIconLarge.png')}
-              style={styles.confirmLocationIconLarge}
-            />
-          </View>
-        </View>
-        <View style={styles.contentArea}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Image 
-              source={require('../assets/icons/backButton.png')} 
-              style={styles.backButtonIcon} 
-            />
-          </Pressable>
-          <View style={styles.panel}>
-            <Text style={styles.title}>Cleaning Details</Text>
-            <View style={styles.DividerContainer1}>
-                <View style={styles.DividerLine1} />
-            </View>
-            <View style={styles.confirmLocationContainer}>
-              <View style={styles.confirmLocationImageContainer}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}  // Adjusts for iOS/Android
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}  // Fine-tune offset if needed
+      >
+        <StatusBar style="dark" backgroundColor="#0c4309" />
+        <View style={styles.root}>
+          <View style={styles.container}>
+            <View style={styles.mapContainer}> 
+              <View style={styles.mapPlaceholder}>
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
-                  style={[styles.confirmLocationIcon, { width: 24, height: 24, resizeMode: 'contain' }]}
+                  source={require('../assets/icons/confirmLocationIconLarge.png')}
+                  style={styles.confirmLocationIconLarge}
                 />
               </View>
-              <View style={styles.confirmLocationTextContainer}>
-                <Text style={styles.confirmLocationText}>Confirm Location</Text>
-              </View>              
             </View>
-            <View style={styles.PriceOfServiceContainer}>
-              <View style={styles.PriceOfServiceTextContainer}>
-                <View style={styles.PriceOfServiceTitleTextContainer}>
-                  <Text style={styles.PriceOfServiceTitleText}>Helpr</Text>
-                </View>
-                <View style={styles.PriceOfServiceSubtitleTextContainer}>
-                  <Text style={styles.PriceOfServiceSubtitleText}>Price to be confirmed on next page</Text>
-                </View>            
-              </View>
-              <View style={styles.PriceOfServiceQuoteContainer}>
-                  <Text style={styles.PriceOfServiceQuoteText}>enter description { '\n' }to see price</Text>
-              </View>
-            </View>
-            <View style={styles.jobDescriptionContainer}>
-              <TextInput
-                style={styles.jobDescriptionText}
-                placeholder="Describe exactly what you need...                   (For Example: I need my 2 bedroom apartment deep cleaned.)"
-                multiline
-                numberOfLines={4}
-                placeholderTextColor="#333333ab"
-              />
-                <View style={styles.inputButtonsContainer}>
-                  <View style={styles.voiceContainer}>
-                    <Pressable style={styles.voiceButton}>
-                      <SvgXml xml={voiceIconSvg} width="20" height="20" />
-                    </Pressable>
-                    <Text style={styles.inputButtonsText}>Voice Mode</Text>
-                  </View>
-                  <View style={styles.cameraContainer}> 
-                    <Text style={styles.inputButtonsText}>Add Photo or Video</Text> 
-                    <Pressable style={styles.cameraButton}>
-                      <SvgXml xml={cameraIconSvg} width="20" height="20" />
-                    </Pressable>
-                  </View>
-                </View>
-            </View>
-            <View style={styles.DividerContainer2}>
-                <View style={styles.DividerLine2} />
-            </View>
-            <View style={styles.binarySliderContainer}>
-              <Animated.View style={styles.binarySlider}>
-                <View style={styles.binarySliderIcons}>
-                  <Image 
-                    source={require('../assets/icons/AutoFillIcon.png')} 
-                    style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 9 }]} 
-                  />
-                  <Image 
-                    source={require('../assets/icons/ChooseHelprIcon.png')} 
-                    style={[styles.binarySliderIcon, { opacity: !isAuto ? 1 : 0.5 }]} 
-                  />
-                </View>
-                <Pressable
-                  style={StyleSheet.absoluteFill}
-                  onPress={() => {
-                    setIsAuto(prev => !prev);
-                    Animated.spring(slideAnimation, {
-                      toValue: isAuto ? 1 : 0,
-                      useNativeDriver: false,
-                      friction: 8,
-                      tension: 50
-                    }).start();
-                  }}
-                >
-                  <Animated.View
-                    style={[
-                      styles.binarySliderThumb,
-                      {
-                        transform: [{
-                          translateX: slideAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, 28]
-                          })
-                        }]
-                      }
-                    ]}
-                  />
-                </Pressable>
-              </Animated.View>
-              <Text style={styles.binarySliderLabel}>
-                <Text style={[styles.binarySliderLabel, styles.isAutoSliderTitle]}>
-                  {isAuto ? 'AutoFill' : 'Custom'}
-                </Text>
-                {'\n'}
-                <Text style={[styles.binarySliderLabel, styles.isAutoSliderSubtitle]}>
-                  {isAuto ? 'Match me with the first available helpr' : 'Choose a helpr based on your preferences'}
-                </Text>
-              </Text>
-            </View>
-            <View style={styles.sliderRowContainer}>
-              <View style={styles.binarySliderContainer}>
-                <Animated.View style={styles.binarySlider}>
-                  <View style={styles.binarySliderIcons2}>
-                    <Image 
-                      source={require('../assets/icons/PersonalPMIcon.png')} 
-                      style={styles.binarySliderIcon2} 
-                    />
-                    <Image 
-                      source={require('../assets/icons/BusinessPMIcon.png')} 
-                      style={styles.BusinessPMIcon} 
-                    />
-                  </View>
-                  <Pressable
-                    style={StyleSheet.absoluteFill}
-                    onPress={() => {
-                      setIsPersonal(prev => !prev);
-                      Animated.spring(slideAnimation2, {
-                        toValue: isPersonal ? 1 : 0,
-                        useNativeDriver: false,
-                        friction: 8,
-                        tension: 50
-                      }).start();
-                    }}
-                  >
-                    <Animated.View
-                      style={[
-                        styles.binarySliderThumb,
-                        {
-                          transform: [{
-                            translateX: slideAnimation2.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, 28]
-                            })
-                          }]
-                        }
-                      ]}
-                    />
-                  </Pressable>
-                </Animated.View>
-                <Text style={styles.binarySliderLabel}>
-                  <Text style={[styles.binarySliderLabel, styles.isPersonalSliderTitle]}>
-                    {isPersonal ? 'Personal' : 'Business'}
-                  </Text>
-                  {'\n'}
-                  <Text style={[styles.binarySliderLabel, styles.isPersonalSliderSubtitle]}>
-                    {isPersonal ? '*Insert Payment Method*' : '*Insert Payment Method*'}
-                  </Text>
-                </Text>
-              </View>
-              <View style={styles.pmIconContainer}>
+            <View style={styles.contentArea}>
+              <Pressable style={styles.backButton} onPress={() => router.back()}>
                 <Image 
-                  source={require('../assets/icons/PMIcon.png')} 
-                  style={styles.pmIcon} 
+                  source={require('../assets/icons/backButton.png')} 
+                  style={styles.backButtonIcon} 
                 />
-                <Image 
-                  source={require('../assets/icons/ArrowIcon.png')} 
-                  style={[styles.arrowIcon, { resizeMode: 'contain' }]} 
-                />
-              </View>
-            </View>
-            <View style={styles.bottomRowContainer}>
-              <Pressable
-                onPress={() => router.push({ pathname: '/booked-services', params: { showOverlay: 'true' } })} style = {styles.confirmHelprContainer}
-                >
-                <Text style={styles.confirmHelprText}>Confirm Helpr</Text>
               </Pressable>
-              <View style={styles.scheduleServiceContainer}>
-                <Image 
-                  source={require('../assets/icons/ScheduleServiceIcon.png')} 
-                  style={styles.scheduleServiceIcon} 
-                />
-                <Text style={styles.asapText}>ASAP</Text>
-                <Image 
-                  source={require('../assets/icons/ArrowIcon.png')} 
-                  style={[styles.arrowDownIcon, { transform: [{ rotate: '90deg' }] }]} 
-                />
+              <View style={styles.panel}>
+                <Text style={styles.title}>Cleaning Details</Text>
+                <View style={styles.DividerContainer1}>
+                    <View style={styles.DividerLine1} />
+                </View>
+                <View style={styles.confirmLocationTextBackgroundContainer}>  
+                  <View style={styles.confirmLocationImageContainer}>
+                    <Image
+                      source={require('../assets/icons/ConfirmLocationIcon.png')}
+                      style={[styles.confirmLocationIcon, { width: 24, height: 24, resizeMode: 'contain' }]}
+                    />
+                  </View>          
+                  <View style={styles.confirmLocationTextContainer}>
+                    <Text style={styles.confirmLocationText}>Confirm Your Location</Text>
+                  </View>              
+                </View>
+                <View style={styles.PriceOfServiceContainer}>
+                  <View style={styles.PriceOfServiceTextContainer}>
+                    <View style={styles.PriceOfServiceTitleTextContainer}>
+                      <Text style={styles.PriceOfServiceTitleText}>Helpr</Text>
+                    </View>
+                    <View style={styles.PriceOfServiceSubtitleTextContainer}>
+                      <Text style={styles.PriceOfServiceSubtitleText}>Price will be confirmed on next page</Text>
+                    </View>            
+                  </View>
+                  <View style={styles.PriceOfServiceQuoteContainer}>
+                      <Text style={styles.PriceOfServiceQuoteText}>enter description { '\n' }to see price</Text>
+                  </View>
+                </View>
+                <Text style={styles.title2}>Job Description</Text>
+                <View style={styles.jobDescriptionContainer}>
+                  <TextInput
+                    style={styles.jobDescriptionExampleText}
+                    placeholder="Ex: I need my 2 bedroom apartment deep cleaned..."
+                    multiline
+                    numberOfLines={4}
+                    placeholderTextColor="#333333ab"
+                  />
+                    <View style={styles.inputButtonsContainer}>
+                      <View style={styles.voiceContainer}>
+                        <Pressable style={styles.voiceButton}>
+                          <SvgXml xml={voiceIconSvg} width="20" height="20" />
+                        </Pressable>
+                        <Text style={styles.inputButtonsText}>Voice Mode</Text>
+                      </View>
+                      <View style={styles.cameraContainer}> 
+                        <Text style={styles.inputButtonsText}>Add Photo or Video</Text> 
+                        <Pressable style={styles.cameraButton}>
+                          <SvgXml xml={cameraIconSvg} width="20" height="20" />
+                        </Pressable>
+                      </View>
+                    </View>
+                </View>
+                <View style={styles.DividerContainer2}>
+                    <View style={styles.DividerLine2} />
+                </View>
+                <View style={styles.binarySliderContainer}>
+                  <Animated.View style={styles.binarySlider}>
+                    <View style={styles.binarySliderIcons}>
+                      <Image 
+                        source={require('../assets/icons/AutoFillIcon.png')} 
+                        style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 9 }]} 
+                      />
+                      <Image 
+                        source={require('../assets/icons/ChooseHelprIcon.png')} 
+                        style={[styles.binarySliderIcon, { opacity: !isAuto ? 1 : 0.5 }]} 
+                      />
+                    </View>
+                    <Pressable
+                      style={StyleSheet.absoluteFill}
+                      onPress={() => {
+                        setIsAuto(prev => !prev);
+                        Animated.spring(slideAnimation, {
+                          toValue: isAuto ? 1 : 0,
+                          useNativeDriver: false,
+                          friction: 8,
+                          tension: 50
+                        }).start();
+                      }}
+                    >
+                      <Animated.View
+                        style={[
+                          styles.binarySliderThumb,
+                          {
+                            transform: [{
+                              translateX: slideAnimation.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 28]
+                              })
+                            }]
+                          }
+                        ]}
+                      />
+                    </Pressable>
+                  </Animated.View>
+                  <Text style={styles.binarySliderLabel}>
+                    <Text style={[styles.binarySliderLabel, styles.isAutoSliderTitle]}>
+                      {isAuto ? 'AutoFill' : 'Custom'}
+                    </Text>
+                    {'\n'}
+                    <Text style={[styles.binarySliderLabel, styles.isAutoSliderSubtitle]}>
+                      {isAuto ? 'Match me with the first available helpr' : 'Choose a helpr based on your preferences'}
+                    </Text>
+                  </Text>
+                </View>
+                <View style={styles.sliderRowContainer}>
+                  <View style={styles.binarySliderContainer}>
+                    <Animated.View style={styles.binarySlider}>
+                      <View style={styles.binarySliderIcons2}>
+                        <Image 
+                          source={require('../assets/icons/PersonalPMIcon.png')} 
+                          style={styles.binarySliderIcon2} 
+                        />
+                        <Image 
+                          source={require('../assets/icons/BusinessPMIcon.png')} 
+                          style={styles.BusinessPMIcon} 
+                        />
+                      </View>
+                      <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => {
+                          setIsPersonal(prev => !prev);
+                          Animated.spring(slideAnimation2, {
+                            toValue: isPersonal ? 1 : 0,
+                            useNativeDriver: false,
+                            friction: 8,
+                            tension: 50
+                          }).start();
+                        }}
+                      >
+                        <Animated.View
+                          style={[
+                            styles.binarySliderThumb,
+                            {
+                              transform: [{
+                                translateX: slideAnimation2.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0, 28]
+                              })
+                            }]
+                          }
+                        ]}
+                      />
+                    </Pressable>
+                  </Animated.View>
+                  <Text style={styles.binarySliderLabel}>
+                    <Text style={[styles.binarySliderLabel, styles.isPersonalSliderTitle]}>
+                      {isPersonal ? 'Personal' : 'Business'}
+                    </Text>
+                    {'\n'}
+                    <Text style={[styles.binarySliderLabel, styles.isPersonalSliderSubtitle]}>
+                      {isPersonal ? '*Insert Payment Method*' : '*Insert Payment Method*'}
+                    </Text>
+                  </Text>
+                </View>
+                <View style={styles.pmIconContainer}>
+                  <Image 
+                    source={require('../assets/icons/PMIcon.png')} 
+                    style={styles.pmIcon} 
+                  />
+                  <Image 
+                    source={require('../assets/icons/ArrowIcon.png')} 
+                    style={[styles.arrowIcon, { resizeMode: 'contain' }]} 
+                  />
+                </View>
               </View>
+                <Pressable
+                  onPress={() => router.push({ pathname: 'booked-services' as any, params: { showOverlay: 'true' } })} style = {styles.confirmHelprContainer}
+                  >
+                  <Text style={styles.confirmHelprText}>Schedule Helpr</Text>
+                </Pressable>
             </View>
           </View>
         </View>
-      </View>
-    </View>
+        </View>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -248,7 +246,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   panel: {
-    height: '58%',
+    height: '68%',
     backgroundColor: '#FFF8E8',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
@@ -276,7 +274,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 5,
-    marginBottom: 15,
+    marginBottom: 10,
   },
   DividerLine1: {
     width: 375,
@@ -296,52 +294,83 @@ const styles = StyleSheet.create({
     backgroundColor: '#cfbf9dff',
     marginBottom: 5,
   },
-  confirmLocationContainer:{
+  DividerLine3: {
+    width: 355,
+    height: 1,
+    backgroundColor: '#cfbf9dff',
+    marginLeft: 10,
+  },
+  DividerContainer3: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#E5DCC9',
+  },
+  confirmLocationTextBackgroundContainer:{
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: '#E5DCC9',
     borderRadius: 20,
-    paddingTop: 5,
-    marginBottom: 10,
     height: 40,
+    marginBottom: 10,
+    marginTop: 5,
+    // borderColor: 'red',
+    // borderWidth: 1,
   },
   confirmLocationTextContainer:{
-    flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: 'transparent',
-    paddingTop: 5,
-    borderRadius: 10,
-    marginBottom: 0,
-    height: 30,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingTop: 10,
+    height: 31,
+    // borderColor: 'red',
+    // borderWidth: 1,
   },
   confirmLocationImageContainer:{
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
     backgroundColor: 'transparent',
-    paddingTop: 3,
-    borderRadius: 10,
+    borderTopLeftRadius: 20,
+    paddingTop: 8,
+    paddingLeft: 5,
     marginBottom: 0,
-    height: 20,
+    height: 31,
+    // borderColor: 'red',
+    // borderWidth: 1,
   },
   confirmLocationText: {
-    paddingLeft: 5,
+    paddingLeft: 10,
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '400',
     color: '#49454F',
   },
   confirmLocationIcon: {
-    marginLeft: 10,
+    marginLeft: 8,
+    marginBottom: 4,
+    marginTop: 1 
+  },
+  finishflag: {
+    marginTop: 10,
+    marginLeft: 9,
+    marginRight: 2,
+  },
+  title2: {
+    marginTop: 15,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0c4309',
+    marginBottom: 3,
   },
   jobDescriptionContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
-    paddingTop: 5,
-    marginTop: 15,
+    marginTop: 5,
     marginBottom: 10,
-    height: 130,
+    height: 140,
     borderColor: "#00000019",
     borderWidth: 1,
   },
@@ -361,7 +390,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 0,
     height: 30,
-    marginRight: 60,
+    marginRight: 50,
+    // borderColor: 'red',
+    // borderWidth: 1,
   },
   PriceOfServiceTitleTextContainer:{
     flexDirection: 'row',
@@ -398,6 +429,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 5,
     height: 40,
+    // borderColor: 'red', 
+    // borderWidth: 1,
   },
   PriceOfServiceQuoteText:{
     textAlign: 'center',
@@ -405,12 +438,22 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#0c4309',
   },
-  jobDescriptionText: {
-    flex: 1,
+  textInput: {
     color: '#333333',
     fontSize: 16,
     textAlign: 'left',
     textAlignVertical: 'top',
+    paddingLeft: 15,
+    paddingRight: 20,
+    paddingBottom: 5,
+    paddingTop: 10,
+  },
+  jobDescriptionExampleText: {
+    color: '#999999',
+    textAlign: 'left',
+    textAlignVertical: 'top',
+    fontSize: 16,
+    paddingTop: 10,
     paddingLeft: 15,
     paddingRight: 20,
   },
@@ -584,45 +627,19 @@ const styles = StyleSheet.create({
   },
   confirmHelprContainer:{
     flexDirection: 'row',
-    alignSelf: 'flex-start',
-    padding: 10,
+    alignSelf: 'center',
+    padding: 12,
     backgroundColor: '#0c4309',
-    borderRadius: 20,
-    marginLeft: 20,
-    width: '60%',
+    borderRadius: 30,
+    width: '90%',
+    marginTop: 15,
   },
   confirmHelprText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
     flex: 1,
-  },
-  scheduleServiceContainer:{
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    padding: 10,
-    backgroundColor: '#E5DCC9',
-    borderRadius: 20,
-    marginLeft: 10,
-    width: '27%',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  scheduleServiceIcon: {
-    width: 20,
-    height: 20,
-    resizeMode: 'contain',
-  },
-  asapText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#414441ff',
-  },
-  arrowDownIcon: {
-    width: 12,
-    height: 12,
-    resizeMode: 'contain',
   },
   backButton: {
     position: 'absolute',
@@ -650,7 +667,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5DCC9',
     justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingTop: 170,
+    paddingTop: 140,
   },
   confirmLocationIconLarge: {
     width: 96,

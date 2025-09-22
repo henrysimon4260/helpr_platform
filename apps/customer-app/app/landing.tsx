@@ -1,11 +1,11 @@
-import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSourcePropType, Platform, InteractionManager } from 'react-native';
+import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSourcePropType, Platform, InteractionManager, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { SvgXml } from 'react-native-svg';
 import { useRef, useState, useEffect } from 'react';
 import { RouteParams } from '../constants/routes';
 // @ts-ignore - Only for native platforms
 import LottieView from 'lottie-react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Route params are centralized in `../constants/routes`
 
@@ -16,7 +16,6 @@ export default function Landing() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [canRenderLottie, setCanRenderLottie] = useState(Platform.OS !== 'web');
-  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -97,11 +96,17 @@ export default function Landing() {
 
   return (
     // root without padding so overlay anchors to the real screen edges
-    <View style={styles.root}>
-      <View style={styles.container}>
-        <View style={styles.contentArea}>
-          <Text style={styles.title}>What can we help with?</Text>
-          <Text style={styles.popularTitle}>Popular Services</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <KeyboardAvoidingView
+        style={styles.root}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+      >
+        <StatusBar style="dark" backgroundColor="#0c4309" />
+        <View style={styles.container}>
+          <View style={styles.contentArea}>
+            <Text style={styles.title}>What can we help with?</Text>
+            <Text style={styles.popularTitle}>Popular Services</Text>
           <View style={styles.servicesWrapper}>
             <FlatList
               data={services}
@@ -275,9 +280,10 @@ export default function Landing() {
           </View>
           </>
         )}
-      </View>
-    </View>
-  );
+        </View>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
+  );  
 }
 
 const styles = StyleSheet.create({
@@ -400,7 +406,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'center',
-    gap: 52, // Adjusted gap to account for added text width
+    gap: 40, // Adjusted gap to account for added text width
   },
   voiceContainer: {
     flexDirection: 'row',

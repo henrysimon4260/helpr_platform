@@ -4,15 +4,23 @@
     "strict": true,
     "jsx": "react-native",
     "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"] // Keep this if you use @/ imports, otherwise remove or adjust
-    }
+      "@/*": ["./*"]
+    },
+    "types": ["expo/types"]
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
   ]
 }
