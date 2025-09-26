@@ -1,13 +1,34 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as SplashScreenModule from 'expo-splash-screen';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Image, StyleSheet, View } from 'react-native';
+import { useAuth } from '../src/contexts/AuthContext';
 
 export default function SplashComponent() {
   const router = useRouter();
+  const { user, loading } = useAuth();
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    console.log('Splash screen - loading:', loading, 'user:', user);
+    
+    if (loading) return; // Wait for auth check
+
+    const navigateAfterSplash = () => {
+      const targetRoute = user ? '/landing' : '/login';
+      console.log('Navigating to:', targetRoute);
+      
+      // Start dissolve after showing splash
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 1500, // Increased from 1000ms to 1500ms for smoother fade
+        useNativeDriver: true,
+      }).start(() => {
+        console.log('Animation complete, navigating to:', targetRoute);
+        router.replace(targetRoute);
+      });
+    };
+
     const preloadAssets = async () => {
       try {
         // Prevent auto-hiding of the splash screen
@@ -16,32 +37,17 @@ export default function SplashComponent() {
         // Hide native splash
         await SplashScreenModule.hideAsync();
         
-        // Local assets (require()) are bundled and load instantly
-        // No need to preload them - they're already in the app bundle
-        
         // Wait for minimum splash time
-        setTimeout(() => {
-          // Start dissolve after showing splash
-          Animated.timing(fadeAnim, {
-            toValue: 0,
-            duration: 1000,
-            useNativeDriver: true,
-          }).start(() => {
-            // Use push instead of replace to avoid white flash
-            router.push('/landing');
-          });
-        }, 1200); // Reduced time since assets are preloaded
+        setTimeout(navigateAfterSplash, 1200);
       } catch (error) {
         console.warn('Splash screen error:', error);
-        // Fallback - still navigate to landing
-        setTimeout(() => {
-          router.push('/landing');
-        }, 1500);
+        // Fallback - still navigate
+        setTimeout(navigateAfterSplash, 1500);
       }
     };
 
     preloadAssets();
-  }, [router, fadeAnim]);
+  }, [router, fadeAnim, user, loading]);
 
   return (
     <View style={styles.container}>

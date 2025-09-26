@@ -8,9 +8,13 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "appDir": "+/",
-    "ios": {},
+    "ios": {
+      "bundleIdentifier": "com.helpr.customer-app",
+      "devMenu": false
+    },
     "android": {
-      "package": "com.helpr.customer_app"
+      "package": "com.helpr.customer_app",
+      "devMenu": false
     },
     "plugins": [
       "expo-router",
@@ -21,6 +25,12 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#0C4309"
+        }
+      ],
+      [
+        "expo-dev-client",
+        {
+          "addGeneratedScheme": false
         }
       ]
     ],

@@ -1,4 +1,4 @@
-package com.helpr.customerapp
+package com.helpr.customer_app
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
