@@ -11,6 +11,7 @@ export default function Login() {
   const [authLoading, setAuthLoading] = useState(false);
   const [showOTPVerification, setShowOTPVerification] = useState(false);
   const [otpCode, setOtpCode] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     // Listen for auth state changes to handle deleted accounts
@@ -70,30 +71,8 @@ export default function Login() {
     }
     setAuthLoading(false);
   };  const signUpWithEmail = async () => {
-    setAuthLoading(true);
-    
-    console.log('🔄 Attempting OTP signup for:', email);
-
-    // Use signInWithOtp to send OTP codes
-    const { data, error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: true, // Creates account if doesn't exist
-      }
-    });
-
-    console.log('📧 OTP response:', { data, error });
-
-    if (error) {
-      Alert.alert('Error', error.message);
-      console.error('❌ OTP error:', error);
-    } else {
-      console.log('✅ OTP sent successfully');
-      setShowOTPVerification(true);
-      Alert.alert('Code Sent', 'Check your email for a 6-digit verification code!');
-    }
-    
-    setAuthLoading(false);
+    // Navigate to dedicated signup page
+    router.replace('/signup' as any);
   };
 
   const verifyOTP = async () => {
@@ -220,14 +199,24 @@ export default function Login() {
           placeholderTextColor="#49454F"
         />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          placeholderTextColor="#49454F"
-        />
+        <View style={styles.passwordInputContainer}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            placeholderTextColor="#49454F"
+          />
+          <TouchableOpacity
+            style={styles.showPasswordButton}
+            onPress={() => setShowPassword(!showPassword)}
+          >
+            <Text style={styles.showPasswordText}>
+              {showPassword ? 'Hide' : 'Show'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <Pressable style={styles.button} onPress={signInWithEmail} disabled={authLoading}>
           <Text style={styles.buttonText}>{authLoading ? 'Loading...' : 'Sign In'}</Text>
@@ -342,6 +331,29 @@ const styles = StyleSheet.create({
     paddingLeft: 20,
     fontSize: 16,
     color: '#49454F',
+  },
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E5DCC9',
+    borderRadius: 30,
+    marginBottom: 15,
+    paddingLeft: 20,
+    paddingRight: 10,
+  },
+  passwordInput: {
+    flex: 1,
+    padding: 15,
+    fontSize: 16,
+    color: '#49454F',
+  },
+  showPasswordButton: {
+    padding: 10,
+  },
+  showPasswordText: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '500',
   },
   button: {
     backgroundColor: '#0c4309',
