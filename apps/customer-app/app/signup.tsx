@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { supabase } from '../src/lib/supabase';
 
 export default function Signup() {
@@ -151,98 +151,110 @@ export default function Signup() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.signInDivider}>
-        <Text style={styles.title}>Sign Up</Text>
-      </View>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.signInDivider}>
+            <Text style={styles.title}>Sign Up</Text>
+          </View>
 
-      <View style={styles.formContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="First Name"
-          value={firstName}
-          onChangeText={setFirstName}
-          autoCapitalize="words"
-          placeholderTextColor="#49454F"
-        />
+          <View style={styles.formContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="First Name"
+              value={firstName}
+              onChangeText={setFirstName}
+              autoCapitalize="words"
+              placeholderTextColor="#49454F"
+            />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Last Name"
-          value={lastName}
-          onChangeText={setLastName}
-          autoCapitalize="words"
-          placeholderTextColor="#49454F"
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="Last Name"
+              value={lastName}
+              onChangeText={setLastName}
+              autoCapitalize="words"
+              placeholderTextColor="#49454F"
+            />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholderTextColor="#49454F"
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholderTextColor="#49454F"
+            />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Phone (optional)"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          placeholderTextColor="#49454F"
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="Phone (optional)"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              placeholderTextColor="#49454F"
+            />
 
-        <View style={styles.passwordInputContainer}>
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            placeholderTextColor="#49454F"
-          />
-          <TouchableOpacity
-            style={styles.showPasswordButton}
-            onPress={() => setShowPassword(!showPassword)}
-          >
-            <Text style={styles.showPasswordText}>
-              {showPassword ? 'Hide' : 'Show'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                placeholderTextColor="#49454F"
+              />
+              <TouchableOpacity
+                style={styles.showPasswordButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Text style={styles.showPasswordText}>
+                  {showPassword ? 'Hide' : 'Show'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-        <View style={styles.passwordInputContainer}>
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Confirm Password"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry={!showConfirmPassword}
-            placeholderTextColor="#49454F"
-          />
-          <TouchableOpacity
-            style={styles.showPasswordButton}
-            onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-          >
-            <Text style={styles.showPasswordText}>
-              {showConfirmPassword ? 'Hide' : 'Show'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+                placeholderTextColor="#49454F"
+              />
+              <TouchableOpacity
+                style={styles.showPasswordButton}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Text style={styles.showPasswordText}>
+                  {showConfirmPassword ? 'Hide' : 'Show'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-        <Pressable style={styles.button} onPress={signUpWithEmail} disabled={authLoading}>
-          <Text style={styles.buttonText}>{authLoading ? 'Creating Account...' : 'Create Account'}</Text>
-        </Pressable>
+            <Pressable style={styles.button} onPress={signUpWithEmail} disabled={authLoading}>
+              <Text style={styles.buttonText}>{authLoading ? 'Creating Account...' : 'Create Account'}</Text>
+            </Pressable>
 
-        <Pressable style={styles.secondaryButton} onPress={goToSignIn}>
-          <Text style={styles.secondaryButtonText}>Already have an account? Sign In</Text>
-        </Pressable>
-      </View>
+            <Pressable style={styles.secondaryButton} onPress={goToSignIn}>
+              <Text style={styles.secondaryButtonText}>Already have an account? Sign In</Text>
+            </Pressable>
+          </View>
 
-      {/* Invisible overlay to block dev menu button */}
-      <View style={styles.devMenuBlocker} pointerEvents="none" />
+          {/* Invisible overlay to block dev menu button */}
+          <View style={styles.devMenuBlocker} pointerEvents="none" />
+        </ScrollView>
+      </TouchableWithoutFeedback>
 
       {/* OTP Verification Modal */}
       <Modal
@@ -295,7 +307,7 @@ export default function Signup() {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -303,6 +315,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFF8E8',
+  },
+  scrollContainer: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
   },

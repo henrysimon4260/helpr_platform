@@ -344,6 +344,7 @@ const styles = StyleSheet.create({
   passwordInput: {
     flex: 1,
     padding: 15,
+    paddingLeft: 0,
     fontSize: 16,
     color: '#49454F',
   },

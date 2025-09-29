@@ -227,21 +227,10 @@ export default function Moving() {
             </View>
             <View style={styles.bottomRowContainer}>
               <Pressable
-                onPress={() => router.push({ pathname: 'booked-services' as any, params: { showOverlay: 'true' } })} style = {styles.confirmHelprContainer}
+                onPress={() => router.push({ pathname: 'booked-services' as any, params: { showOverlay: 'true' } })} style = {styles.scheduleHelprContainer}
                 >
-                <Text style={styles.confirmHelprText}>Confirm Helpr</Text>
+                <Text style={styles.scheduleHelprText}>Schedule Helpr</Text>
               </Pressable>
-              <View style={styles.scheduleServiceContainer}>
-                <Image 
-                  source={require('../assets/icons/ScheduleServiceIcon.png')} 
-                  style={styles.scheduleServiceIcon} 
-                />
-                <Text style={styles.asapText}>ASAP</Text>
-                <Image 
-                  source={require('../assets/icons/ArrowIcon.png')} 
-                  style={[styles.arrowDownIcon, { transform: [{ rotate: '90deg' }] }]} 
-                />
-              </View>
             </View>
           </View>
         </View>
@@ -646,25 +635,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#0c4309',
     borderRadius: 20,
     marginLeft: 20,
-    width: '60%',
+    width: '80%',
   },
-  confirmHelprText: {
+  scheduleHelprText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
     flex: 1,
-  },
-  scheduleServiceContainer:{
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    padding: 10,
-    backgroundColor: '#E5DCC9',
-    borderRadius: 20,
-    marginLeft: 10,
-    width: '27%',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
   scheduleServiceIcon: {
     width: 20,
