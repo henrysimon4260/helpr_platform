@@ -150,6 +150,19 @@ export default function BookedServices() {
                 </Pressable>
               </View>
             </View>
+            
+            {/* Back to Service Details Button */}
+            <View style={styles.backToServiceContainer}>
+              <Pressable 
+                style={styles.backToServiceButton}
+                onPress={() => {
+                  setOverlayVisible(false);
+                  router.back();
+                }}
+              >
+                <Text style={styles.backToServiceText}>Back to Service Details</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -763,5 +776,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  backToServiceContainer: {
+    marginTop: 16,
+    width: '100%',
+    alignItems: 'center',
+  },
+  backToServiceButton: {
+    backgroundColor: 'transparent',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  backToServiceText: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    textDecorationLine: 'underline',
   },
 });

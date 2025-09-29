@@ -227,8 +227,9 @@ export default function Moving() {
             </View>
             <View style={styles.bottomRowContainer}>
               <Pressable
-                onPress={() => router.push({ pathname: 'booked-services' as any, params: { showOverlay: 'true' } })} style = {styles.scheduleHelprContainer}
-                >
+                onPress={() => router.push({ pathname: 'booked-services' as any, params: { showOverlay: 'true' } })}
+                style={styles.scheduleHelprContainer}
+              >
                 <Text style={styles.scheduleHelprText}>Schedule Helpr</Text>
               </Pressable>
             </View>
@@ -252,7 +253,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   panel: {
-    height: '63%',
+    height: '65%',
     backgroundColor: '#FFF8E8',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
@@ -627,6 +628,28 @@ const styles = StyleSheet.create({
   bottomRowContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    marginTop: 10,
+  },
+  scheduleHelprContainer: {
+    backgroundColor: '#0c4309',
+    borderRadius: 20,
+    width: '80%',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // iOS shadow
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    // Android shadow
+    elevation: 5,
   },
   confirmHelprContainer:{
     flexDirection: 'row',
@@ -639,10 +662,9 @@ const styles = StyleSheet.create({
   },
   scheduleHelprText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
-    flex: 1,
   },
   scheduleServiceIcon: {
     width: 20,
