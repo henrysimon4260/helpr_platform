@@ -54,21 +54,25 @@ export default function Account() {
     try {
       setLoading(true);
 
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      if (userError || !user) {
+      if (userError || !user || !user.email) {
         Alert.alert('Error', 'Please sign in to view your account');
         router.replace('/login');
         return;
       }
 
-      // Fetch customer data by email (since customer_id is auto-generated)
-      const { data: customer, error: customerError } = await supabase
+      const {
+        data: existingCustomer,
+        error: customerError,
+      } = await supabase
         .from('customer')
         .select('*')
         .eq('email', user.email)
-        .single();
+        .maybeSingle();
 
       if (customerError) {
         console.error('Error fetching customer data:', customerError);
@@ -76,11 +80,51 @@ export default function Account() {
         return;
       }
 
-      setCustomerData(customer);
-      setEditFirstName(customer.first_name || '');
-      setEditLastName(customer.last_name || '');
-      setEditPhone(customer.phone_number || '');
+      if (!existingCustomer) {
+        const profileDefaults = {
+          email: user.email,
+          first_name: user.user_metadata?.first_name ?? '',
+          last_name: user.user_metadata?.last_name ?? '',
+          phone_number: user.user_metadata?.phone_number ?? null,
+        };
 
+        const {
+          data: createdCustomer,
+          error: createError,
+        } = await supabase
+          .from('customer')
+          .insert(profileDefaults)
+          .select('*')
+          .maybeSingle();
+
+        if (createError) {
+          console.error('Error creating customer profile:', createError);
+          Alert.alert('Error', 'Failed to initialize your account profile');
+          return;
+        }
+
+        const customer: CustomerData | null = createdCustomer
+          ? (createdCustomer as CustomerData)
+          : {
+              customer_id: user.id,
+              first_name: profileDefaults.first_name,
+              last_name: profileDefaults.last_name,
+              email: profileDefaults.email,
+              phone_number: profileDefaults.phone_number,
+            };
+        setCustomerData(customer);
+        setEditFirstName(customer.first_name || '');
+        setEditLastName(customer.last_name || '');
+        setEditEmail(customer.email);
+        setEditPhone(customer.phone_number || '');
+        return;
+      }
+
+      setCustomerData(existingCustomer);
+      setEditFirstName(existingCustomer.first_name || '');
+      setEditLastName(existingCustomer.last_name || '');
+      setEditEmail(existingCustomer.email || user.email);
+      setEditPhone(existingCustomer.phone_number || '');
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
