@@ -1,52 +1,77 @@
 import { useRouter } from 'expo-router';
 import * as SplashScreenModule from 'expo-splash-screen';
 import React, { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Image, StyleSheet, View } from 'react-native';
 import { useAuth } from '../src/contexts/AuthContext';
 
 export default function SplashComponent() {
   const router = useRouter();
   const { user, loading } = useAuth();
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     console.log('Splash screen - loading:', loading, 'user:', user);
-    
+
     if (loading) return; // Wait for auth check
+
+  const HOLD_DURATION = 800;
+  const DISSOLVE_DURATION = 1400;
+    const easingCurve = Easing.bezier(0.22, 1, 0.36, 1); // smooth, ease-out style curve
+
+    let dissolveAnimation: Animated.CompositeAnimation | null = null;
 
     const navigateAfterSplash = () => {
       const targetRoute = user ? '/landing' : '/login';
       console.log('Navigating to:', targetRoute);
-      
-      // Start dissolve after showing splash
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 1500, // Increased from 1000ms to 1500ms for smoother fade
-        useNativeDriver: true,
-      }).start(() => {
-        console.log('Animation complete, navigating to:', targetRoute);
-        router.replace(targetRoute);
+
+      dissolveAnimation = Animated.sequence([
+        Animated.delay(HOLD_DURATION),
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: DISSOLVE_DURATION,
+            easing: easingCurve,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 0.95,
+            duration: DISSOLVE_DURATION,
+            easing: easingCurve,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]);
+
+      dissolveAnimation.start(({ finished }) => {
+        if (finished) {
+          console.log('Animation complete, navigating to:', targetRoute);
+          router.replace(targetRoute);
+        }
       });
     };
 
     const preloadAssets = async () => {
       try {
-        // Prevent auto-hiding of the splash screen
         await SplashScreenModule.preventAutoHideAsync();
-        
-        // Hide native splash
         await SplashScreenModule.hideAsync();
-        
-        // Wait for minimum splash time
-        setTimeout(navigateAfterSplash, 1200);
+
+        fadeAnim.setValue(1);
+        scaleAnim.setValue(1);
+        navigateAfterSplash();
       } catch (error) {
         console.warn('Splash screen error:', error);
-        // Fallback - still navigate
-        setTimeout(navigateAfterSplash, 1500);
+        fadeAnim.setValue(1);
+        scaleAnim.setValue(1);
+        navigateAfterSplash();
       }
     };
 
     preloadAssets();
+
+    return () => {
+      dissolveAnimation?.stop?.();
+    };
   }, [router, fadeAnim, user, loading]);
 
   return (
@@ -62,7 +87,10 @@ export default function SplashComponent() {
       {/* Splash overlay that dissolves */}
       <Animated.View style={[
         styles.splashOverlay,
-        { opacity: fadeAnim }
+        { 
+          opacity: fadeAnim,
+          transform: [{ scale: scaleAnim }]
+        }
       ]}>
         <Image 
           source={require('../assets/images/splash.png')}

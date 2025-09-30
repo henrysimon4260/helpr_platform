@@ -16,6 +16,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ??
       process.env.GOOGLE_PLACES_API_KEY ??
       '',
+    openAiApiKey:
+      process.env.EXPO_PUBLIC_OPENAI_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      '',
   };
 
   const merged: ExpoConfig = {

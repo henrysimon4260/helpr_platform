@@ -3,9 +3,12 @@ import * as Location from 'expo-location';
 import { PermissionStatus } from 'expo-modules-core';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Image, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
+import * as ImagePicker from 'expo-image-picker';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 
 type PlaceSuggestion = {
   id: string;
@@ -52,6 +55,23 @@ const resolveGooglePlacesKey = () => {
     keyFromExtras ||
     ''
   );
+};
+
+const resolveOpenAIApiKey = () => {
+  const extras = (Constants?.expoConfig?.extra ?? {}) as Record<string, unknown>;
+  const keyFromExtras = typeof extras.openAiApiKey === 'string' ? extras.openAiApiKey : undefined;
+
+  return (
+    process.env.EXPO_PUBLIC_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    keyFromExtras ||
+    ''
+  );
+};
+
+const formatCurrency = (value: number) => {
+  const safeValue = Math.max(0, Math.round(value));
+  return `$${safeValue.toLocaleString('en-US')}`;
 };
 
 const decodePolyline = (encoded: string): LatLng[] => {
@@ -318,6 +338,7 @@ export default function Moving() {
   `;
 
   const googlePlacesApiKey = useMemo(resolveGooglePlacesKey, []);
+  const openAiApiKey = useMemo(resolveOpenAIApiKey, []);
   const mapRef = useRef<MapView | null>(null);
   const startDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -338,6 +359,17 @@ export default function Moving() {
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
   const [currentLocationLoadingTarget, setCurrentLocationLoadingTarget] = useState<'start' | 'end' | null>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<LatLng[]>([]);
+  const [description, setDescription] = useState('');
+  const [priceQuote, setPriceQuote] = useState<string | null>(null);
+  const [priceNote, setPriceNote] = useState<string | null>(null);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [isPriceLoading, setIsPriceLoading] = useState(false);
+  const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'photo' | 'video'; name: string }>>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const voicePulseValue = useRef(new Animated.Value(1)).current;
+  const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
 
   const mapEdgePadding = useMemo(
     () => ({ top: 60, right: 36, bottom: 220, left: 36 }),
@@ -543,6 +575,321 @@ export default function Moving() {
       animated: true,
     });
   }, [endLocation, mapEdgePadding, startLocation]);
+
+  useEffect(() => {
+    if (isRecording) {
+      voicePulseAnimationRef.current?.stop();
+      voicePulseAnimationRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(voicePulseValue, {
+            toValue: 1.2,
+            duration: 500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(voicePulseValue, {
+            toValue: 1,
+            duration: 500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      voicePulseAnimationRef.current.start();
+    } else {
+      voicePulseAnimationRef.current?.stop();
+      voicePulseValue.setValue(1);
+    }
+
+    return () => {
+      voicePulseAnimationRef.current?.stop();
+    };
+  }, [isRecording, voicePulseValue]);
+
+  useEffect(() => {
+    return () => {
+      voicePulseAnimationRef.current?.stop();
+      const currentRecording = recordingRef.current;
+      if (currentRecording) {
+        currentRecording.stopAndUnloadAsync().catch(() => undefined);
+      }
+    };
+  }, []);
+
+  const handleDescriptionChange = useCallback((text: string) => {
+    setDescription(text);
+    setPriceQuote(null);
+    setPriceNote(null);
+    setPriceError(null);
+  }, []);
+
+  const fetchPriceEstimate = useCallback(
+    async (
+      taskDescription: string,
+      options: { start?: SelectedLocation | null; end?: SelectedLocation | null } = {},
+    ) => {
+      const { start, end } = options;
+
+      setIsPriceLoading(true);
+      setPriceQuote(null);
+      setPriceNote(null);
+      setPriceError(null);
+
+      if (!openAiApiKey) {
+        setIsPriceLoading(false);
+        setPriceError('Price estimate unavailable (missing OpenAI key).');
+        return;
+      }
+
+      try {
+        const startDetails = start
+          ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})`
+          : 'not provided';
+        const endDetails = end
+          ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
+          : 'not provided';
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${openAiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            response_format: { type: 'json_object' },
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are a pricing assistant for home services. Respond with a JSON object containing min_price, max_price, and summary fields. Keep prices in USD, realistic, and constrain min_price between 30 and 1500 and max_price between min_price and 2500. summary should be at most 120 characters. Provide optimistic, budget-friendly estimates and, when in doubt, lean toward the lower end of the acceptable price range.',
+              },
+              {
+                role: 'user',
+                content: [
+                  `Task description: ${taskDescription}`,
+                  `Start location: ${startDetails}`,
+                  `End location: ${endDetails}`,
+                ].join('\n'),
+              },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Failed to fetch price estimate');
+        }
+
+        const data = await response.json();
+        const content = data?.choices?.[0]?.message?.content;
+
+        if (typeof content !== 'string' || content.trim().length === 0) {
+          throw new Error('Missing completion content');
+        }
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(content);
+        } catch (error) {
+          throw new Error('Unable to parse price estimate');
+        }
+
+        const minPrice = Number(parsed.min_price ?? parsed.minPrice);
+        const maxPrice = Number(parsed.max_price ?? parsed.maxPrice);
+        const summary = typeof parsed.summary === 'string' ? parsed.summary : parsed.notes;
+
+        if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) {
+          throw new Error('Invalid price values');
+        }
+
+        const sanitizedMin = Math.max(0, Math.round(minPrice));
+        const sanitizedMax = Math.max(sanitizedMin, Math.round(maxPrice));
+        const averagePrice = Math.round((sanitizedMin + sanitizedMax) / 2);
+
+        setPriceQuote(formatCurrency(averagePrice));
+        setPriceNote(typeof summary === 'string' ? summary : null);
+      } catch (error) {
+        console.warn('Failed to fetch price estimate', error);
+        setPriceError('Unable to estimate price right now.');
+      } finally {
+        setIsPriceLoading(false);
+      }
+    },
+    [openAiApiKey],
+  );
+
+  const handleDescriptionSubmit = useCallback(() => {
+    if (isPriceLoading || isTranscribing) {
+      return;
+    }
+
+    const trimmed = description.trim();
+
+    if (trimmed.length === 0) {
+      setPriceQuote(null);
+      setPriceNote(null);
+      setPriceError('Add a brief task description to see a price.');
+      return;
+    }
+
+    if (!startLocation || !endLocation) {
+      Alert.alert('Missing locations', 'Please enter start and end location.');
+      return;
+    }
+
+    Keyboard.dismiss();
+    fetchPriceEstimate(trimmed, { start: startLocation, end: endLocation });
+  }, [description, endLocation, fetchPriceEstimate, isPriceLoading, isTranscribing, startLocation]);
+
+  const handleMediaUpload = useCallback(async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Enable photo library access to attach images or videos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+      });
+
+      if (result.canceled || !(result.assets && result.assets.length > 0)) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const type = asset.type === 'video' ? 'video' : 'photo';
+      const name = asset.fileName ?? (type === 'video' ? 'video-upload.mp4' : 'photo-upload.jpg');
+
+      setAttachments(prev => [...prev, { uri: asset.uri, type, name }]);
+    } catch (error) {
+      console.warn('Media picker error', error);
+      Alert.alert('Upload failed', 'Unable to select media right now.');
+    }
+  }, []);
+
+  const transcribeAudioAsync = useCallback(
+    async (uri: string) => {
+      if (!openAiApiKey) {
+        Alert.alert('Missing API key', 'Add an OpenAI API key to enable voice mode.');
+        return '';
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('file', {
+          uri,
+          name: 'voice-input.m4a',
+          type: Platform.select({ ios: 'audio/m4a', android: 'audio/mpeg', default: 'audio/m4a' }),
+        } as any);
+        formData.append('model', 'gpt-4o-mini-transcribe');
+
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${openAiApiKey}`,
+          },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Transcription failed');
+        }
+
+        const data = await response.json();
+        const text = typeof data?.text === 'string' ? data.text.trim() : '';
+
+        return text;
+      } catch (error) {
+        console.warn('Transcription error', error);
+        Alert.alert('Transcription failed', 'Unable to transcribe your recording.');
+        return '';
+      } finally {
+        FileSystem.deleteAsync(uri).catch(() => undefined);
+      }
+    },
+    [openAiApiKey],
+  );
+
+  const stopRecordingAndTranscribe = useCallback(async () => {
+    const recording = recordingRef.current;
+    if (!recording) {
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      await recording.stopAndUnloadAsync();
+    } catch (error) {
+      console.warn('Failed to stop recording', error);
+    }
+
+    setIsRecording(false);
+
+    const uri = recording.getURI();
+    recordingRef.current = null;
+
+    if (!uri) {
+      return;
+    }
+
+    setIsTranscribing(true);
+    try {
+      const transcript = await transcribeAudioAsync(uri);
+      if (transcript) {
+        setDescription(prev => {
+          const trimmedPrev = prev.trim();
+          const combined = trimmedPrev.length > 0 ? `${trimmedPrev} ${transcript}` : transcript;
+          return combined.trim();
+        });
+        setPriceQuote(null);
+        setPriceNote(null);
+        setPriceError(null);
+      }
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [transcribeAudioAsync]);
+
+  const handleVoiceModePress = useCallback(async () => {
+    if (isTranscribing) {
+      return;
+    }
+
+    if (isRecording) {
+      await stopRecordingAndTranscribe();
+      return;
+    }
+
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Microphone needed', 'Enable microphone access to record your request.');
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+
+      recordingRef.current = recording;
+      setIsRecording(true);
+    } catch (error) {
+      console.warn('Failed to start recording', error);
+      Alert.alert('Recording failed', 'Unable to start voice mode.');
+    }
+  }, [isRecording, isTranscribing, stopRecordingAndTranscribe]);
 
   const fetchPredictions = useCallback(
     async (
@@ -972,7 +1319,40 @@ export default function Moving() {
                 </View>            
               </View>
               <View style={styles.PriceOfServiceQuoteContainer}>
-                  <Text style={styles.PriceOfServiceQuoteText}>enter description { '\n' }to see price</Text>
+                  {isPriceLoading ? (
+                    <ActivityIndicator size="small" color="#0c4309" />
+                  ) : (
+                    <>
+                      {priceQuote ? (
+                        <View style={styles.PriceOfServiceQuoteRow}>
+                          <Text
+                            style={[styles.PriceOfServiceQuoteText, styles.PriceOfServiceQuotePrice]}
+                            numberOfLines={1}
+                          >
+                            {priceQuote}
+                          </Text>
+                          <Text style={styles.PriceOfServiceQuoteEstimateText}>est.</Text>
+                        </View>
+                      ) : (
+                        <>
+                          <Text
+                            style={[
+                              styles.PriceOfServiceQuoteText,
+                              priceError ? styles.PriceOfServiceQuoteTextError : null,
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {priceError ?? 'Enter description to see price'}
+                          </Text>
+                          {priceNote ? (
+                            <Text style={styles.PriceOfServiceQuoteNoteText} numberOfLines={2}>
+                              {priceNote}
+                            </Text>
+                          ) : null}
+                        </>
+                      )}
+                    </>
+                  )}
               </View>
             </View>
             <View style={styles.jobDescriptionContainer}>
@@ -982,22 +1362,48 @@ export default function Moving() {
                 multiline
                 numberOfLines={4}
                 placeholderTextColor="#333333ab"
+                value={description}
+                onChangeText={handleDescriptionChange}
+                onSubmitEditing={handleDescriptionSubmit}
+                blurOnSubmit
+                returnKeyType="done"
+                editable={!isTranscribing}
               />
               
                 <View style={styles.inputButtonsContainer}>
                   <View style={styles.voiceContainer}>
-                    <Pressable style={styles.voiceButton}>
-                      <SvgXml xml={voiceIconSvg} width="20" height="20" />
-                    </Pressable>
-                    <Text style={styles.inputButtonsText}>Voice Mode</Text>
+                      <Pressable
+                        style={[styles.voiceButton, (isRecording || isTranscribing) && styles.voiceButtonActive]}
+                        onPress={handleVoiceModePress}
+                        disabled={isTranscribing}
+                      >
+                        <Animated.View style={{ transform: [{ scale: voicePulseValue }] }}>
+                          <SvgXml xml={voiceIconSvg} width="20" height="20" />
+                        </Animated.View>
+                      </Pressable>
+                      <View style={styles.voiceStatusRow}>
+                        <Text style={styles.inputButtonsText}>
+                          {isRecording ? 'Listening…' : isTranscribing ? 'Processing…' : 'Voice Mode'}
+                        </Text>
+                        {isTranscribing ? (
+                          <ActivityIndicator size="small" color="#0c4309" style={styles.voiceStatusSpinner} />
+                        ) : null}
+                      </View>
                   </View>
                   <View style={styles.cameraContainer}> 
                     <Text style={styles.inputButtonsText}>Add Photo or Video</Text> 
-                    <Pressable style={styles.cameraButton}>
+                      <Pressable style={styles.cameraButton} onPress={handleMediaUpload}>
                       <SvgXml xml={cameraIconSvg} width="20" height="20" />
                     </Pressable>
                   </View>
                 </View>
+                  {attachments.length > 0 ? (
+                    <View style={styles.attachmentsSummary}>
+                      <Text style={styles.attachmentsSummaryText}>
+                        {attachments.length} file{attachments.length > 1 ? 's' : ''} attached
+                      </Text>
+                    </View>
+                  ) : null}
             </View>
             <View style={styles.DividerContainer2}>
                 <View style={styles.DividerLine2} />
@@ -1318,17 +1724,49 @@ const styles = StyleSheet.create({
     color: '#49454F',
   },
   PriceOfServiceQuoteContainer:{
+    width: 120,
     justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: 'transparent',
     borderRadius: 10,
     marginTop: 5,
-    height: 40,
+    minHeight: 48,
+    paddingHorizontal: 8,
   },
   PriceOfServiceQuoteText:{
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '400',
     color: '#0c4309',
+    marginRight: 4,
+    marginBottom: 3,
+  },
+  PriceOfServiceQuotePrice: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0c4309',
+  },
+  PriceOfServiceQuoteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    
+  },
+  PriceOfServiceQuoteEstimateText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0c4309',
+    textTransform: 'lowercase',
+    marginBottom: 5,
+  },
+  PriceOfServiceQuoteTextError: {
+    color: '#b02a2a',
+  },
+  PriceOfServiceQuoteNoteText: {
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#49454F',
+    marginTop: 2,
   },
   jobDescriptionText: {
     color: '#333333',
@@ -1360,12 +1798,10 @@ const styles = StyleSheet.create({
   voiceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   cameraContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8, // Space between text and camera button
   },
   mapMarkerStartIcon: {
     width: 30,
@@ -1390,6 +1826,19 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  voiceButtonActive: {
+    backgroundColor: '#d6c5a5',
+  },
+  voiceStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 3,
+    marginLeft: 8,
+  },
+  voiceStatusSpinner: {
+    marginLeft: 4,
+  },
   inputButtonsText: {
     fontSize: 10,
     fontWeight: '500',
@@ -1408,16 +1857,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+    marginLeft: 8,
   },
   inputButtonIcon: {
     fontSize: 16,
     marginRight: 0,
   },
-    inputButtonText: {
-    fontSize: 12,
+  attachmentsSummary: {
+    marginTop: 8,
+    marginLeft: 15,
+  },
+  attachmentsSummaryText: {
+    fontSize: 11,
     fontWeight: '500',
     color: '#0c4309',
-    marginLeft: 30,
   },
   binarySliderContainer: {
     flexDirection: 'row',

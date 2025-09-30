@@ -1,13 +1,35 @@
-import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSourcePropType, Platform, InteractionManager, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSourcePropType, Platform, InteractionManager, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Animated, Easing, Alert, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { SvgXml } from 'react-native-svg';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import Constants from 'expo-constants';
+import * as ImagePicker from 'expo-image-picker';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { RouteParams } from '../constants/routes';
 // @ts-ignore - Only for native platforms
 import LottieView from 'lottie-react-native';
 
 // Route params are centralized in `../constants/routes`
+
+type Attachment = {
+  uri: string;
+  type: 'photo' | 'video';
+  name: string;
+};
+
+const resolveOpenAIApiKey = () => {
+  const extras = (Constants?.expoConfig?.extra ?? {}) as Record<string, unknown>;
+  const keyFromExtras = typeof extras.openAiApiKey === 'string' ? extras.openAiApiKey : undefined;
+
+  return (
+    process.env.EXPO_PUBLIC_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    keyFromExtras ||
+    ''
+  );
+};
 
 export default function Landing() {
   const router = useRouter();
@@ -16,17 +38,247 @@ export default function Landing() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [canRenderLottie, setCanRenderLottie] = useState(Platform.OS !== 'web');
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const landingScaleAnim = useRef(new Animated.Value(0.9)).current;
+  const openAiApiKey = useMemo(resolveOpenAIApiKey, []);
+  const [jobDescription, setJobDescription] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const voicePulseValue = useRef(new Animated.Value(1)).current;
+  const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
 
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
       setCanRenderLottie(false);
-      const task = InteractionManager.runAfterInteractions(() => setCanRenderLottie(true));
-      // @ts-ignore
+      const task = InteractionManager?.runAfterInteractions?.(() => setCanRenderLottie(true));
+      // @ts-ignore - the cancel property is still optional in some environments
       return () => task?.cancel?.();
     }
+
+    // Web and other platforms don't need the interaction guard
+    setCanRenderLottie(true);
+  }, []);
+
+  useEffect(() => {
+  fadeAnim.setValue(0);
+  landingScaleAnim.setValue(0.9);
+    const fadeInAnimation = Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1700,
+        delay: 150,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+        useNativeDriver: true,
+      }),
+      Animated.timing(landingScaleAnim, {
+        toValue: 1,
+        duration: 1700,
+        delay: 150,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+        useNativeDriver: true,
+      }),
+    ]);
+
+    fadeInAnimation.start();
+
+    return () => {
+      fadeInAnimation.stop();
+    };
+  }, [fadeAnim, landingScaleAnim]);
+
+  useEffect(() => {
+    if (isRecording) {
+      voicePulseAnimationRef.current?.stop();
+      voicePulseAnimationRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(voicePulseValue, {
+            toValue: 1.2,
+            duration: 500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(voicePulseValue, {
+            toValue: 1,
+            duration: 500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      voicePulseAnimationRef.current.start();
+    } else {
+      voicePulseAnimationRef.current?.stop();
+      voicePulseValue.setValue(1);
+    }
+
+    return () => {
+      voicePulseAnimationRef.current?.stop();
+    };
+  }, [isRecording, voicePulseValue]);
+
+  useEffect(() => {
+    return () => {
+      voicePulseAnimationRef.current?.stop();
+      const currentRecording = recordingRef.current;
+      if (currentRecording) {
+        currentRecording.stopAndUnloadAsync().catch(() => undefined);
+      }
+    };
   }, []);
 
   const navigate = (route: keyof RouteParams) => router.push(route as any);
+
+  const handleDescriptionChange = useCallback((text: string) => {
+    setJobDescription(text);
+  }, []);
+
+  const handleMediaUpload = useCallback(async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Enable photo library access to add photos or videos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+      });
+
+      if (result.canceled || !(result.assets && result.assets.length > 0)) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const type = asset.type === 'video' ? 'video' : 'photo';
+      const name = asset.fileName ?? (type === 'video' ? 'video-upload.mp4' : 'photo-upload.jpg');
+
+      setAttachments(prev => [...prev, { uri: asset.uri, type, name }]);
+    } catch (error) {
+      console.warn('Media picker error', error);
+      Alert.alert('Upload failed', 'Unable to select media right now.');
+    }
+  }, []);
+
+  const transcribeAudioAsync = useCallback(
+    async (uri: string) => {
+      if (!openAiApiKey) {
+        Alert.alert('Missing API key', 'Add an OpenAI API key to enable voice mode.');
+        return '';
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('file', {
+          uri,
+          name: 'voice-input.m4a',
+          type: Platform.select({ ios: 'audio/m4a', android: 'audio/mpeg', default: 'audio/m4a' }),
+        } as any);
+        formData.append('model', 'gpt-4o-mini-transcribe');
+
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${openAiApiKey}`,
+          },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Transcription failed');
+        }
+
+        const data = await response.json();
+        const text = typeof data?.text === 'string' ? data.text.trim() : '';
+
+        return text;
+      } catch (error) {
+        console.warn('Transcription error', error);
+        Alert.alert('Transcription failed', 'Unable to transcribe your recording.');
+        return '';
+      } finally {
+        FileSystem.deleteAsync(uri).catch(() => undefined);
+      }
+    },
+    [openAiApiKey],
+  );
+
+  const stopRecordingAndTranscribe = useCallback(async () => {
+    const recording = recordingRef.current;
+    if (!recording) {
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      await recording.stopAndUnloadAsync();
+    } catch (error) {
+      console.warn('Failed to stop recording', error);
+    }
+
+    setIsRecording(false);
+
+    const uri = recording.getURI();
+    recordingRef.current = null;
+
+    if (!uri) {
+      return;
+    }
+
+    setIsTranscribing(true);
+    try {
+      const transcript = await transcribeAudioAsync(uri);
+      if (transcript) {
+        setJobDescription(prev => {
+          const trimmedPrev = prev.trim();
+          const combined = trimmedPrev.length > 0 ? `${trimmedPrev} ${transcript}` : transcript;
+          return combined.trim();
+        });
+      }
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [transcribeAudioAsync]);
+
+  const handleVoiceModePress = useCallback(async () => {
+    if (isTranscribing) {
+      return;
+    }
+
+    if (isRecording) {
+      await stopRecordingAndTranscribe();
+      return;
+    }
+
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Microphone needed', 'Enable microphone access to use voice mode.');
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+
+      recordingRef.current = recording;
+      setIsRecording(true);
+    } catch (error) {
+      console.warn('Failed to start recording', error);
+      Alert.alert('Recording failed', 'Unable to start voice mode.');
+    }
+  }, [isRecording, isTranscribing, stopRecordingAndTranscribe]);
 
   const handleMenuPress = () => {
     if (Platform.OS === 'web') {
@@ -97,11 +349,12 @@ export default function Landing() {
   return (
     // root without padding so overlay anchors to the real screen edges
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <KeyboardAvoidingView
-        style={styles.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
-      >
+  <Animated.View style={[styles.fadeContainer, { opacity: fadeAnim, transform: [{ scale: landingScaleAnim }] }]}> 
+        <KeyboardAvoidingView
+          style={styles.root}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
         <StatusBar style="dark" backgroundColor="#0c4309" />
         <View style={styles.container}>
           <View style={styles.contentArea}>
@@ -129,25 +382,46 @@ export default function Landing() {
           <View style={styles.jobDescriptionContainer}>
             <TextInput
               style={styles.jobDescriptionText}
-              placeholder="Describe exactly what you need...                   (For Example: I need my 2 bedroom apartment deep cleaned.)"
+              placeholder="Describe exactly what you need...                   (For Example: I need my dogs picked up from doggy daycare.)"
               multiline
               numberOfLines={4}
               placeholderTextColor="#666666"
+              value={jobDescription}
+              onChangeText={handleDescriptionChange}
+              editable={!isTranscribing}
             />
               <View style={styles.inputButtonsContainer}>
                 <View style={styles.voiceContainer}>
-                  <Pressable style={styles.voiceButton}>
-                    <SvgXml xml={voiceIconSvg} width="20" height="20" />
+                  <Pressable
+                    style={[styles.voiceButton, (isRecording || isTranscribing) && styles.voiceButtonActive]}
+                    onPress={handleVoiceModePress}
+                    disabled={isTranscribing}
+                  >
+                    <Animated.View style={{ transform: [{ scale: voicePulseValue }] }}>
+                      <SvgXml xml={voiceIconSvg} width="20" height="20" />
+                    </Animated.View>
                   </Pressable>
-                  <Text style={styles.inputButtonsText}>Voice Mode</Text>
+                  <View style={styles.voiceStatusRow}>
+                    <Text style={styles.inputButtonsText}>
+                      {isRecording ? 'Listening…' : isTranscribing ? 'Processing…' : 'Voice Mode'}
+                    </Text>
+                    {isTranscribing ? <ActivityIndicator size="small" color="#0c4309" style={styles.voiceStatusSpinner} /> : null}
+                  </View>
                 </View>
                 <View style={styles.cameraContainer}> 
                   <Text style={styles.inputButtonsText}>Add Photo or Video</Text> 
-                  <Pressable style={styles.cameraButton}>
+                  <Pressable style={styles.cameraButton} onPress={handleMediaUpload}>
                     <SvgXml xml={cameraIconSvg} width="20" height="20" />
                   </Pressable>
                 </View>
               </View>
+              {attachments.length > 0 ? (
+                <View style={styles.attachmentsSummary}>
+                  <Text style={styles.attachmentsSummaryText}>
+                    {attachments.length} file{attachments.length > 1 ? 's' : ''} attached
+                  </Text>
+                </View>
+              ) : null}
           </View>
         </View>
       </View>
@@ -282,6 +556,7 @@ export default function Landing() {
         )}
         </View>
       </KeyboardAvoidingView>
+      </Animated.View>
     </TouchableWithoutFeedback>
   );  
 }
@@ -289,6 +564,10 @@ export default function Landing() {
 const styles = StyleSheet.create({
   // New root: no padding so overlay sits at true screen edges
   root: {
+    flex: 1,
+    backgroundColor: '#FFF8E8',
+  },
+  fadeContainer: {
     flex: 1,
     backgroundColor: '#FFF8E8',
   },
@@ -380,7 +659,7 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
   },
   jobDescriptionContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
@@ -391,7 +670,7 @@ const styles = StyleSheet.create({
     borderColor: '#e1e1e1ff'
   },
   jobDescriptionText: {
-    flex: 1,
+
     color: '#333333',
     fontSize: 16,
     textAlign: 'left',
@@ -402,21 +681,21 @@ const styles = StyleSheet.create({
   inputButtonsContainer: {
     position: 'absolute',
     bottom: 10,
+    left: 10,
     right: 10,
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 40, // Adjusted gap to account for added text width
+     // Adjusted gap to account for added text width
   },
   voiceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   cameraContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8, // Space between text and camera button
+     // Space between text and camera button
   },
   voiceButton: {
     width: 60,
@@ -430,6 +709,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  voiceButtonActive: {
+    backgroundColor: '#d6c5a5',
+  },
+  voiceStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginLeft: 6,
+    marginBottom: 4,
+  },
+  voiceStatusSpinner: {
+    marginLeft: 4,
   },
   inputButtonsText: {
     fontSize: 10,
@@ -449,16 +741,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+    marginLeft: 8,
   },
   inputButtonIcon: {
     fontSize: 16,
-    marginRight: 8,
+    marginRight: 0,
   },
-  inputButtonText: {
-    fontSize: 12,
+  attachmentsSummary: {
+    marginTop: 8,
+    marginLeft: 15,
+  },
+  attachmentsSummaryText: {
+    fontSize: 11,
     fontWeight: '500',
     color: '#0c4309',
-    marginLeft: 6,
   },
   // Menu button positioned consistently in bottom left corner across all devices
   menuButton: {
