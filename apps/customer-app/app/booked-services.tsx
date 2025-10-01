@@ -1,19 +1,58 @@
-import { View, Text, Modal, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
+import { View, Text, Modal, StyleSheet, Pressable, Image, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { SvgXml } from 'react-native-svg';
+import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, router } from 'expo-router';
-import React, { useState, useEffect } from 'react';
-import { RouteParams } from '../constants/routes';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../src/contexts/AuthContext';
+
+type ServiceRow = {
+  service_id: string;
+  customer_id?: string;
+  service_type?: string | null;
+  status?: string | null;
+  scheduling_type?: string | null;
+  scheduled_date_time?: string | null;
+  date_of_creation?: string | null;
+  start_location?: string | null;
+  end_location?: string | null;
+  location?: string | null;
+  price?: number | null;
+  start_datetime?: string | null;
+  end_datetime?: string | null;
+  payment_method_type?: string | null;
+  autofill_type?: string | null;
+};
+
+const EDIT_REQUEST_ICON_XML = `
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M3 17.25V21H6.75L17.81 9.94L14.06 6.19L3 17.25Z" fill="#0c4309"/>
+  <path d="M20.71 7.04C21.1 6.65 21.1 6.02 20.71 5.63L18.37 3.29C17.98 2.9 17.35 2.9 16.96 3.29L15.13 5.12L18.88 8.87L20.71 7.04Z" fill="#0c4309"/>
+</svg>
+`;
 
 export default function BookedServices() {
   const params = useLocalSearchParams();
   const showOverlay = params.showOverlay === 'true';
+  const serviceIdParam = params.serviceId;
+  const serviceId = useMemo(() => {
+    if (!serviceIdParam) {
+      return null;
+    }
+    return Array.isArray(serviceIdParam) ? serviceIdParam[0] : serviceIdParam;
+  }, [serviceIdParam]);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [selectProModalVisible, setSelectProModalVisible] = useState(false);
-  const navigate = (route: keyof RouteParams) => router.push(route as any);
+  const { user, loading: authLoading } = useAuth();
 
   // Custom date picker state
   const [isPickerVisible, setPickerVisible] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [services, setServices] = useState<ServiceRow[]>([]);
+  const [servicesError, setServicesError] = useState<string | null>(null);
+  const [selectedService, setSelectedService] = useState<ServiceRow | null>(null);
 
   useEffect(() => {
     if (showOverlay) {
@@ -21,13 +60,11 @@ export default function BookedServices() {
     }
   }, [showOverlay]);
 
-
-  const closeOverlay = () => {
+  const closeOverlay = useCallback(() => {
     setOverlayVisible(false);
-  };
+  }, []);
 
   // Generate date options
-  const currentDate = new Date();
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -44,6 +81,272 @@ export default function BookedServices() {
   }
   
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('9:00 AM');
+
+  const fetchServices = useCallback(async () => {
+    if (authLoading) {
+      return;
+    }
+
+    if (!user || !user.email) {
+      setServices([]);
+      setSelectedService(null);
+      setServicesLoading(false);
+      return;
+    }
+
+    setServicesLoading(true);
+    setServicesError(null);
+
+    try {
+      const { data: customer, error: customerError } = await supabase
+        .from('customer')
+        .select('customer_id')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (customerError) {
+        throw customerError;
+      }
+
+      if (!customer) {
+        setServices([]);
+        setSelectedService(null);
+        return;
+      }
+
+      const { data: serviceData, error: serviceError } = await supabase
+        .from('service')
+        .select('*')
+        .eq('customer_id', customer.customer_id)
+        .order('date_of_creation', { ascending: false });
+
+      if (serviceError) {
+        throw serviceError;
+      }
+
+      setServices(serviceData ?? []);
+    } catch (error) {
+      console.error('Failed to load services:', error);
+      setServicesError('Unable to load your services right now.');
+      setSelectedService(null);
+    } finally {
+      setServicesLoading(false);
+    }
+  }, [authLoading, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!authLoading) {
+        fetchServices();
+      }
+    }, [authLoading, fetchServices]),
+  );
+
+  useEffect(() => {
+    if (!authLoading) {
+      fetchServices();
+    }
+  }, [authLoading, fetchServices]);
+
+  useEffect(() => {
+    if (services.length === 0) {
+      setSelectedService(null);
+      return;
+    }
+
+    if (serviceId) {
+      const match = services.find(service => service.service_id === serviceId);
+      if (match) {
+        setSelectedService(match);
+        return;
+      }
+    }
+
+    setSelectedService(prev => {
+      if (prev) {
+        const stillExists = services.find(service => service.service_id === prev.service_id);
+        if (stillExists) {
+          return stillExists;
+        }
+      }
+      return services[0];
+    });
+  }, [serviceId, services]);
+
+  const parseScheduledDate = useCallback((isoDate?: string | null) => {
+    if (!isoDate) {
+      return null;
+    }
+
+    try {
+      return new Date(isoDate);
+    } catch (error) {
+      console.warn('Failed to parse scheduled date:', error);
+      return null;
+    }
+  }, []);
+
+  const formatHumanDate = useCallback((date: Date | null) => {
+    if (!date) {
+      return null;
+    }
+
+    const today = new Date();
+    const isToday =
+      date.getFullYear() === today.getFullYear() &&
+      date.getMonth() === today.getMonth() &&
+      date.getDate() === today.getDate();
+
+    if (isToday) {
+      return 'Today';
+    }
+
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+  }, []);
+  const formatStatusLabel = useCallback((status?: string | null) => {
+    if (!status) {
+      return 'Finding Pros';
+    }
+
+    const normalized = status.toLowerCase();
+    if (normalized === 'cancelled') {
+      return 'Cancelled';
+    }
+
+    return 'Finding Pros';
+  }, []);
+
+  const formatServiceType = useCallback((serviceType?: string | null) => {
+    if (!serviceType) {
+      return 'Service';
+    }
+
+    return serviceType.charAt(0).toUpperCase() + serviceType.slice(1).toLowerCase();
+  }, []);
+
+  const getPrimaryLocation = useCallback((service: ServiceRow) => {
+    const start = service.start_location?.trim();
+    if (start && start.length > 0) {
+      return start;
+    }
+
+    const fallback = service.location?.trim();
+    if (fallback && fallback.length > 0) {
+      return fallback;
+    }
+
+    return 'Add location';
+  }, []);
+
+  const getShortLocation = useCallback(
+    (service: ServiceRow) => {
+      const location = getPrimaryLocation(service);
+      if (location.length <= 10) {
+        return location;
+      }
+      return `${location.slice(0, 10)}…`;
+    },
+    [getPrimaryLocation],
+  );
+
+  const formatPrice = useCallback((price?: number | null) => {
+    if (typeof price === 'number' && Number.isFinite(price)) {
+      try {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 2,
+        }).format(price);
+      } catch (error) {
+        console.warn('Price formatting fallback triggered:', error);
+        return `$${price.toFixed(2)}`;
+      }
+    }
+    return '$0.00';
+  }, []);
+
+  const cancelService = useCallback(
+    async (serviceIdToCancel: string) => {
+      try {
+        const { error } = await supabase
+          .from('service')
+          .update({ status: 'cancelled' })
+          .eq('service_id', serviceIdToCancel);
+
+        if (error) {
+          throw error;
+        }
+
+        await fetchServices();
+      } catch (error) {
+        console.error('Failed to cancel service:', error);
+        Alert.alert('Cancel failed', 'Unable to cancel this service right now.');
+      }
+    },
+    [fetchServices],
+  );
+
+  const handleCancelService = useCallback(
+    (service: ServiceRow) => {
+      Alert.alert(
+        'Cancel request?',
+        'Are you sure you want to cancel this service?',
+        [
+          { text: 'Keep', style: 'cancel' },
+          {
+            text: 'Cancel service',
+            style: 'destructive',
+            onPress: () => cancelService(service.service_id),
+          },
+        ],
+      );
+    },
+    [cancelService],
+  );
+
+  const updateServiceRow = useCallback(
+    async (changes: Record<string, unknown>) => {
+      if (!serviceId) {
+        Alert.alert('Missing request', 'Unable to find the service you are scheduling. Please restart the request.');
+        return false;
+      }
+
+      try {
+        const { error } = await supabase
+          .from('service')
+          .update(changes)
+          .eq('service_id', serviceId);
+
+        if (error) {
+          throw error;
+        }
+
+        return true;
+      } catch (error) {
+        console.error('Failed to update service scheduling:', error);
+        Alert.alert('Scheduling failed', 'Unable to update your service. Please try again.');
+        return false;
+      }
+    },
+    [serviceId],
+  );
+
+  const handleScheduleAsap = useCallback(async () => {
+    const success = await updateServiceRow({
+      scheduling_type: 'asap',
+      scheduled_date_time: new Date().toISOString(),
+      status: 'scheduled',
+    });
+
+    if (success) {
+      await fetchServices();
+      closeOverlay();
+    }
+  }, [closeOverlay, fetchServices, updateServiceRow]);
 
   const isDateInPast = (day: number) => {
     const today = new Date();
@@ -62,7 +365,7 @@ export default function BookedServices() {
     setSelectedDate(newDate);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(async () => {
     const finalDateTime = new Date(selectedDate);
     
     // Parse the selected time slot (e.g., "2:30 PM")
@@ -77,11 +380,44 @@ export default function BookedServices() {
     
     finalDateTime.setHours(hour, minute, 0, 0);
     
-    // Pass to database here (e.g., API call)
-    
-    // Example: sendToDatabase(finalDateTime);
-    setPickerVisible(false);
-  };
+    const success = await updateServiceRow({
+      scheduling_type: 'scheduled',
+      scheduled_date_time: finalDateTime.toISOString(),
+      status: 'scheduled',
+    });
+
+    if (success) {
+      await fetchServices();
+      setPickerVisible(false);
+      setOverlayVisible(false);
+    }
+  }, [fetchServices, selectedDate, selectedTimeSlot, updateServiceRow]);
+
+  const selectedScheduledDate = useMemo(() => {
+    if (!selectedService) {
+      return null;
+    }
+    return parseScheduledDate(selectedService.scheduled_date_time ?? null);
+  }, [parseScheduledDate, selectedService]);
+
+  const dateBannerText = useMemo(() => {
+    if (!selectedService) {
+      return null;
+    }
+
+    const formatted = formatHumanDate(selectedScheduledDate);
+    return formatted;
+  }, [formatHumanDate, selectedScheduledDate, selectedService]);
+
+  const shouldShowDateBanner = selectedService?.scheduling_type !== 'asap' && Boolean(dateBannerText);
+
+  const shouldShowAsapBanner = useMemo(() => {
+    if (!selectedService) {
+      return false;
+    }
+
+    return selectedService.scheduling_type === 'asap';
+  }, [selectedService]);
 
   return (
     <View style={styles.container}>
@@ -96,19 +432,107 @@ export default function BookedServices() {
       
       {/* Main content */}
       <View style={styles.header}>
-        <Text style={styles.title}> Booked Services</Text>
+        <Text style={styles.title}>Booked Services</Text>
       </View>
       <View style={styles.GreenHeaderBar}>
-        <View style={styles.todayBadge}>
-          <Text style={styles.todayText}>Today</Text>
-        </View>
       </View>
-      
-      {/* No Services Message */}
-      <View style={styles.noServicesContainer}>
-        <Pressable style={styles.selectProButton} onPress={() => setSelectProModalVisible(true)}>
-          <Text style={styles.noServicesText}>No Services Booked</Text>
-        </Pressable>
+      <View style={styles.contentContainer}>
+        {servicesLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#0c4309" />
+            <Text style={styles.loadingText}>Loading your services…</Text>
+          </View>
+        ) : servicesError ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.errorText}>{servicesError}</Text>
+            <Pressable style={styles.retryButton} onPress={fetchServices}>
+              <Text style={styles.retryButtonText}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : services.length === 0 ? (
+          <View style={styles.noServicesContainer}>
+            <Pressable style={styles.selectProButton} onPress={() => setSelectProModalVisible(true)}>
+              <Text style={styles.noServicesText}>No Services Booked</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.serviceList}
+            contentContainerStyle={styles.serviceListContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.bannerStack}>
+              {shouldShowDateBanner ? (
+                <View style={styles.primaryBannerContainer}>
+                  <Text style={styles.primaryBannerText}>{dateBannerText}</Text>
+                </View>
+              ) : null}
+              {shouldShowAsapBanner ? (
+                <View style={styles.primaryBannerContainer}>
+                  <Text style={styles.primaryBannerText}>ASAP</Text>
+                </View>
+              ) : null}
+            </View>
+            {services.map(service => {
+              const isSelected = selectedService?.service_id === service.service_id;
+              const statusLabel = formatStatusLabel(service.status);
+              const shortLocation = getShortLocation(service);
+              const priceLabel = formatPrice(service.price);
+
+              return (
+                <Pressable
+                  key={service.service_id}
+                  style={[
+                    styles.serviceCard,
+                    isSelected ? styles.serviceCardSelected : null,
+                  ]}
+                  onPress={() => setSelectedService(service)}
+                >
+                  <View style={styles.cardContentRow}>
+                    <View style={styles.cardInfoColumn}>
+                      <View style={styles.serviceTypePill}>
+                        <Text style={styles.serviceTypeText} numberOfLines={1}>
+                          {formatServiceType(service.service_type)}
+                        </Text>
+                      </View>
+                      <View style={styles.serviceStatusPill}>
+                        <Text style={styles.serviceStatusText} numberOfLines={1}>
+                          {statusLabel}
+                        </Text>
+                      </View>
+                      <View style={styles.cardActionRow}>
+                        <View style={styles.editRequestGroup}>
+                          <View style={styles.editRequestIconWrapper}>
+                            <SvgXml xml={EDIT_REQUEST_ICON_XML} width={16} height={16} />
+                          </View>
+                          <Text style={styles.editRequestText}>Edit Request</Text>
+                        </View>
+                        <View style={styles.locationGroup}>
+                          <Image
+                            source={require('../assets/icons/ConfirmLocationIcon.png')}
+                            style={styles.locationIcon}
+                          />
+                          <Text style={styles.locationText} numberOfLines={1}>
+                            {shortLocation}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                    <View style={styles.priceColumn}>
+                      <View style={styles.priceRow}>
+                        <Text style={styles.priceValue}>{priceLabel}</Text>
+                        <Text style={styles.priceEstimate}>est.</Text>
+                      </View>
+                      <Pressable style={styles.serviceCancelButton} onPress={() => handleCancelService(service)}>
+                        <Text style={styles.serviceCancelButtonText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
 
       {/* Overlay Modal */}
@@ -126,7 +550,7 @@ export default function BookedServices() {
             </View>
             <View style={styles.scheduleOptions}>
               <View style={styles.popupActions}>
-                <Pressable style={styles.primaryButton} onPress={closeOverlay}>
+                <Pressable style={styles.primaryButton} onPress={handleScheduleAsap}>
                   <Text style={styles.primaryButtonText}>ASAP</Text>
                   <Text style={styles.primaryButtonSubText}>Get a Helpr as soon as possible</Text>
                 </Pressable>
@@ -283,7 +707,12 @@ export default function BookedServices() {
             {/* Time Selection */}
             <View style={{ marginBottom: 20 }}>
               <Text style={styles.selectATimeTitle}>Select a Time</Text>
-              <ScrollView style={{ height: 120 }} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={styles.timeSlotList}
+                contentContainerStyle={styles.timeSlotListContent}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+              >
                 {timeSlots.map((timeSlot) => (
                   <Pressable
                     key={timeSlot}
@@ -431,6 +860,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
+  timeSlotList: {
+    maxHeight: 180,
+  },
+  timeSlotListContent: {
+    paddingBottom: 8,
+  },
   WhiteHeaderText:{
     color: 'white',
     fontSize: 14,
@@ -440,6 +875,201 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#49454F',
     textAlign: 'center',
+  },
+  contentContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 24,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  errorText: {
+    color: '#8B0000',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  retryButton: {
+    backgroundColor: '#0c4309',
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+  },
+  retryButtonText: {
+    color: '#FFF8E8',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  bannerStack: {
+    marginBottom: 16,
+  },
+  primaryBannerContainer: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFF8E8',
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#C0B9A6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  primaryBannerText: {
+    color: '#0c4309',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  serviceList: {
+    flex: 1,
+  },
+  serviceListContent: {
+    paddingTop: 4,
+    paddingBottom: 120,
+  },
+  serviceCard: {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  serviceCardSelected: {
+    backgroundColor: '#F5E7D0',
+    shadowOpacity: 0.16,
+    elevation: 5,
+  },
+  serviceTypePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E5DCC9',
+    borderColor: '#C0B9A6',
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  serviceTypeText: {
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  serviceStatusPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#A3926D',
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 5,
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  serviceStatusText: {
+    color: '#FFF8E8',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  cardContentRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+    marginTop: 6,
+  },
+  cardInfoColumn: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  cardActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+    marginTop: 6,
+  },
+  editRequestGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 6,
+    marginBottom: 0,
+  },
+  editRequestIconWrapper: {
+    marginRight: 3,
+  },
+  editRequestText: {
+    color: '#0c4309',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  locationGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 0,
+    marginLeft: 6,
+  },
+  locationIcon: {
+    width: 18,
+    height: 18,
+    resizeMode: 'contain',
+    marginRight: 4,
+  },
+  locationText: {
+    color: '#0c4309',
+    fontSize: 11,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  priceColumn: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minWidth: 110,
+    paddingLeft: 16,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  priceValue: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0c4309',
+    marginRight: 4,
+  },
+  priceEstimate: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#0c4309',
+    marginBottom: 4,
+  },
+  serviceCancelButton: {
+    marginTop: 10,
+    backgroundColor: '#C94736',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  serviceCancelButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
   overlayBackground: {
     flex: 1,

@@ -9,6 +9,8 @@ import { SvgXml } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { useAuth } from '../src/contexts/AuthContext';
+import { supabase } from '../src/lib/supabase';
 
 type PlaceSuggestion = {
   id: string;
@@ -41,6 +43,30 @@ type LocationAutocompleteInputProps = {
   suggestions: PlaceSuggestion[];
   loading: boolean;
   currentLocationOption?: CurrentLocationOption;
+};
+
+const createUuid = () => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch (error) {
+    // ignore and fall back to manual generation
+  }
+
+  let timestamp = Date.now();
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    timestamp += performance.now();
+  }
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+    const random = (timestamp + Math.random() * 16) % 16 | 0;
+    timestamp = Math.floor(timestamp / 16);
+    if (char === 'x') {
+      return random.toString(16);
+    }
+    return ((random & 0x3) | 0x8).toString(16);
+  });
 };
 
 const createSessionToken = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -316,6 +342,7 @@ const LocationAutocompleteInput = React.memo<LocationAutocompleteInputProps>(
 LocationAutocompleteInput.displayName = 'LocationAutocompleteInput';
 
 export default function Moving() {
+  const { user } = useAuth();
   const [isAuto, setIsAuto] = useState(true);
   const [isPersonal, setIsPersonal] = useState(true);
   const slideAnimation = useRef(new Animated.Value(0)).current;
@@ -367,6 +394,9 @@ export default function Moving() {
   const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'photo' | 'video'; name: string }>>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -616,6 +646,51 @@ export default function Moving() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCustomer = async () => {
+      if (!user?.email) {
+        setCustomerId(null);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('customer')
+          .select('customer_id')
+          .eq('email', user.email)
+          .maybeSingle();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (error) {
+          console.error('Failed to load customer profile:', error);
+          setCustomerLookupError(error.message);
+          setCustomerId(null);
+          return;
+        }
+
+        setCustomerId(data?.customer_id ?? null);
+        setCustomerLookupError(null);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Unexpected error loading customer profile:', error);
+          setCustomerLookupError('Unable to load customer profile.');
+          setCustomerId(null);
+        }
+      }
+    };
+
+    loadCustomer();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email]);
+
   const handleDescriptionChange = useCallback((text: string) => {
     setDescription(text);
     setPriceQuote(null);
@@ -742,6 +817,42 @@ export default function Moving() {
     fetchPriceEstimate(trimmed, { start: startLocation, end: endLocation });
   }, [description, endLocation, fetchPriceEstimate, isPriceLoading, isTranscribing, startLocation]);
 
+  const resolveCustomerId = useCallback(async () => {
+    if (customerId) {
+      return customerId;
+    }
+
+    if (!user?.email) {
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('customer')
+        .select('customer_id')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Failed to resolve customer id:', error);
+        setCustomerLookupError(error.message);
+        return null;
+      }
+
+      if (data?.customer_id) {
+        setCustomerId(data.customer_id);
+        setCustomerLookupError(null);
+        return data.customer_id;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Unexpected error resolving customer id:', error);
+      setCustomerLookupError('Unable to resolve customer id');
+      return null;
+    }
+  }, [customerId, user?.email]);
+
   const handleMediaUpload = useCallback(async () => {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -770,6 +881,92 @@ export default function Moving() {
       Alert.alert('Upload failed', 'Unable to select media right now.');
     }
   }, []);
+
+  const handleScheduleHelpr = useCallback(async () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in to schedule a moving service.');
+      router.push('/login');
+      return;
+    }
+
+    if (!startLocation || !endLocation) {
+      Alert.alert('Add locations', 'Please provide both start and end locations before scheduling.');
+      return;
+    }
+
+    if (customerLookupError) {
+      console.warn('Retrying customer lookup after previous error:', customerLookupError);
+    }
+
+    const resolvedCustomerId = await resolveCustomerId();
+
+    if (!resolvedCustomerId) {
+      Alert.alert('Account issue', 'We could not find your customer profile. Please try again.');
+      return;
+    }
+
+    const priceDigits = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
+    const priceValue = priceDigits.length > 0 ? Number(priceDigits) : null;
+    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
+    const paymentMethodType = isPersonal ? 'Personal' : 'Business';
+    const autofillType = isAuto ? 'AutoFill' : 'Custom';
+    const serviceId = createUuid();
+
+    const payload = {
+      service_id: serviceId,
+      customer_id: resolvedCustomerId,
+      date_of_creation: new Date().toISOString(),
+      service_type: 'Moving',
+      status: 'pending',
+      location: null,
+      start_location: startLocation.description,
+      end_location: endLocation.description,
+      price: sanitizedPrice,
+      start_datetime: null,
+      end_datetime: null,
+      payment_method_type: paymentMethodType,
+      autofill_type: autofillType,
+      service_provider_id: null,
+      scheduled_date_time: null,
+      scheduling_type: 'pending',
+    };
+
+    try {
+      setIsSubmitting(true);
+      const { error } = await supabase.from('service').insert(payload);
+
+      if (error) {
+        console.error('Failed to create moving service:', error);
+        Alert.alert('Scheduling failed', 'Unable to save your moving request. Please try again.');
+        return;
+      }
+
+      router.push({
+        pathname: 'booked-services' as any,
+        params: { showOverlay: 'true', serviceId },
+      });
+    } catch (error) {
+      console.error('Unexpected scheduling error:', error);
+      Alert.alert('Scheduling failed', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    customerLookupError,
+    endLocation,
+    isAuto,
+    isPersonal,
+    isSubmitting,
+    priceQuote,
+    resolveCustomerId,
+    router,
+    startLocation,
+    user,
+  ]);
 
   const transcribeAudioAsync = useCallback(
     async (uri: string) => {
@@ -1520,7 +1717,7 @@ export default function Moving() {
             </View>
             <View style={styles.bottomRowContainer}>
               <Pressable
-                onPress={() => router.push({ pathname: 'booked-services' as any, params: { showOverlay: 'true' } })}
+                onPress={handleScheduleHelpr}
                 style={styles.scheduleHelprContainer}
               >
                 <Text style={styles.scheduleHelprText}>Schedule Helpr</Text>
