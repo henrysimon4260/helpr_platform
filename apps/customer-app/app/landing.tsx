@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { RouteParams } from '../constants/routes';
+import { useAuth } from '../src/contexts/AuthContext';
 // @ts-ignore - Only for native platforms
 import LottieView from 'lottie-react-native';
 
@@ -33,6 +34,7 @@ const resolveOpenAIApiKey = () => {
 
 export default function Landing() {
   const router = useRouter();
+  const { user } = useAuth();
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -129,6 +131,11 @@ export default function Landing() {
   }, []);
 
   const navigate = (route: keyof RouteParams) => router.push(route as any);
+
+  const handleAccountPress = useCallback(() => {
+    setIsMenuOpen(false);
+    navigate(user ? 'account' : 'signup');
+  }, [navigate, user]);
 
   const handleDescriptionChange = useCallback((text: string) => {
     setJobDescription(text);
@@ -511,10 +518,7 @@ export default function Landing() {
               
               <Pressable 
                 style={styles.menuItem} 
-                onPress={() => {
-                  setIsMenuOpen(false);
-                  navigate('account');
-                }}
+                onPress={handleAccountPress}
               >
                 <View style={styles.menuItemRow}>
                   <Text style={styles.menuItemText}>Account</Text>

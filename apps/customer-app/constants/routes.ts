@@ -14,6 +14,8 @@ export type RouteParams = {
   'contact-support': undefined;
   'user-guide': undefined;
   'customer-service-chat': undefined;
+  signup: undefined;
+  selecthelpr: { serviceId: string };
 };
 
 // Optional: a helper constant if you only need route names elsewhere
@@ -31,6 +33,8 @@ export const ROUTES = [
   'contact-support',
   'user-guide',
   'customer-service-chat',
+  'signup',
+  'selecthelpr',
 ] as const;
 
 export type RouteName = typeof ROUTES[number];

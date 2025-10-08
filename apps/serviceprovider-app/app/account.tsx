@@ -4,8 +4,8 @@ import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleShe
 import { SvgXml } from 'react-native-svg';
 import { supabase } from '../src/lib/supabase';
 
-interface CustomerData {
-  customer_id: string;
+interface ProviderData {
+  service_provider_id: string;
   first_name: string;
   last_name: string;
   email: string;
@@ -13,7 +13,7 @@ interface CustomerData {
 }
 
 export default function Account() {
-  const [customerData, setCustomerData] = useState<CustomerData | null>(null);
+  const [providerData, setProviderData] = useState<ProviderData | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -47,10 +47,10 @@ export default function Account() {
   const [showAddPayment, setShowAddPayment] = useState(false);
 
   useEffect(() => {
-    fetchCustomerData();
+    fetchProviderData();
   }, []);
 
-  const fetchCustomerData = async () => {
+  const fetchProviderData = async () => {
     try {
       setLoading(true);
 
@@ -66,65 +66,67 @@ export default function Account() {
       }
 
       const {
-        data: existingCustomer,
-        error: customerError,
+        data: existingProvider,
+        error: providerError,
       } = await supabase
-        .from('customer')
+        .from('service_provider')
         .select('*')
         .eq('email', user.email)
         .maybeSingle();
 
-      if (customerError) {
-        console.error('Error fetching customer data:', customerError);
+      if (providerError) {
+        console.error('Error fetching provider data:', providerError);
         Alert.alert('Error', 'Failed to load account data');
         return;
       }
 
-      if (!existingCustomer) {
+      if (!existingProvider) {
         const profileDefaults = {
+          service_provider_id: user.id,
           email: user.email,
           first_name: user.user_metadata?.first_name ?? '',
           last_name: user.user_metadata?.last_name ?? '',
-          phone_number: user.user_metadata?.phone_number ?? null,
+          phone_number: (user.user_metadata?.phone_number as string | null) ?? null,
         };
 
         const {
-          data: createdCustomer,
+          data: createdProvider,
           error: createError,
         } = await supabase
-          .from('customer')
+          .from('service_provider')
           .insert(profileDefaults)
           .select('*')
           .maybeSingle();
 
         if (createError) {
-          console.error('Error creating customer profile:', createError);
+          console.error('Error creating provider profile:', createError);
           Alert.alert('Error', 'Failed to initialize your account profile');
           return;
         }
 
-        const customer: CustomerData | null = createdCustomer
-          ? (createdCustomer as CustomerData)
+        const provider: ProviderData | null = createdProvider
+          ? (createdProvider as ProviderData)
           : {
-              customer_id: user.id,
+              service_provider_id: user.id,
               first_name: profileDefaults.first_name,
               last_name: profileDefaults.last_name,
               email: profileDefaults.email,
               phone_number: profileDefaults.phone_number,
             };
-        setCustomerData(customer);
-        setEditFirstName(customer.first_name || '');
-        setEditLastName(customer.last_name || '');
-        setEditEmail(customer.email);
-        setEditPhone(customer.phone_number || '');
+        setProviderData(provider);
+        setEditFirstName(provider.first_name || '');
+        setEditLastName(provider.last_name || '');
+        setEditEmail(provider.email);
+        setEditPhone(provider.phone_number || '');
         return;
       }
 
-      setCustomerData(existingCustomer);
-      setEditFirstName(existingCustomer.first_name || '');
-      setEditLastName(existingCustomer.last_name || '');
-      setEditEmail(existingCustomer.email || user.email);
-      setEditPhone(existingCustomer.phone_number || '');
+      const typedProvider = existingProvider as ProviderData;
+      setProviderData(typedProvider);
+      setEditFirstName(typedProvider.first_name || '');
+      setEditLastName(typedProvider.last_name || '');
+      setEditEmail(typedProvider.email || user.email);
+      setEditPhone(typedProvider.phone_number || '');
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -134,18 +136,16 @@ export default function Account() {
   };
 
   const saveProfileChanges = async () => {
-    if (!customerData) return;
+    if (!providerData) return;
 
     try {
       setLoading(true);
 
-      // Check if email has changed
-      const emailChanged = editEmail.trim().toLowerCase() !== customerData.email.toLowerCase();
+      const emailChanged = editEmail.trim().toLowerCase() !== providerData.email.toLowerCase();
 
       if (emailChanged) {
-        // Email has changed, update the email (this sends confirmation to new email)
         const { error: updateError } = await supabase.auth.updateUser({
-          email: editEmail.trim()
+          email: editEmail.trim(),
         });
 
         if (updateError) {
@@ -154,22 +154,20 @@ export default function Account() {
           return;
         }
 
-        // Store the pending changes and show OTP modal
         setPendingEmailChange(editEmail.trim());
         setEditing(false);
         setShowEmailOTPModal(true);
         return;
       }
 
-      // No email change, update profile directly
       const { error } = await supabase
-        .from('customer')
+        .from('service_provider')
         .update({
           first_name: editFirstName.trim(),
           last_name: editLastName.trim(),
           phone_number: editPhone.trim() || null,
         })
-        .eq('customer_id', customerData.customer_id);
+        .eq('service_provider_id', providerData.service_provider_id);
 
       if (error) {
         console.error('Error updating profile:', error);
@@ -177,9 +175,8 @@ export default function Account() {
         return;
       }
 
-      // Update local state
-      setCustomerData({
-        ...customerData,
+      setProviderData({
+        ...providerData,
         first_name: editFirstName.trim(),
         last_name: editLastName.trim(),
         phone_number: editPhone.trim() || null,
@@ -187,7 +184,6 @@ export default function Account() {
 
       setEditing(false);
       Alert.alert('Success', 'Profile updated successfully!');
-
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -196,8 +192,8 @@ export default function Account() {
     }
   };
 
-    const changePassword = async () => {
-    if (!newPassword || !confirmNewPassword || !customerData) {
+  const changePassword = async () => {
+    if (!newPassword || !confirmNewPassword || !providerData) {
       Alert.alert('Error', 'Please fill in all password fields');
       return;
     }
@@ -215,10 +211,8 @@ export default function Account() {
     try {
       setPasswordLoading(true);
 
-      // Send OTP to current email for verification
       const { error: otpError } = await supabase.auth.signInWithOtp({
-        email: customerData.email
-        // Remove shouldCreateUser option
+        email: providerData.email,
       });
 
       if (otpError) {
@@ -227,11 +221,9 @@ export default function Account() {
         return;
       }
 
-      // Store the new password and show OTP modal
       setPendingPasswordChange(newPassword);
       setShowPasswordModal(false);
       setShowPasswordOTPModal(true);
-
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -241,39 +233,34 @@ export default function Account() {
   };
 
   const signOut = async () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await supabase.auth.signOut();
-              router.replace('/login');
-            } catch (error) {
-              console.error('Error signing out:', error);
-              Alert.alert('Error', 'Failed to sign out');
-            }
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await supabase.auth.signOut();
+            router.replace('/login');
+          } catch (error) {
+            console.error('Error signing out:', error);
+            Alert.alert('Error', 'Failed to sign out');
           }
-        }
-      ]
-    );
+        },
+      },
+    ]);
   };
 
   const verifyEmailOTP = async () => {
-    if (!otpCode || !pendingEmailChange || !customerData) return;
+    if (!otpCode || !pendingEmailChange || !providerData) return;
 
     try {
       setOtpLoading(true);
 
-      // Verify the OTP sent to the new email for email change confirmation
-      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+      const { error: verifyError } = await supabase.auth.verifyOtp({
         email: pendingEmailChange,
         token: otpCode,
-        type: 'email_change'
+        type: 'email_change',
       });
 
       if (verifyError) {
@@ -282,26 +269,24 @@ export default function Account() {
         return;
       }
 
-      // Email change is now confirmed, update the customer record
-      const { error: customerError } = await supabase
-        .from('customer')
+      const { error: providerError } = await supabase
+        .from('service_provider')
         .update({
           email: pendingEmailChange,
           first_name: editFirstName.trim(),
           last_name: editLastName.trim(),
           phone_number: editPhone.trim() || null,
         })
-        .eq('customer_id', customerData.customer_id);
+        .eq('service_provider_id', providerData.service_provider_id);
 
-      if (customerError) {
-        console.error('Error updating customer record:', customerError);
+      if (providerError) {
+        console.error('Error updating provider record:', providerError);
         Alert.alert('Error', 'Failed to update profile');
         return;
       }
 
-      // Update local state
-      setCustomerData({
-        ...customerData,
+      setProviderData({
+        ...providerData,
         email: pendingEmailChange,
         first_name: editFirstName.trim(),
         last_name: editLastName.trim(),
@@ -312,7 +297,6 @@ export default function Account() {
       setOtpCode('');
       setPendingEmailChange('');
       Alert.alert('Success', 'Email and profile updated successfully!');
-
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -322,16 +306,15 @@ export default function Account() {
   };
 
   const verifyPasswordOTP = async () => {
-    if (!otpCode || !pendingPasswordChange || !customerData) return;
+    if (!otpCode || !pendingPasswordChange || !providerData) return;
 
     try {
       setOtpLoading(true);
 
-      // Verify the OTP sent to the current email
-      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-        email: customerData.email,
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: providerData.email,
         token: otpCode,
-        type: 'magiclink'
+        type: 'magiclink',
       });
 
       if (verifyError) {
@@ -340,9 +323,8 @@ export default function Account() {
         return;
       }
 
-      // Now update the password
       const { error } = await supabase.auth.updateUser({
-        password: pendingPasswordChange
+        password: pendingPasswordChange,
       });
 
       if (error) {
@@ -358,7 +340,6 @@ export default function Account() {
       setNewPassword('');
       setConfirmNewPassword('');
       Alert.alert('Success', 'Password changed successfully!');
-
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -374,7 +355,7 @@ export default function Account() {
       setResendLoading(true);
 
       const { error } = await supabase.auth.updateUser({
-        email: pendingEmailChange
+        email: pendingEmailChange,
       });
 
       if (error) {
@@ -384,7 +365,6 @@ export default function Account() {
       }
 
       Alert.alert('Success', 'Verification code sent!');
-
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -394,14 +374,13 @@ export default function Account() {
   };
 
   const resendPasswordOTP = async () => {
-    if (!customerData) return;
+    if (!providerData) return;
 
     try {
       setResendLoading(true);
 
       const { error } = await supabase.auth.signInWithOtp({
-        email: customerData.email
-        // Remove shouldCreateUser option
+        email: providerData.email,
       });
 
       if (error) {
@@ -411,7 +390,6 @@ export default function Account() {
       }
 
       Alert.alert('Success', 'Verification code sent!');
-
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -421,7 +399,6 @@ export default function Account() {
   };
 
   const addPaymentMethod = () => {
-    // Mock adding a payment method
     Alert.alert('Add Payment Method', 'Payment method integration would be implemented here');
     setShowAddPayment(false);
   };
@@ -480,11 +457,11 @@ export default function Account() {
     );
   }
 
-  if (!customerData) {
+  if (!providerData) {
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Failed to load account data</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchCustomerData}>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchProviderData}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
@@ -493,7 +470,6 @@ export default function Account() {
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header */}
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
           <Image
@@ -505,37 +481,35 @@ export default function Account() {
         <View style={styles.headerSpacer} />
       </View>
 
-      {/* Profile Section */}
       <View style={styles.profileSection}>
         <View style={styles.avatarContainer}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {customerData.first_name.charAt(0).toUpperCase()}
-              {customerData.last_name.charAt(0).toUpperCase()}
+              {providerData.first_name.charAt(0).toUpperCase()}
+              {providerData.last_name.charAt(0).toUpperCase()}
             </Text>
           </View>
         </View>
         <View style={styles.profileInfo}>
           <Text style={styles.name}>
-            {customerData.first_name} {customerData.last_name}
+            {providerData.first_name} {providerData.last_name}
           </Text>
-          <Text style={styles.email} numberOfLines={1}>{customerData.email}</Text>
-          {customerData.phone_number && (
-            <Text style={styles.phone}>{customerData.phone_number}</Text>
+          <Text style={styles.email} numberOfLines={1}>{providerData.email}</Text>
+          {providerData.phone_number && (
+            <Text style={styles.phone}>{providerData.phone_number}</Text>
           )}
         </View>
         <TouchableOpacity style={styles.editIcon} onPress={() => {
-          setEditFirstName(customerData?.first_name || '');
-          setEditLastName(customerData?.last_name || '');
-          setEditEmail(customerData?.email || '');
-          setEditPhone(customerData?.phone_number || '');
+          setEditFirstName(providerData?.first_name || '');
+          setEditLastName(providerData?.last_name || '');
+          setEditEmail(providerData?.email || '');
+          setEditPhone(providerData?.phone_number || '');
           setEditing(true);
         }}>
           <Text style={styles.editIconText}>Edit</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Menu Items */}
       <View style={styles.menuContainer}>
         <TouchableOpacity style={styles.menuItem} onPress={() => setShowPaymentModal(true)}>
           <View style={styles.menuItemContent}>
@@ -560,7 +534,6 @@ export default function Account() {
         </TouchableOpacity>
       </View>
 
-      {/* Edit Profile Modal */}
       <Modal
         visible={editing}
         animationType="slide"
@@ -571,10 +544,10 @@ export default function Account() {
             <View style={styles.editModalHeader}>
               <Text style={styles.editModalTitle}>Edit Profile</Text>
               <TouchableOpacity onPress={() => {
-                setEditFirstName(customerData?.first_name || '');
-                setEditLastName(customerData?.last_name || '');
-                setEditEmail(customerData?.email || '');
-                setEditPhone(customerData?.phone_number || '');
+                setEditFirstName(providerData?.first_name || '');
+                setEditLastName(providerData?.last_name || '');
+                setEditEmail(providerData?.email || '');
+                setEditPhone(providerData?.phone_number || '');
                 setEditing(false);
               }}>
                 <Text style={styles.closeText}>✕</Text>
@@ -628,7 +601,6 @@ export default function Account() {
         </View>
       </Modal>
 
-      {/* Password Change Modal */}
       <Modal
         visible={showPasswordModal}
         animationType="slide"
@@ -685,7 +657,6 @@ export default function Account() {
         </View>
       </Modal>
 
-      {/* Payment Methods Modal */}
       <Modal
         visible={showPaymentModal}
         animationType="slide"
@@ -728,7 +699,6 @@ export default function Account() {
         </View>
       </Modal>
 
-      {/* Email OTP Verification Modal */}
       <Modal
         visible={showEmailOTPModal}
         animationType="slide"
@@ -791,7 +761,6 @@ export default function Account() {
         </View>
       </Modal>
 
-      {/* Password OTP Verification Modal */}
       <Modal
         visible={showPasswordOTPModal}
         animationType="slide"

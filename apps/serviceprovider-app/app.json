@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "serviceprovider-app",
+    "slug": "serviceprovider-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "serviceproviderapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "appDir": "+/",
+    "ios": {
+      "bundleIdentifier": "com.helpr.serviceprovider-app",
+      "devMenu": false
+    },
+    "android": {
+      "package": "com.helpr.serviceprovider_app",
+      "devMenu": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF8E8"
+        }
+      ],
+      [
+        "expo-dev-client",
+        {
+          "addGeneratedScheme": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,9 +1,9 @@
-import { View, Text, Modal, StyleSheet, Pressable, Image, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Modal, StyleSheet, Pressable, Image, ScrollView, Alert, ActivityIndicator, GestureResponderEvent } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, router } from 'expo-router';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
 
@@ -23,6 +23,7 @@ type ServiceRow = {
   end_datetime?: string | null;
   payment_method_type?: string | null;
   autofill_type?: string | null;
+  description?: string | null;
 };
 
 const EDIT_REQUEST_ICON_XML = `
@@ -35,7 +36,9 @@ const EDIT_REQUEST_ICON_XML = `
 export default function BookedServices() {
   const params = useLocalSearchParams();
   const showOverlay = params.showOverlay === 'true';
+  const showConfirmedModal = params.showConfirmedModal === 'true';
   const serviceIdParam = params.serviceId;
+  const temporaryServiceParam = params.temporaryService;
   const serviceId = useMemo(() => {
     if (!serviceIdParam) {
       return null;
@@ -44,7 +47,23 @@ export default function BookedServices() {
   }, [serviceIdParam]);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [selectProModalVisible, setSelectProModalVisible] = useState(false);
+  const [confirmationModalVisible, setConfirmationModalVisible] = useState(false);
+  const [confirmationModalType, setConfirmationModalType] = useState<'finding_pros' | 'confirmed'>('finding_pros');
   const { user, loading: authLoading } = useAuth();
+
+  // Parse temporary service data
+  const temporaryService = useMemo(() => {
+    if (!temporaryServiceParam) {
+      return null;
+    }
+    const param = Array.isArray(temporaryServiceParam) ? temporaryServiceParam[0] : temporaryServiceParam;
+    try {
+      return JSON.parse(decodeURIComponent(param));
+    } catch (error) {
+      console.error('Failed to parse temporary service data:', error);
+      return null;
+    }
+  }, [temporaryServiceParam]);
 
   // Custom date picker state
   const [isPickerVisible, setPickerVisible] = useState(false);
@@ -53,12 +72,23 @@ export default function BookedServices() {
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [servicesError, setServicesError] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<ServiceRow | null>(null);
+  const selectedServiceId = selectedService?.service_id ?? null;
+  const [fillRequestCounts, setFillRequestCounts] = useState<Record<string, number>>({});
+  const initialLoadRef = useRef(true);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (showOverlay) {
+    if (showOverlay || temporaryService) {
       setOverlayVisible(true);
     }
-  }, [showOverlay]);
+  }, [showOverlay, temporaryService]);
+
+  useEffect(() => {
+    if (showConfirmedModal) {
+      setConfirmationModalType('confirmed');
+      setConfirmationModalVisible(true);
+    }
+  }, [showConfirmedModal]);
 
   const closeOverlay = useCallback(() => {
     setOverlayVisible(false);
@@ -91,10 +121,14 @@ export default function BookedServices() {
       setServices([]);
       setSelectedService(null);
       setServicesLoading(false);
+      setFillRequestCounts({});
+      initialLoadRef.current = false;
       return;
     }
 
-    setServicesLoading(true);
+    if (initialLoadRef.current) {
+      setServicesLoading(true);
+    }
     setServicesError(null);
 
     try {
@@ -111,6 +145,8 @@ export default function BookedServices() {
       if (!customer) {
         setServices([]);
         setSelectedService(null);
+        setFillRequestCounts({});
+        initialLoadRef.current = false;
         return;
       }
 
@@ -125,12 +161,47 @@ export default function BookedServices() {
       }
 
       setServices(serviceData ?? []);
+
+      if (!serviceData || serviceData.length === 0) {
+        setSelectedService(null);
+        setFillRequestCounts({});
+      } else {
+        const serviceIds = serviceData
+          .map(item => item?.service_id)
+          .filter((id): id is string => Boolean(id));
+
+        if (serviceIds.length === 0) {
+          setFillRequestCounts({});
+        } else {
+          const { data: fillRequests, error: fillRequestError } = await supabase
+            .from('service_fill_request')
+            .select('service_id')
+            .in('service_id', serviceIds);
+
+          if (fillRequestError) {
+            console.error('Failed to load fill request counts:', fillRequestError);
+            setFillRequestCounts({});
+          } else {
+            const counts: Record<string, number> = {};
+            fillRequests?.forEach(row => {
+              const id = (row as { service_id?: string })?.service_id;
+              if (!id) {
+                return;
+              }
+              counts[id] = (counts[id] ?? 0) + 1;
+            });
+            setFillRequestCounts(counts);
+          }
+        }
+      }
     } catch (error) {
       console.error('Failed to load services:', error);
       setServicesError('Unable to load your services right now.');
       setSelectedService(null);
+      setFillRequestCounts({});
     } finally {
       setServicesLoading(false);
+      initialLoadRef.current = false;
     }
   }, [authLoading, user]);
 
@@ -149,64 +220,27 @@ export default function BookedServices() {
   }, [authLoading, fetchServices]);
 
   useEffect(() => {
-    if (services.length === 0) {
-      setSelectedService(null);
+    if (authLoading) {
       return;
     }
 
-    if (serviceId) {
-      const match = services.find(service => service.service_id === serviceId);
-      if (match) {
-        setSelectedService(match);
-        return;
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    pollingRef.current = setInterval(() => {
+      fetchServices();
+    }, 5000);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
       }
-    }
+    };
+  }, [authLoading, fetchServices]);
 
-    setSelectedService(prev => {
-      if (prev) {
-        const stillExists = services.find(service => service.service_id === prev.service_id);
-        if (stillExists) {
-          return stillExists;
-        }
-      }
-      return services[0];
-    });
-  }, [serviceId, services]);
-
-  const parseScheduledDate = useCallback((isoDate?: string | null) => {
-    if (!isoDate) {
-      return null;
-    }
-
-    try {
-      return new Date(isoDate);
-    } catch (error) {
-      console.warn('Failed to parse scheduled date:', error);
-      return null;
-    }
-  }, []);
-
-  const formatHumanDate = useCallback((date: Date | null) => {
-    if (!date) {
-      return null;
-    }
-
-    const today = new Date();
-    const isToday =
-      date.getFullYear() === today.getFullYear() &&
-      date.getMonth() === today.getMonth() &&
-      date.getDate() === today.getDate();
-
-    if (isToday) {
-      return 'Today';
-    }
-
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    });
-  }, []);
   const formatStatusLabel = useCallback((status?: string | null) => {
     if (!status) {
       return 'Finding Pros';
@@ -269,12 +303,218 @@ export default function BookedServices() {
     return '$0.00';
   }, []);
 
+  const formatScheduledDateTime = useCallback((isoDate?: string | null) => {
+    if (!isoDate) {
+      return 'Scheduled';
+    }
+
+    try {
+      const date = new Date(isoDate);
+      if (Number.isNaN(date.getTime())) {
+        return 'Scheduled';
+      }
+
+      return date.toLocaleString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    } catch (error) {
+      console.warn('Failed to format scheduled date/time banner:', error);
+      return 'Scheduled';
+    }
+  }, []);
+
+  const confirmedServices = useMemo(() => {
+    let allServices = [...services];
+    
+    const filtered = allServices.filter(service => {
+      const type = (service.scheduling_type ?? '').toLowerCase();
+
+      if (!type) {
+        return false;
+      }
+
+      if (type === 'scheduled') {
+        return Boolean(service.scheduled_date_time);
+      }
+
+      return true;
+    });
+
+    const getComparableTimestamp = (service: ServiceRow) => {
+      const candidates = [
+        service.scheduled_date_time,
+        service.start_datetime,
+        service.date_of_creation,
+      ];
+
+      for (const candidate of candidates) {
+        if (!candidate) {
+          continue;
+        }
+
+        const date = new Date(candidate);
+        if (!Number.isNaN(date.getTime())) {
+          return date.getTime();
+        }
+      }
+
+      return Number.MAX_SAFE_INTEGER;
+    };
+
+    return filtered.sort((a, b) => {
+      const aType = a.scheduling_type?.toLowerCase();
+      const bType = b.scheduling_type?.toLowerCase();
+      const aIsAsap = aType === 'asap';
+      const bIsAsap = bType === 'asap';
+
+      if (aIsAsap !== bIsAsap) {
+        return aIsAsap ? -1 : 1;
+      }
+
+      const aTime = getComparableTimestamp(a);
+      const bTime = getComparableTimestamp(b);
+
+      return aTime - bTime;
+    });
+  }, [services]);
+
+  const asapServices = useMemo(
+    () => confirmedServices.filter(service => (service.scheduling_type ?? '').toLowerCase() === 'asap'),
+    [confirmedServices],
+  );
+
+  const scheduledServices = useMemo(
+    () => confirmedServices.filter(service => (service.scheduling_type ?? '').toLowerCase() !== 'asap'),
+    [confirmedServices],
+  );
+
+  useEffect(() => {
+    if (confirmedServices.length === 0) {
+      setSelectedService(null);
+      return;
+    }
+
+    if (serviceId) {
+      const match = confirmedServices.find(service => service.service_id === serviceId);
+      if (match) {
+        setSelectedService(match);
+        return;
+      }
+    }
+
+    // If we have a temporary service, select it
+    if (temporaryService) {
+      setSelectedService(temporaryService);
+      return;
+    }
+
+    setSelectedService(prev => {
+      if (prev) {
+        const stillExists = confirmedServices.find(service => service.service_id === prev.service_id);
+        if (stillExists) {
+          return stillExists;
+        }
+      }
+      return confirmedServices[0];
+    });
+  }, [confirmedServices, serviceId, temporaryService]);
+
+  const renderServiceCard = (service: ServiceRow) => {
+    const isSelected = selectedService?.service_id === service.service_id;
+    const requestCount = fillRequestCounts[service.service_id] ?? 0;
+  const normalizedStatus = (service.status ?? '').toLowerCase();
+  const isConfirmed = normalizedStatus === 'confirmed';
+  const hasRequests = requestCount > 0 && !isConfirmed;
+  const statusLabel = isConfirmed ? 'Job Confirmed' : hasRequests ? 'Select a Pro' : formatStatusLabel(service.status);
+    const shortLocation = getShortLocation(service);
+    const priceLabel = formatPrice(service.price);
+
+    const statusContent = (
+      <View style={styles.statusContentRow}>
+        <Text style={styles.serviceStatusText} numberOfLines={1}>
+          {statusLabel}
+        </Text>
+        {hasRequests ? (
+          <View style={styles.requestCountBadge}>
+            <Text style={styles.requestCountText}>{requestCount}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+
+    return (
+      <Pressable
+        key={service.service_id}
+        style={[
+          styles.serviceCard,
+          isSelected ? styles.serviceCardSelected : null,
+        ]}
+        onPress={() => setSelectedService(service)}
+      >
+        <View style={styles.cardContentRow}>
+          <View style={styles.cardInfoColumn}>
+            <View style={styles.serviceTypePill}>
+              <Text style={styles.serviceTypeText} numberOfLines={1}>
+                {formatServiceType(service.service_type)}
+              </Text>
+            </View>
+            {hasRequests ? (
+              <Pressable
+                style={[styles.serviceStatusPill, styles.selectProStatusPill]}
+                onPress={(event: GestureResponderEvent) => {
+                  event.stopPropagation();
+                  handleSelectPro(service);
+                }}
+              >
+                {statusContent}
+              </Pressable>
+            ) : isConfirmed ? (
+              <View style={[styles.serviceStatusPill, styles.confirmedStatusPill]}>{statusContent}</View>
+            ) : (
+              <View style={styles.serviceStatusPill}>{statusContent}</View>
+            )}
+            <View style={styles.cardActionRow}>
+              <Pressable style={styles.editRequestGroup} onPress={() => handleEditRequest(service)}>
+                <View style={styles.editRequestIconWrapper}>
+                  <SvgXml xml={EDIT_REQUEST_ICON_XML} width={16} height={16} />
+                </View>
+                <Text style={styles.editRequestText}>Edit Request</Text>
+              </Pressable>
+              <View style={styles.locationGroup}>
+                <Image
+                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  style={styles.locationIcon}
+                />
+                <Text style={styles.locationText} numberOfLines={1}>
+                  {shortLocation}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.priceColumn}>
+            <View style={styles.priceRow}>
+              <Text style={styles.priceValue}>{priceLabel}</Text>
+              <Text style={styles.priceEstimate}>est.</Text>
+            </View>
+            <Pressable style={styles.serviceCancelButton} onPress={() => handleCancelService(service)}>
+              <Text style={styles.serviceCancelButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
+
   const cancelService = useCallback(
     async (serviceIdToCancel: string) => {
       try {
         const { error } = await supabase
           .from('service')
-          .update({ status: 'cancelled' })
+          .delete()
           .eq('service_id', serviceIdToCancel);
 
         if (error) {
@@ -283,8 +523,8 @@ export default function BookedServices() {
 
         await fetchServices();
       } catch (error) {
-        console.error('Failed to cancel service:', error);
-        Alert.alert('Cancel failed', 'Unable to cancel this service right now.');
+        console.error('Failed to delete service:', error);
+        Alert.alert('Delete failed', 'Unable to delete this service right now.');
       }
     },
     [fetchServices],
@@ -294,7 +534,7 @@ export default function BookedServices() {
     (service: ServiceRow) => {
       Alert.alert(
         'Cancel request?',
-        'Are you sure you want to cancel this service?',
+        'This will permanently remove the service from your account.',
         [
           { text: 'Keep', style: 'cancel' },
           {
@@ -308,9 +548,56 @@ export default function BookedServices() {
     [cancelService],
   );
 
+  const handleEditRequest = useCallback((service: ServiceRow) => {
+    if (!service) {
+      return;
+    }
+
+    try {
+      const payload = {
+        service_id: service.service_id,
+        service_type: service.service_type,
+        start_location: service.start_location,
+        end_location: service.end_location,
+        price: service.price,
+        payment_method_type: service.payment_method_type,
+        autofill_type: service.autofill_type,
+        scheduling_type: service.scheduling_type,
+        scheduled_date_time: service.scheduled_date_time,
+        description: service.description,
+      };
+
+      router.push({
+        pathname: 'moving' as any,
+        params: {
+          editServiceId: service.service_id,
+          editService: encodeURIComponent(JSON.stringify(payload)),
+        },
+      });
+    } catch (error) {
+      console.error('Failed to open edit request:', error);
+      Alert.alert('Unable to edit', 'We could not open this request for editing right now.');
+    }
+  }, []);
+
+  const handleSelectPro = useCallback((service: ServiceRow) => {
+    if (!service?.service_id) {
+      return;
+    }
+
+    router.push({
+      pathname: 'selecthelpr' as any,
+      params: {
+        serviceId: service.service_id,
+      },
+    });
+  }, []);
+
   const updateServiceRow = useCallback(
-    async (changes: Record<string, unknown>) => {
-      if (!serviceId) {
+    async (changes: Record<string, unknown>, targetServiceId?: string | null) => {
+      const effectiveServiceId = targetServiceId ?? serviceId ?? selectedServiceId ?? null;
+
+      if (!effectiveServiceId) {
         Alert.alert('Missing request', 'Unable to find the service you are scheduling. Please restart the request.');
         return false;
       }
@@ -319,7 +606,7 @@ export default function BookedServices() {
         const { error } = await supabase
           .from('service')
           .update(changes)
-          .eq('service_id', serviceId);
+          .eq('service_id', effectiveServiceId);
 
         if (error) {
           throw error;
@@ -332,21 +619,39 @@ export default function BookedServices() {
         return false;
       }
     },
-    [serviceId],
+    [selectedServiceId, serviceId],
   );
 
   const handleScheduleAsap = useCallback(async () => {
+    const targetService = selectedService || temporaryService;
+    
+    if (!targetService) {
+      Alert.alert('No service selected', 'Please select a service to schedule.');
+      return;
+    }
+
+    // If this is a temporary service, create it in the database first
+    if (temporaryService && targetService.service_id === temporaryService.service_id) {
+      const { error } = await supabase.from('service').insert(temporaryService);
+      if (error) {
+        console.error('Failed to create service:', error);
+        Alert.alert('Scheduling failed', 'Unable to save your service. Please try again.');
+        return;
+      }
+    }
+
     const success = await updateServiceRow({
       scheduling_type: 'asap',
       scheduled_date_time: new Date().toISOString(),
-      status: 'scheduled',
-    });
+    }, targetService.service_id);
 
     if (success) {
       await fetchServices();
       closeOverlay();
+      setConfirmationModalType('finding_pros');
+      setConfirmationModalVisible(true);
     }
-  }, [closeOverlay, fetchServices, updateServiceRow]);
+  }, [closeOverlay, fetchServices, selectedService, temporaryService, updateServiceRow]);
 
   const isDateInPast = (day: number) => {
     const today = new Date();
@@ -366,6 +671,23 @@ export default function BookedServices() {
   };
 
   const handleConfirm = useCallback(async () => {
+    const targetService = selectedService || temporaryService;
+    
+    if (!targetService) {
+      Alert.alert('No service selected', 'Please select a service to schedule.');
+      return;
+    }
+
+    // If this is a temporary service, create it in the database first
+    if (temporaryService && targetService.service_id === temporaryService.service_id) {
+      const { error } = await supabase.from('service').insert(temporaryService);
+      if (error) {
+        console.error('Failed to create service:', error);
+        Alert.alert('Scheduling failed', 'Unable to save your service. Please try again.');
+        return;
+      }
+    }
+
     const finalDateTime = new Date(selectedDate);
     
     // Parse the selected time slot (e.g., "2:30 PM")
@@ -383,41 +705,16 @@ export default function BookedServices() {
     const success = await updateServiceRow({
       scheduling_type: 'scheduled',
       scheduled_date_time: finalDateTime.toISOString(),
-      status: 'scheduled',
-    });
+    }, targetService.service_id);
 
     if (success) {
       await fetchServices();
       setPickerVisible(false);
       setOverlayVisible(false);
+      setConfirmationModalType('finding_pros');
+      setConfirmationModalVisible(true);
     }
-  }, [fetchServices, selectedDate, selectedTimeSlot, updateServiceRow]);
-
-  const selectedScheduledDate = useMemo(() => {
-    if (!selectedService) {
-      return null;
-    }
-    return parseScheduledDate(selectedService.scheduled_date_time ?? null);
-  }, [parseScheduledDate, selectedService]);
-
-  const dateBannerText = useMemo(() => {
-    if (!selectedService) {
-      return null;
-    }
-
-    const formatted = formatHumanDate(selectedScheduledDate);
-    return formatted;
-  }, [formatHumanDate, selectedScheduledDate, selectedService]);
-
-  const shouldShowDateBanner = selectedService?.scheduling_type !== 'asap' && Boolean(dateBannerText);
-
-  const shouldShowAsapBanner = useMemo(() => {
-    if (!selectedService) {
-      return false;
-    }
-
-    return selectedService.scheduling_type === 'asap';
-  }, [selectedService]);
+  }, [fetchServices, selectedDate, selectedTimeSlot, selectedService, temporaryService, updateServiceRow]);
 
   return (
     <View style={styles.container}>
@@ -449,7 +746,7 @@ export default function BookedServices() {
               <Text style={styles.retryButtonText}>Try again</Text>
             </Pressable>
           </View>
-        ) : services.length === 0 ? (
+        ) : confirmedServices.length === 0 ? (
           <View style={styles.noServicesContainer}>
             <Pressable style={styles.selectProButton} onPress={() => setSelectProModalVisible(true)}>
               <Text style={styles.noServicesText}>No Services Booked</Text>
@@ -462,75 +759,26 @@ export default function BookedServices() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.bannerStack}>
-              {shouldShowDateBanner ? (
-                <View style={styles.primaryBannerContainer}>
-                  <Text style={styles.primaryBannerText}>{dateBannerText}</Text>
-                </View>
-              ) : null}
-              {shouldShowAsapBanner ? (
-                <View style={styles.primaryBannerContainer}>
-                  <Text style={styles.primaryBannerText}>ASAP</Text>
-                </View>
-              ) : null}
-            </View>
-            {services.map(service => {
-              const isSelected = selectedService?.service_id === service.service_id;
-              const statusLabel = formatStatusLabel(service.status);
-              const shortLocation = getShortLocation(service);
-              const priceLabel = formatPrice(service.price);
-
-              return (
-                <Pressable
-                  key={service.service_id}
-                  style={[
-                    styles.serviceCard,
-                    isSelected ? styles.serviceCardSelected : null,
-                  ]}
-                  onPress={() => setSelectedService(service)}
-                >
-                  <View style={styles.cardContentRow}>
-                    <View style={styles.cardInfoColumn}>
-                      <View style={styles.serviceTypePill}>
-                        <Text style={styles.serviceTypeText} numberOfLines={1}>
-                          {formatServiceType(service.service_type)}
-                        </Text>
-                      </View>
-                      <View style={styles.serviceStatusPill}>
-                        <Text style={styles.serviceStatusText} numberOfLines={1}>
-                          {statusLabel}
-                        </Text>
-                      </View>
-                      <View style={styles.cardActionRow}>
-                        <View style={styles.editRequestGroup}>
-                          <View style={styles.editRequestIconWrapper}>
-                            <SvgXml xml={EDIT_REQUEST_ICON_XML} width={16} height={16} />
-                          </View>
-                          <Text style={styles.editRequestText}>Edit Request</Text>
-                        </View>
-                        <View style={styles.locationGroup}>
-                          <Image
-                            source={require('../assets/icons/ConfirmLocationIcon.png')}
-                            style={styles.locationIcon}
-                          />
-                          <Text style={styles.locationText} numberOfLines={1}>
-                            {shortLocation}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                    <View style={styles.priceColumn}>
-                      <View style={styles.priceRow}>
-                        <Text style={styles.priceValue}>{priceLabel}</Text>
-                        <Text style={styles.priceEstimate}>est.</Text>
-                      </View>
-                      <Pressable style={styles.serviceCancelButton} onPress={() => handleCancelService(service)}>
-                        <Text style={styles.serviceCancelButtonText}>Cancel</Text>
-                      </Pressable>
-                    </View>
+              {asapServices.length > 0 ? (
+                <View style={styles.bannerSection}>
+                  <View style={styles.primaryBannerContainer}>
+                    <Text style={styles.primaryBannerText}>ASAP</Text>
                   </View>
-                </Pressable>
-              );
-            })}
+                  {asapServices.map(renderServiceCard)}
+                </View>
+              ) : null}
+
+              {scheduledServices.map(service => (
+                <View key={`scheduled-${service.service_id}`} style={styles.bannerSection}>
+                  <View style={styles.primaryBannerContainer}>
+                    <Text style={styles.primaryBannerText}>
+                      {formatScheduledDateTime(service.scheduled_date_time)}
+                    </Text>
+                  </View>
+                  {renderServiceCard(service)}
+                </View>
+              ))}
+            </View>
           </ScrollView>
         )}
       </View>
@@ -795,6 +1043,34 @@ export default function BookedServices() {
           </View>
         </View>
       </Modal>
+
+      {/* Confirmation Modal */}
+      <Modal
+        visible={confirmationModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmationModalVisible(false)}
+      >
+        <View style={styles.overlayBackground}>
+          <View style={styles.confirmationModal}>
+            <Text style={styles.confirmationTitle}>
+              {confirmationModalType === 'confirmed' ? 'Helpr Confirmed' : 'Finding Pros'}
+            </Text>
+            <View style={styles.confirmationDivider} />
+            <Text style={styles.confirmationMessage}>
+              {confirmationModalType === 'confirmed' 
+                ? 'Your Helpr has been confirmed and will arrive at the scheduled time.'
+                : 'Finding available workers. You will be notified when it\'s time to select a pro.'}
+            </Text>
+            <Pressable 
+              style={styles.confirmationOkButton} 
+              onPress={() => setConfirmationModalVisible(false)}
+            >
+              <Text style={styles.confirmationOkText}>OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -913,6 +1189,9 @@ const styles = StyleSheet.create({
   bannerStack: {
     marginBottom: 16,
   },
+  bannerSection: {
+    marginBottom: 16,
+  },
   primaryBannerContainer: {
     alignSelf: 'flex-start',
     backgroundColor: '#FFF8E8',
@@ -940,12 +1219,13 @@ const styles = StyleSheet.create({
   serviceListContent: {
     paddingTop: 4,
     paddingBottom: 120,
+    flexGrow: 1,
   },
   serviceCard: {
-    backgroundColor: '#FFF8E8',
+    backgroundColor: '#F5E7D0',
     borderRadius: 14,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 12,
     marginBottom: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
@@ -964,8 +1244,8 @@ const styles = StyleSheet.create({
     borderColor: '#C0B9A6',
     borderWidth: 1,
     borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
     marginBottom: 4,
   },
   serviceTypeText: {
@@ -979,15 +1259,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#A3926D',
     borderRadius: 18,
     paddingHorizontal: 18,
-    paddingVertical: 5,
+    paddingVertical: 4,
+    minHeight: 20,
     marginTop: 6,
     marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   serviceStatusText: {
     color: '#FFF8E8',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '600',
     letterSpacing: 0.2,
+  },
+  statusContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  requestCountBadge: {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 20,
+    minWidth: 10,
+    height: 15,
+    marginLeft: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  requestCountText: {
+    color: '#0c4309',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  selectProStatusPill: {
+    backgroundColor: '#0c4309',
+  },
+  confirmedStatusPill: {
+    backgroundColor: '#0c4309',
   },
   cardContentRow: {
     flexDirection: 'row',
@@ -1003,7 +1311,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'nowrap',
-    marginTop: 6,
+    marginTop: 4,
   },
   editRequestGroup: {
     flexDirection: 'row',
@@ -1023,13 +1331,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 0,
-    marginLeft: 6,
+    marginLeft: 10,
   },
   locationIcon: {
     width: 18,
     height: 18,
     resizeMode: 'contain',
-    marginRight: 4,
+    marginRight: 2,
   },
   locationText: {
     color: '#0c4309',
@@ -1423,5 +1731,62 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
     textDecorationLine: 'underline',
+  },
+  confirmationModal: {
+    width: '70%',
+    backgroundColor: '#FFF8E8',
+    borderRadius: 30,
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  confirmationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0c4309',
+    textAlign: 'center',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  confirmationDivider: {
+    alignSelf: 'stretch',
+    height: 1,
+    backgroundColor: '#CAC4D0',
+    marginBottom: 10,
+    marginHorizontal: -30,
+  },
+  confirmationMessage: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#0c4309',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginBottom: 12,
+    paddingHorizontal: 0,
+  },
+  confirmationOkButton: {
+    backgroundColor: '#0c4309',
+    borderRadius: 30,
+    paddingVertical: 5,
+    paddingHorizontal: 60,
+    minWidth: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  confirmationOkText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

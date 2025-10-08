@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 import { PermissionStatus } from 'expo-modules-core';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
@@ -32,6 +32,19 @@ type CurrentLocationOption = {
   onSelect: () => void;
   loading: boolean;
   disabled?: boolean;
+};
+
+type EditServicePayload = {
+  service_id: string;
+  service_type?: string | null;
+  start_location?: string | null;
+  end_location?: string | null;
+  price?: number | null;
+  payment_method_type?: string | null;
+  autofill_type?: string | null;
+  scheduling_type?: string | null;
+  scheduled_date_time?: string | null;
+  description?: string | null;
 };
 
 type LocationAutocompleteInputProps = {
@@ -343,6 +356,44 @@ LocationAutocompleteInput.displayName = 'LocationAutocompleteInput';
 
 export default function Moving() {
   const { user } = useAuth();
+  const params = useLocalSearchParams<{ editServiceId?: string | string[]; editService?: string | string[] }>();
+  const editServiceId = useMemo(() => {
+    const raw = params.editServiceId;
+    if (!raw) {
+      return null;
+    }
+
+    if (Array.isArray(raw)) {
+      return raw[0] ?? null;
+    }
+
+    return raw;
+  }, [params.editServiceId]);
+
+  const editingPayload = useMemo<EditServicePayload | null>(() => {
+    const raw = params.editService;
+    const value = Array.isArray(raw) ? raw[0] : raw;
+
+    if (!value) {
+      return null;
+    }
+
+    try {
+      const decoded = decodeURIComponent(value);
+      const parsed = JSON.parse(decoded);
+
+      if (parsed && typeof parsed === 'object') {
+        const candidate = parsed as EditServicePayload;
+        return candidate.service_id ? candidate : null;
+      }
+    } catch (error) {
+      console.warn('Failed to parse edit payload:', error);
+    }
+
+    return null;
+  }, [params.editService]);
+  const isEditing = Boolean(editServiceId && editingPayload);
+
   const [isAuto, setIsAuto] = useState(true);
   const [isPersonal, setIsPersonal] = useState(true);
   const slideAnimation = useRef(new Animated.Value(0)).current;
@@ -408,10 +459,10 @@ export default function Moving() {
 
   const defaultRegion = useMemo(
     () => ({
-      latitude: 37.773972,
-      longitude: -122.431297,
-      latitudeDelta: 0.1,
-      longitudeDelta: 0.1,
+      latitude: 40.7128,
+      longitude: -74.006,
+      latitudeDelta: 0.08,
+      longitudeDelta: 0.08,
     }),
     [],
   );
@@ -509,6 +560,32 @@ export default function Moving() {
     },
     [formatLocationDescription, locationPermissionStatus],
   );
+
+  const geocodeAddress = useCallback(async (address: string): Promise<SelectedLocation | null> => {
+    const trimmed = address?.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      const results = await Location.geocodeAsync(trimmed);
+      const first = results?.[0];
+
+      if (first) {
+        return {
+          description: trimmed,
+          coordinate: {
+            latitude: first.latitude,
+            longitude: first.longitude,
+          },
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to geocode address for edit prefill:', error);
+    }
+
+    return null;
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -690,6 +767,84 @@ export default function Moving() {
       cancelled = true;
     };
   }, [user?.email]);
+
+  useEffect(() => {
+    if (!editingPayload || !editServiceId) {
+      return;
+    }
+
+    const nextIsAuto = (editingPayload.autofill_type ?? 'AutoFill').toLowerCase() !== 'custom';
+    const nextIsPersonal = (editingPayload.payment_method_type ?? 'Personal').toLowerCase() !== 'business';
+
+    setIsAuto(nextIsAuto);
+    slideAnimation.setValue(nextIsAuto ? 0 : 1);
+
+    setIsPersonal(nextIsPersonal);
+    slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
+
+    if (typeof editingPayload.price === 'number' && Number.isFinite(editingPayload.price)) {
+      setPriceQuote(formatCurrency(editingPayload.price));
+    } else {
+      setPriceQuote(null);
+    }
+
+    if (typeof editingPayload.description === 'string') {
+      const trimmed = editingPayload.description.trim();
+      setDescription(trimmed);
+    } else {
+      setDescription('');
+    }
+
+    setPriceNote(null);
+    setPriceError(null);
+
+    let cancelled = false;
+
+    const hydrateLocations = async () => {
+      const startAddress = editingPayload.start_location?.trim();
+      const endAddress = editingPayload.end_location?.trim();
+
+      if (startAddress) {
+        const startResolved = await geocodeAddress(startAddress);
+        if (cancelled) {
+          return;
+        }
+
+        if (startResolved) {
+          applyLocation('start', startResolved);
+        } else {
+          setStartQuery(startAddress);
+          setStartLocation(null);
+        }
+      } else {
+        setStartQuery('');
+        setStartLocation(null);
+      }
+
+      if (endAddress) {
+        const endResolved = await geocodeAddress(endAddress);
+        if (cancelled) {
+          return;
+        }
+
+        if (endResolved) {
+          applyLocation('end', endResolved);
+        } else {
+          setEndQuery(endAddress);
+          setEndLocation(null);
+        }
+      } else {
+        setEndQuery('');
+        setEndLocation(null);
+      }
+    };
+
+    hydrateLocations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyLocation, editServiceId, editingPayload, geocodeAddress, slideAnimation, slideAnimation2]);
 
   const handleDescriptionChange = useCallback((text: string) => {
     setDescription(text);
@@ -898,56 +1053,100 @@ export default function Moving() {
       return;
     }
 
-    if (customerLookupError) {
-      console.warn('Retrying customer lookup after previous error:', customerLookupError);
-    }
-
-    const resolvedCustomerId = await resolveCustomerId();
-
-    if (!resolvedCustomerId) {
-      Alert.alert('Account issue', 'We could not find your customer profile. Please try again.');
+    if (isEditing && !editServiceId) {
+      Alert.alert('Unable to edit', 'We could not determine which service to update.');
       return;
     }
 
-    const priceDigits = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigits.length > 0 ? Number(priceDigits) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
-    const paymentMethodType = isPersonal ? 'Personal' : 'Business';
-    const autofillType = isAuto ? 'AutoFill' : 'Custom';
-    const serviceId = createUuid();
+    if (!isEditing && customerLookupError) {
+      console.warn('Retrying customer lookup after previous error:', customerLookupError);
+    }
 
-    const payload = {
-      service_id: serviceId,
-      customer_id: resolvedCustomerId,
-      date_of_creation: new Date().toISOString(),
-      service_type: 'Moving',
-      status: 'pending',
-      location: null,
-      start_location: startLocation.description,
-      end_location: endLocation.description,
-      price: sanitizedPrice,
-      start_datetime: null,
-      end_datetime: null,
-      payment_method_type: paymentMethodType,
-      autofill_type: autofillType,
-      service_provider_id: null,
-      scheduled_date_time: null,
-      scheduling_type: 'pending',
-    };
+    let resolvedCustomerIdValue = customerId;
 
-    try {
-      setIsSubmitting(true);
-      const { error } = await supabase.from('service').insert(payload);
+    if (!isEditing) {
+      const resolvedCustomerId = await resolveCustomerId();
 
-      if (error) {
-        console.error('Failed to create moving service:', error);
-        Alert.alert('Scheduling failed', 'Unable to save your moving request. Please try again.');
+      if (!resolvedCustomerId) {
+        Alert.alert('Account issue', 'We could not find your customer profile. Please try again.');
         return;
       }
 
+      resolvedCustomerIdValue = resolvedCustomerId;
+    }
+
+  const priceDigits = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
+  const priceValue = priceDigits.length > 0 ? Number(priceDigits) : null;
+  const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
+  const trimmedDescription = description.trim();
+  const normalizedDescription = trimmedDescription.length > 0 ? trimmedDescription : null;
+    const paymentMethodType = isPersonal ? 'Personal' : 'Business';
+    const autofillType = isAuto ? 'AutoFill' : 'Custom';
+    const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
+
+    try {
+      setIsSubmitting(true);
+
+      if (isEditing && editServiceId) {
+        const updatePayload: Record<string, unknown> = {
+          start_location: startLocation.description,
+          end_location: endLocation.description,
+          price: sanitizedPrice,
+          payment_method_type: paymentMethodType,
+          autofill_type: autofillType,
+          description: normalizedDescription,
+        };
+
+        const { error } = await supabase
+          .from('service')
+          .update(updatePayload)
+          .eq('service_id', editServiceId);
+
+        if (error) {
+          console.error('Failed to update moving service:', error);
+          Alert.alert('Update failed', 'Unable to save changes to your moving request. Please try again.');
+          return;
+        }
+
+        router.push({
+          pathname: 'booked-services' as any,
+          params: { serviceId: editServiceId },
+        });
+        return;
+      }
+
+      if (!resolvedCustomerIdValue) {
+        Alert.alert('Account issue', 'We could not find your customer profile. Please try again.');
+        return;
+      }
+
+      const payload = {
+        service_id: targetServiceId,
+        customer_id: resolvedCustomerIdValue,
+        date_of_creation: new Date().toISOString(),
+        service_type: 'Moving',
+        status: 'finding_pros',
+        scheduling_type: null,
+        location: null,
+        start_location: startLocation.description,
+        end_location: endLocation.description,
+        price: sanitizedPrice,
+        start_datetime: null,
+        end_datetime: null,
+        payment_method_type: paymentMethodType,
+        autofill_type: autofillType,
+        service_provider_id: null,
+        scheduled_date_time: null,
+        description: normalizedDescription,
+      };
+
+      // Don't insert yet - let booked-services.tsx handle the insert when scheduling is confirmed
       router.push({
         pathname: 'booked-services' as any,
-        params: { showOverlay: 'true', serviceId },
+        params: {
+          showOverlay: 'true',
+          temporaryService: encodeURIComponent(JSON.stringify(payload)),
+        },
       });
     } catch (error) {
       console.error('Unexpected scheduling error:', error);
@@ -956,9 +1155,13 @@ export default function Moving() {
       setIsSubmitting(false);
     }
   }, [
+    customerId,
     customerLookupError,
+    description,
+    editServiceId,
     endLocation,
     isAuto,
+    isEditing,
     isPersonal,
     isSubmitting,
     priceQuote,
