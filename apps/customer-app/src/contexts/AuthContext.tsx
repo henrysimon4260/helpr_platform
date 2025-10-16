@@ -6,12 +6,18 @@ type AuthContextType = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  setReturnTo: (path: string, data?: any) => void;
+  getReturnTo: () => { path: string; data?: any } | null;
+  clearReturnTo: () => void;
 };
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
   loading: true,
+  setReturnTo: () => {},
+  getReturnTo: () => null,
+  clearReturnTo: () => {},
 });
 
 export const useAuth = () => {
@@ -26,6 +32,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [returnTo, setReturnToState] = useState<{ path: string; data?: any } | null>(null);
+
+  const setReturnTo = (path: string, data?: any) => {
+    setReturnToState({ path, data });
+  };
+
+  const getReturnTo = () => {
+    return returnTo;
+  };
+
+  const clearReturnTo = () => {
+    setReturnToState(null);
+  };
 
   useEffect(() => {
     console.log('AuthContext: Getting initial session');
@@ -51,7 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading }}>
+    <AuthContext.Provider value={{ user, session, loading, setReturnTo, getReturnTo, clearReturnTo }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,11 +1,15 @@
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../src/contexts/AuthContext';
+import { useModal } from '../src/contexts/ModalContext';
 
 export default function Login() {
   console.log('Login screen rendered');
   
+  const { getReturnTo, clearReturnTo } = useAuth();
+  const { showModal } = useModal();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -23,14 +27,17 @@ export default function Login() {
       if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
         // Session became invalid (e.g., user deleted from Supabase)
         console.log('🚨 Session invalidated - user may have been deleted');
-        Alert.alert('Session Expired', 'Your account session has expired. Please sign in again.');
+        showModal({
+          title: 'Session Expired',
+          message: 'Your account session has expired. Please sign in again.',
+        });
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [showModal]);
 
   useEffect(() => {
     // Attempt to minimize dev menu visibility
@@ -40,11 +47,17 @@ export default function Login() {
   const signInWithEmail = async () => {
     // Validate inputs
     if (!email.trim()) {
-      Alert.alert('Validation Error', 'Please enter your email address.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your email address.',
+      });
       return;
     }
     if (!password.trim()) {
-      Alert.alert('Validation Error', 'Please enter your password.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your password.',
+      });
       return;
     }
 
@@ -64,10 +77,19 @@ export default function Login() {
       
       // For security and simplicity, don't distinguish between account existence and wrong password
       // This prevents email enumeration attacks
-      Alert.alert('Sign In Failed', 'Invalid email or password. Please check your credentials and try again.');
+      showModal({
+        title: 'Sign In Failed',
+        message: 'Invalid email or password. Please check your credentials and try again.',
+      });
     } else {
       console.log('✅ Password sign in successful, user:', passwordData.user?.email);
-      router.replace('/landing');
+      const returnTo = getReturnTo();
+      if (returnTo) {
+        clearReturnTo();
+        router.replace(returnTo.path as any);
+      } else {
+        router.replace('/landing');
+      }
     }
     setAuthLoading(false);
   };  const signUpWithEmail = async () => {
@@ -87,12 +109,21 @@ export default function Login() {
 
     if (error) {
       console.error('❌ OTP verification error:', error);
-      Alert.alert('Verification Failed', error.message);
+      showModal({
+        title: 'Verification Failed',
+        message: error.message,
+      });
     } else {
       console.log('✅ OTP verification successful');
       setShowOTPVerification(false);
       // Navigate to landing page after successful verification
-      router.replace('/landing');
+      const returnTo = getReturnTo();
+      if (returnTo) {
+        clearReturnTo();
+        router.replace(returnTo.path as any);
+      } else {
+        router.replace('/landing');
+      }
     }
 
     setAuthLoading(false);
@@ -105,9 +136,15 @@ export default function Login() {
     });
 
     if (error) {
-      Alert.alert('Error', 'Failed to resend code');
+      showModal({
+        title: 'Error',
+        message: 'Failed to resend code',
+      });
     } else {
-      Alert.alert('Code Sent', 'A new verification code has been sent to your email');
+      showModal({
+        title: 'Code Sent',
+        message: 'A new verification code has been sent to your email',
+      });
     }
   };
 
@@ -117,7 +154,10 @@ export default function Login() {
     });
 
     if (error) {
-      Alert.alert('Error', error.message);
+      showModal({
+        title: 'Error',
+        message: error.message,
+      });
     }
   };
 
@@ -131,7 +171,10 @@ export default function Login() {
       
       if (error) {
         console.log('🔍 No valid session found:', error);
-        Alert.alert('Account Status', 'No user currently signed in');
+        showModal({
+          title: 'Account Status',
+          message: 'No user currently signed in',
+        });
         return;
       }
 
@@ -141,7 +184,10 @@ export default function Login() {
         
         if (validationError) {
           console.log('🔍 Session validation failed:', validationError);
-          Alert.alert('Account Status', 'Session is invalid. Please log out and sign in again.');
+          showModal({
+            title: 'Account Status',
+            message: 'Session is invalid. Please log out and sign in again.',
+          });
         } else {
           console.log('🔍 Current user status:', {
             email: user.email,
@@ -149,16 +195,23 @@ export default function Login() {
             lastSignIn: user.last_sign_in_at,
             userId: user.id
           });
-          Alert.alert('Account Status', 
-            `Email: ${user.email}\nVerified: ${user.email_confirmed_at ? 'Yes' : 'No'}\nUser ID: ${user.id}`
-          );
+          showModal({
+            title: 'Account Status',
+            message: `Email: ${user.email}\nVerified: ${user.email_confirmed_at ? 'Yes' : 'No'}\nUser ID: ${user.id}`,
+          });
         }
       } else {
-        Alert.alert('Account Status', 'No user signed in');
+        showModal({
+          title: 'Account Status',
+          message: 'No user signed in',
+        });
       }
     } catch (error) {
       console.error('❌ Error checking account status:', error);
-      Alert.alert('Error', 'Failed to check account status');
+      showModal({
+        title: 'Error',
+        message: 'Failed to check account status',
+      });
     }
   };
 
@@ -172,10 +225,16 @@ export default function Login() {
       // Clear any cached session data
       console.log('🔄 Force clearing auth session...');
       
-      Alert.alert('Logged out', 'All authentication data has been cleared. The app will restart authentication.');
+      showModal({
+        title: 'Logged out',
+        message: 'All authentication data has been cleared. The app will restart authentication.',
+      });
     } catch (error) {
       console.error('❌ Error during force logout:', error);
-      Alert.alert('Error', 'Failed to clear authentication data');
+      showModal({
+        title: 'Error',
+        message: 'Failed to clear authentication data',
+      });
     }
   };
 

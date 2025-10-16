@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import { ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import { Asset, ImageLibraryOptions, ImagePickerResponse, launchImageLibrary } from 'react-native-image-picker';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
+import { useModal } from '../src/contexts/ModalContext';
 
 export default function Signup() {
   console.log('Signup screen rendered');
@@ -19,6 +21,9 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [pendingProviderId, setPendingProviderId] = useState<string | null>(null);
+  const [profileImage, setProfileImage] = useState<Asset | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const { showModal } = useModal();
 
   useEffect(() => {
     console.log('Signup screen loaded - creating beautiful user experience');
@@ -30,32 +35,147 @@ export default function Signup() {
   }, [phone]);
 
   const validateSignupInputs = () => {
+    setPhotoError(null);
     if (!firstName.trim()) {
-      Alert.alert('Validation Error', 'Please enter your first name.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your first name.',
+      });
       return false;
     }
     if (!lastName.trim()) {
-      Alert.alert('Validation Error', 'Please enter your last name.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your last name.',
+      });
       return false;
     }
     if (!email.trim()) {
-      Alert.alert('Validation Error', 'Please enter your email address.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your email address.',
+      });
       return false;
     }
     if (!password.trim()) {
-      Alert.alert('Validation Error', 'Please enter a password.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter a password.',
+      });
       return false;
     }
     if (password.length < 6) {
-      Alert.alert('Validation Error', 'Password must be at least 6 characters long.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Password must be at least 6 characters long.',
+      });
       return false;
     }
     if (password !== confirmPassword) {
-      Alert.alert('Validation Error', 'Passwords do not match.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Passwords do not match.',
+      });
+      return false;
+    }
+    if (!profileImage?.uri) {
+      setPhotoError('Profile picture is required.');
+      showModal({
+        title: 'Profile Picture Required',
+        message: 'Please upload a profile picture to continue.',
+      });
       return false;
     }
     return true;
   };
+
+  const handleSelectProfileImage = useCallback(() => {
+    const options: ImageLibraryOptions = {
+      mediaType: 'photo',
+      quality: 0.8,
+      selectionLimit: 1,
+    };
+
+    launchImageLibrary(
+      options,
+      (response: ImagePickerResponse) => {
+        if (response.didCancel) {
+          return;
+        }
+
+        if (response.errorCode) {
+          console.error('Image picker error:', response.errorMessage ?? response.errorCode);
+          showModal({
+            title: 'Photo Selection Failed',
+            message: response.errorMessage ?? 'Unable to access your photo library. Please try again.',
+          });
+          return;
+        }
+
+        const asset = response.assets?.[0];
+        if (asset?.uri) {
+          setProfileImage(asset);
+          setPhotoError(null);
+        } else {
+          showModal({
+            title: 'Photo Selection Failed',
+            message: 'No image was selected. Please choose a photo to continue.',
+          });
+        }
+      },
+    );
+  }, [showModal]);
+
+  const uploadProviderProfilePhoto = useCallback(
+    async (providerId: string) => {
+      if (!profileImage?.uri) {
+        return { success: false as const, url: null, error: null };
+      }
+
+      try {
+        const response = await fetch(profileImage.uri);
+        const blob = await response.blob();
+
+        const extension = profileImage.fileName?.split('.').pop()?.toLowerCase() ?? profileImage.type?.split('/').pop() ?? 'jpg';
+        const objectPath = `providers/${providerId}/${Date.now()}.${extension}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('profile-images')
+          .upload(objectPath, blob, {
+            cacheControl: '3600',
+            upsert: true,
+            contentType: profileImage.type ?? 'image/jpeg',
+          });
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('profile-images')
+          .getPublicUrl(objectPath);
+
+        const publicUrl = publicUrlData?.publicUrl ?? null;
+
+        if (publicUrl) {
+          const { error: updateError } = await supabase
+            .from('service_provider')
+            .update({ profile_picture_url: publicUrl })
+            .eq('service_provider_id', providerId);
+
+          if (updateError) {
+            throw updateError;
+          }
+        }
+
+        return { success: true as const, url: publicUrl, error: null };
+      } catch (error) {
+        console.error('Failed to upload profile image:', error);
+        return { success: false as const, url: null, error };
+      }
+    },
+    [profileImage],
+  );
 
   const signUpWithEmail = async () => {
     if (!validateSignupInputs()) return;
@@ -84,28 +204,40 @@ export default function Signup() {
 
       if (authError) {
         console.error('❌ Auth signup error:', authError);
-        Alert.alert('Signup Failed', authError.message);
+        showModal({
+          title: 'Signup Failed',
+          message: authError.message,
+        });
         setAuthLoading(false);
         return;
       }
 
       if (!authData.user) {
         console.error('❌ No user data returned from signup');
-        Alert.alert('Signup Failed', 'Account creation failed. Please try again.');
+        showModal({
+          title: 'Signup Failed',
+          message: 'Account creation failed. Please try again.',
+        });
         setAuthLoading(false);
         return;
       }
 
-      console.log('✅ Auth account created, user ID:', authData.user.id);
-      setPendingProviderId(authData.user.id);
+  console.log('✅ Auth account created, user ID:', authData.user.id);
+  setPendingProviderId(authData.user.id);
 
       // Show OTP verification modal - Supabase should have sent confirmation email
       setShowOTPVerification(true);
-      Alert.alert('Account Created!', 'Check your email for a 6-digit verification code to complete signup!');
+      showModal({
+        title: 'Account Created!',
+        message: 'Check your email for a 6-digit verification code to complete signup!',
+      });
 
     } catch (error) {
       console.error('❌ Unexpected signup error:', error);
-      Alert.alert('Signup Failed', 'An unexpected error occurred. Please try again.');
+      showModal({
+        title: 'Signup Failed',
+        message: 'An unexpected error occurred. Please try again.',
+      });
     }
 
     setAuthLoading(false);
@@ -122,11 +254,15 @@ export default function Signup() {
 
     if (error) {
       console.error('❌ OTP verification error:', error);
-      Alert.alert('Verification Failed', error.message);
+      showModal({
+        title: 'Verification Failed',
+        message: error.message,
+      });
     } else {
       console.log('✅ Email verified successfully');
+      const verifiedProviderId = data?.session?.user?.id ?? pendingProviderId;
       const ensureResult = await ensureServiceProviderProfile({
-        userId: data?.session?.user?.id ?? pendingProviderId,
+        userId: verifiedProviderId,
         firstName,
         lastName,
         email: email.trim(),
@@ -135,10 +271,20 @@ export default function Signup() {
 
       if (!ensureResult.success) {
         console.error('⚠️ Failed to ensure provider profile:', ensureResult.error);
-        Alert.alert(
-          'Profile Setup Incomplete',
-          'Your email was verified but we could not finish creating your profile. You can continue, but some features may be unavailable until your next sign in.',
-        );
+        showModal({
+          title: 'Profile Setup Incomplete',
+          message: 'Your email was verified but we could not finish creating your profile. You can continue, but some features may be unavailable until your next sign in.',
+        });
+      }
+
+      if (verifiedProviderId && profileImage?.uri) {
+        const uploadResult = await uploadProviderProfilePhoto(verifiedProviderId);
+        if (!uploadResult.success) {
+          showModal({
+            title: 'Photo Upload Incomplete',
+            message: 'We created your account but could not save your profile picture. You can add it later from your account settings.',
+          });
+        }
       }
 
       setPendingProviderId(null);
@@ -156,9 +302,15 @@ export default function Signup() {
     });
 
     if (error) {
-      Alert.alert('Error', 'Failed to resend code');
+      showModal({
+        title: 'Error',
+        message: 'Failed to resend code',
+      });
     } else {
-      Alert.alert('Code Sent', 'A new verification code has been sent to your email');
+      showModal({
+        title: 'Code Sent',
+        message: 'A new verification code has been sent to your email',
+      });
     }
   };
 
@@ -183,6 +335,19 @@ export default function Signup() {
           </View>
 
           <View style={styles.formContainer}>
+            <View style={styles.photoSection}>
+              <Pressable style={styles.photoPicker} onPress={handleSelectProfileImage}>
+                {profileImage?.uri ? (
+                  <Image source={{ uri: profileImage.uri }} style={styles.photoPreview} />
+                ) : (
+                  <View style={styles.photoPlaceholder}>
+                    <Text style={styles.photoPlaceholderText}>Tap to upload photo</Text>
+                  </View>
+                )}
+              </Pressable>
+              {photoError ? <Text style={styles.photoError}>{photoError}</Text> : null}
+            </View>
+
             <TextInput
               style={styles.input}
               placeholder="First Name"
@@ -342,8 +507,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 60,
-    marginBottom: 15,
+    marginTop: 30,
+    marginBottom: 30,
   },
   title: {
     fontSize: 24,
@@ -353,6 +518,46 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
+  },
+  photoSection: {
+    marginBottom: 15,
+  },
+  photoPicker: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#686868ff',
+    backgroundColor: '#E5DCC9',
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoPreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  photoPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f3ead7',
+  },
+  photoPlaceholderText: {
+    color: '#49454f',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  photoHelperText: {
+    marginTop: 8,
+    color: '#49454f',
+    fontSize: 13,
+  },
+  photoError: {
+    marginTop: 6,
+    color: '#a11313',
+    fontWeight: '600',
   },
   input: {
     backgroundColor: '#E5DCC9',

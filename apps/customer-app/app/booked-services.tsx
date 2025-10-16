@@ -1,11 +1,13 @@
-import { View, Text, Modal, StyleSheet, Pressable, Image, ScrollView, Alert, ActivityIndicator, GestureResponderEvent } from 'react-native';
+import { View, Text, Modal, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator, GestureResponderEvent } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, router } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
+import { useModal } from '../src/contexts/ModalContext';
+import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../src/lib/selectProModalTracker';
 
 type ServiceRow = {
   service_id: string;
@@ -24,6 +26,14 @@ type ServiceRow = {
   payment_method_type?: string | null;
   autofill_type?: string | null;
   description?: string | null;
+  service_provider_id?: string | null;
+};
+
+type ServiceProviderProfile = {
+  service_provider_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  profile_picture_url: string | null;
 };
 
 const EDIT_REQUEST_ICON_XML = `
@@ -37,6 +47,13 @@ export default function BookedServices() {
   const params = useLocalSearchParams();
   const showOverlay = params.showOverlay === 'true';
   const showConfirmedModal = params.showConfirmedModal === 'true';
+  const helprFirstNameParam = params.helprFirstName;
+  const helprFirstName = useMemo(() => {
+    if (!helprFirstNameParam) {
+      return null;
+    }
+    return Array.isArray(helprFirstNameParam) ? helprFirstNameParam[0] : helprFirstNameParam;
+  }, [helprFirstNameParam]);
   const serviceIdParam = params.serviceId;
   const temporaryServiceParam = params.temporaryService;
   const serviceId = useMemo(() => {
@@ -49,7 +66,10 @@ export default function BookedServices() {
   const [selectProModalVisible, setSelectProModalVisible] = useState(false);
   const [confirmationModalVisible, setConfirmationModalVisible] = useState(false);
   const [confirmationModalType, setConfirmationModalType] = useState<'finding_pros' | 'confirmed'>('finding_pros');
+  const [confirmedHelprName, setConfirmedHelprName] = useState<string | null>(null);
   const { user, loading: authLoading } = useAuth();
+  const { showModal } = useModal();
+  const isFocused = useIsFocused();
 
   // Parse temporary service data
   const temporaryService = useMemo(() => {
@@ -74,8 +94,10 @@ export default function BookedServices() {
   const [selectedService, setSelectedService] = useState<ServiceRow | null>(null);
   const selectedServiceId = selectedService?.service_id ?? null;
   const [fillRequestCounts, setFillRequestCounts] = useState<Record<string, number>>({});
+  const [providerProfiles, setProviderProfiles] = useState<Record<string, ServiceProviderProfile>>({});
   const initialLoadRef = useRef(true);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previousServiceStatusesRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (showOverlay || temporaryService) {
@@ -86,9 +108,10 @@ export default function BookedServices() {
   useEffect(() => {
     if (showConfirmedModal) {
       setConfirmationModalType('confirmed');
+      setConfirmedHelprName(helprFirstName);
       setConfirmationModalVisible(true);
     }
-  }, [showConfirmedModal]);
+  }, [showConfirmedModal, helprFirstName]);
 
   const closeOverlay = useCallback(() => {
     setOverlayVisible(false);
@@ -162,6 +185,42 @@ export default function BookedServices() {
 
       setServices(serviceData ?? []);
 
+      const providerIds = Array.from(
+        new Set(
+          (serviceData ?? [])
+            .map(item => (item as ServiceRow)?.service_provider_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      );
+
+      if (providerIds.length > 0) {
+        const { data: providerRows, error: providerError } = await supabase
+          .from('service_provider')
+          .select('service_provider_id, first_name, last_name, profile_picture_url')
+          .in('service_provider_id', providerIds);
+
+        if (providerError) {
+          console.error('Failed to load provider profiles:', providerError);
+          setProviderProfiles({});
+        } else {
+          const profiles: Record<string, ServiceProviderProfile> = {};
+          providerRows?.forEach(row => {
+            if (!row || !row.service_provider_id) {
+              return;
+            }
+            profiles[row.service_provider_id] = {
+              service_provider_id: row.service_provider_id,
+              first_name: row.first_name ?? null,
+              last_name: row.last_name ?? null,
+              profile_picture_url: row.profile_picture_url ?? null,
+            };
+          });
+          setProviderProfiles(profiles);
+        }
+      } else {
+        setProviderProfiles({});
+      }
+
       if (!serviceData || serviceData.length === 0) {
         setSelectedService(null);
         setFillRequestCounts({});
@@ -199,6 +258,7 @@ export default function BookedServices() {
       setServicesError('Unable to load your services right now.');
       setSelectedService(null);
       setFillRequestCounts({});
+      setProviderProfiles({});
     } finally {
       setServicesLoading(false);
       initialLoadRef.current = false;
@@ -241,6 +301,53 @@ export default function BookedServices() {
     };
   }, [authLoading, fetchServices]);
 
+  useEffect(() => {
+    if (!user) {
+      resetSelectProModalTracker();
+      previousServiceStatusesRef.current = {};
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+
+    const previous = previousServiceStatusesRef.current;
+    const next: Record<string, string> = {};
+
+    services.forEach(service => {
+      if (!service?.service_id) {
+        return;
+      }
+
+      const normalizedStatus = (service.status ?? '').toLowerCase();
+      next[service.service_id] = normalizedStatus;
+
+      const priorStatus = previous[service.service_id];
+      const alreadyShown = hasShownSelectProModal(service.service_id);
+
+      if (
+        priorStatus === 'finding_pros' &&
+        normalizedStatus === 'select_service_provider' &&
+        !alreadyShown
+      ) {
+        markSelectProModalShown(service.service_id);
+        showModal({
+          title: 'Select a Pro',
+          message: 'Workers are available to fill your request! Select a pro when you\'re ready.',
+          buttons: [
+            {
+              text: 'Close',
+            },
+          ],
+        });
+      }
+    });
+
+    previousServiceStatusesRef.current = next;
+  }, [isFocused, services, showModal]);
+
   const formatStatusLabel = useCallback((status?: string | null) => {
     if (!status) {
       return 'Finding Pros';
@@ -249,6 +356,15 @@ export default function BookedServices() {
     const normalized = status.toLowerCase();
     if (normalized === 'cancelled') {
       return 'Cancelled';
+    }
+    if (normalized === 'helpr_otw') {
+      return 'On the Way';
+    }
+    if (normalized === 'in_progress') {
+      return 'In Progress';
+    }
+    if (normalized === 'confirmed') {
+      return 'Job Confirmed';
     }
 
     return 'Finding Pros';
@@ -332,6 +448,12 @@ export default function BookedServices() {
     
     const filtered = allServices.filter(service => {
       const type = (service.scheduling_type ?? '').toLowerCase();
+      const status = (service.status ?? '').toLowerCase();
+
+      // Exclude completed services
+      if (status === 'completed') {
+        return false;
+      }
 
       if (!type) {
         return false;
@@ -426,12 +548,37 @@ export default function BookedServices() {
   const renderServiceCard = (service: ServiceRow) => {
     const isSelected = selectedService?.service_id === service.service_id;
     const requestCount = fillRequestCounts[service.service_id] ?? 0;
-  const normalizedStatus = (service.status ?? '').toLowerCase();
-  const isConfirmed = normalizedStatus === 'confirmed';
-  const hasRequests = requestCount > 0 && !isConfirmed;
-  const statusLabel = isConfirmed ? 'Job Confirmed' : hasRequests ? 'Select a Pro' : formatStatusLabel(service.status);
+    const normalizedStatus = (service.status ?? '').toLowerCase();
+    const isConfirmed = normalizedStatus === 'confirmed';
+    const isHelprOtw = normalizedStatus === 'helpr_otw';
+    const isInProgress = normalizedStatus === 'in_progress';
+    const hasRequests = requestCount > 0 && !isConfirmed && !isHelprOtw && !isInProgress;
+    
+    // Determine status label with priority
+    let statusLabel: string;
+    if (isHelprOtw) {
+      statusLabel = 'On the Way';
+    } else if (isInProgress) {
+      statusLabel = 'In Progress';
+    } else if (isConfirmed) {
+      statusLabel = 'Job Confirmed';
+    } else if (hasRequests) {
+      statusLabel = 'Select a Pro';
+    } else {
+      statusLabel = formatStatusLabel(service.status);
+    }
+    
     const shortLocation = getShortLocation(service);
     const priceLabel = formatPrice(service.price);
+    const profile = service.service_provider_id ? providerProfiles[service.service_provider_id] : undefined;
+    const providerFirstName = profile?.first_name?.trim() || null;
+    const providerLastName = profile?.last_name?.trim() || null;
+    const displayProviderName = providerFirstName || 'Your Helpr';
+    const providerInitials = `${providerFirstName ? providerFirstName.charAt(0) : ''}${providerLastName ? providerLastName.charAt(0) : ''}`.toUpperCase() || 'H';
+    const profileImageUrl = profile?.profile_picture_url ?? null;
+    const isAssigned = isConfirmed || isHelprOtw || isInProgress;
+    const hasAssignedProvider = Boolean(service.service_provider_id);
+  const assignedSubtitle = isHelprOtw ? 'On the Way' : isInProgress ? 'In Progress' : 'Job Confirmed';
 
     const statusContent = (
       <View style={styles.statusContentRow}>
@@ -472,11 +619,24 @@ export default function BookedServices() {
               >
                 {statusContent}
               </Pressable>
-            ) : isConfirmed ? (
-              <View style={[styles.serviceStatusPill, styles.confirmedStatusPill]}>{statusContent}</View>
-            ) : (
+            ) : isConfirmed ? null : (
               <View style={styles.serviceStatusPill}>{statusContent}</View>
             )}
+            {isAssigned && hasAssignedProvider ? (
+              <View style={styles.confirmedProfileRow}>
+                <View style={styles.confirmedProfileCircle}>
+                  {profileImageUrl ? (
+                    <Image source={{ uri: profileImageUrl }} style={styles.confirmedProfileImage} />
+                  ) : (
+                    <Text style={styles.confirmedProfileInitials}>{providerInitials}</Text>
+                  )}
+                </View>
+                <View style={styles.confirmedProviderMeta}>
+                  <Text style={styles.confirmedProviderName} numberOfLines={1}>{displayProviderName}</Text>
+                  <Text style={styles.confirmedProviderSubtitle} numberOfLines={1}>{assignedSubtitle}</Text>
+                </View>
+              </View>
+            ) : null}
             <View style={styles.cardActionRow}>
               <Pressable style={styles.editRequestGroup} onPress={() => handleEditRequest(service)}>
                 <View style={styles.editRequestIconWrapper}>
@@ -495,15 +655,35 @@ export default function BookedServices() {
               </View>
             </View>
           </View>
-          <View style={styles.priceColumn}>
-            <View style={styles.priceRow}>
-              <Text style={styles.priceValue}>{priceLabel}</Text>
-              <Text style={styles.priceEstimate}>est.</Text>
+          {isAssigned ? (
+            <View style={styles.confirmedButtonColumn}>
+              {isConfirmed && (
+                <Text style={styles.confirmedPriceLabel}>{priceLabel}</Text>
+              )}
+              <Pressable
+                style={[styles.showDetailsButton, isConfirmed ? styles.showDetailsButtonCompact : null]}
+                onPress={() => router.push({
+                  pathname: '/ServiceDetails' as any,
+                  params: { serviceId: service.service_id }
+                })}
+                accessibilityRole="button"
+                accessibilityLabel="View service details"
+                accessibilityHint="Opens the full service details screen"
+              >
+                <Text style={styles.showDetailsButtonText}>Service Details</Text>
+              </Pressable>
             </View>
-            <Pressable style={styles.serviceCancelButton} onPress={() => handleCancelService(service)}>
-              <Text style={styles.serviceCancelButtonText}>Cancel</Text>
-            </Pressable>
-          </View>
+          ) : (
+            <View style={styles.priceColumn}>
+              <View style={styles.priceRow}>
+                <Text style={styles.priceValue}>{priceLabel}</Text>
+                <Text style={styles.priceEstimate}>est.</Text>
+              </View>
+              <Pressable style={styles.serviceCancelButton} onPress={() => handleCancelService(service)}>
+                <Text style={styles.serviceCancelButtonText}>Cancel</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </Pressable>
     );
@@ -512,6 +692,15 @@ export default function BookedServices() {
   const cancelService = useCallback(
     async (serviceIdToCancel: string) => {
       try {
+        const { error: requestError } = await supabase
+          .from('service_fill_request')
+          .delete()
+          .eq('service_id', serviceIdToCancel);
+
+        if (requestError) {
+          throw requestError;
+        }
+
         const { error } = await supabase
           .from('service')
           .delete()
@@ -524,18 +713,21 @@ export default function BookedServices() {
         await fetchServices();
       } catch (error) {
         console.error('Failed to delete service:', error);
-        Alert.alert('Delete failed', 'Unable to delete this service right now.');
+        showModal({
+          title: 'Delete failed',
+          message: 'Unable to delete this service right now.',
+        });
       }
     },
-    [fetchServices],
+    [fetchServices, showModal],
   );
 
   const handleCancelService = useCallback(
     (service: ServiceRow) => {
-      Alert.alert(
-        'Cancel request?',
-        'This will permanently remove the service from your account.',
-        [
+      showModal({
+        title: 'Cancel request?',
+        message: 'This will permanently remove the service from your account.',
+        buttons: [
           { text: 'Keep', style: 'cancel' },
           {
             text: 'Cancel service',
@@ -543,9 +735,9 @@ export default function BookedServices() {
             onPress: () => cancelService(service.service_id),
           },
         ],
-      );
+      });
     },
-    [cancelService],
+    [cancelService, showModal],
   );
 
   const handleEditRequest = useCallback((service: ServiceRow) => {
@@ -576,9 +768,12 @@ export default function BookedServices() {
       });
     } catch (error) {
       console.error('Failed to open edit request:', error);
-      Alert.alert('Unable to edit', 'We could not open this request for editing right now.');
+      showModal({
+        title: 'Unable to edit',
+        message: 'We could not open this request for editing right now.',
+      });
     }
-  }, []);
+  }, [showModal]);
 
   const handleSelectPro = useCallback((service: ServiceRow) => {
     if (!service?.service_id) {
@@ -598,7 +793,10 @@ export default function BookedServices() {
       const effectiveServiceId = targetServiceId ?? serviceId ?? selectedServiceId ?? null;
 
       if (!effectiveServiceId) {
-        Alert.alert('Missing request', 'Unable to find the service you are scheduling. Please restart the request.');
+        showModal({
+          title: 'Missing request',
+          message: 'Unable to find the service you are scheduling. Please restart the request.',
+        });
         return false;
       }
 
@@ -615,18 +813,24 @@ export default function BookedServices() {
         return true;
       } catch (error) {
         console.error('Failed to update service scheduling:', error);
-        Alert.alert('Scheduling failed', 'Unable to update your service. Please try again.');
+        showModal({
+          title: 'Scheduling failed',
+          message: 'Unable to update your service. Please try again.',
+        });
         return false;
       }
     },
-    [selectedServiceId, serviceId],
+    [selectedServiceId, serviceId, showModal],
   );
 
   const handleScheduleAsap = useCallback(async () => {
     const targetService = selectedService || temporaryService;
     
     if (!targetService) {
-      Alert.alert('No service selected', 'Please select a service to schedule.');
+      showModal({
+        title: 'No service selected',
+        message: 'Please select a service to schedule.',
+      });
       return;
     }
 
@@ -635,7 +839,10 @@ export default function BookedServices() {
       const { error } = await supabase.from('service').insert(temporaryService);
       if (error) {
         console.error('Failed to create service:', error);
-        Alert.alert('Scheduling failed', 'Unable to save your service. Please try again.');
+        showModal({
+          title: 'Scheduling failed',
+          message: 'Unable to save your service. Please try again.',
+        });
         return;
       }
     }
@@ -651,7 +858,7 @@ export default function BookedServices() {
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
     }
-  }, [closeOverlay, fetchServices, selectedService, temporaryService, updateServiceRow]);
+  }, [closeOverlay, fetchServices, selectedService, showModal, temporaryService, updateServiceRow]);
 
   const isDateInPast = (day: number) => {
     const today = new Date();
@@ -674,7 +881,10 @@ export default function BookedServices() {
     const targetService = selectedService || temporaryService;
     
     if (!targetService) {
-      Alert.alert('No service selected', 'Please select a service to schedule.');
+      showModal({
+        title: 'No service selected',
+        message: 'Please select a service to schedule.',
+      });
       return;
     }
 
@@ -683,7 +893,10 @@ export default function BookedServices() {
       const { error } = await supabase.from('service').insert(temporaryService);
       if (error) {
         console.error('Failed to create service:', error);
-        Alert.alert('Scheduling failed', 'Unable to save your service. Please try again.');
+        showModal({
+          title: 'Scheduling failed',
+          message: 'Unable to save your service. Please try again.',
+        });
         return;
       }
     }
@@ -714,7 +927,7 @@ export default function BookedServices() {
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
     }
-  }, [fetchServices, selectedDate, selectedTimeSlot, selectedService, temporaryService, updateServiceRow]);
+  }, [fetchServices, selectedDate, selectedTimeSlot, selectedService, showModal, temporaryService, updateServiceRow]);
 
   return (
     <View style={styles.container}>
@@ -1025,9 +1238,7 @@ export default function BookedServices() {
         <View style={styles.overlayBackground}>
           <View style={styles.selectProModal}>
             <Text style={styles.selectProTitle}>Select a Pro</Text>
-            <View style={styles.DividerContainer1}>
-              <View style={styles.DividerLine1} />
-            </View>
+            <View style={styles.selectProDivider} />
             <Text style={styles.selectProMessage}>
               Workers are available to fill your request!{'\n'}Select a pro when you&apos;re ready.
             </Text>
@@ -1059,8 +1270,8 @@ export default function BookedServices() {
             <View style={styles.confirmationDivider} />
             <Text style={styles.confirmationMessage}>
               {confirmationModalType === 'confirmed' 
-                ? 'Your Helpr has been confirmed and will arrive at the scheduled time.'
-                : 'Finding available workers. You will be notified when it\'s time to select a pro.'}
+                ? `We'll let you know when ${confirmedHelprName} is on the way. Thanks for choosing Helpr!`
+                : 'Finding available workers. We\'ll notify you when it\'s time to select a pro.'}
             </Text>
             <Pressable 
               style={styles.confirmationOkButton} 
@@ -1245,7 +1456,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 18,
     paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingVertical: 3,
     marginBottom: 4,
   },
   serviceTypeText: {
@@ -1658,11 +1869,12 @@ const styles = StyleSheet.create({
     // No additional styling needed, inherits from container
   },
   selectProModal: {
-    width: '75%',
+    width: '70%',
     backgroundColor: '#FFF8E8',
     borderRadius: 30,
     paddingTop: 10,
-    paddingBottom: 15,
+    paddingBottom: 10,
+    paddingHorizontal: 30,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -1671,47 +1883,45 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 10,
   },
-  DividerContainer1: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 5,
-    marginBottom: 10,
-    width: '100%', // Ensure full width
-  },
-  DividerLine1: {
-    flex: 1, // Take up available space instead of fixed width
-    height: 2,
-    backgroundColor: '#bfbebcff',
-    maxWidth: 350, // Optional: limit max width for better appearance
-  },
   selectProTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#0c4309',
     textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 4,
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  selectProDivider: {
+    alignSelf: 'stretch',
+    height: 1,
+    backgroundColor: '#CAC4D0',
+    marginBottom: 10,
+    marginHorizontal: -30,
   },
   selectProMessage: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
     color: '#0c4309',
     textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 14,
-    padding: 10,
+    lineHeight: 16,
+    marginBottom: 12,
+    paddingHorizontal: 0,
   },
   selectProOkButton: {
     backgroundColor: '#0c4309',   
     borderRadius: 30,
-    paddingVertical: 10,
-    paddingHorizontal: 80,
-    minWidth: 80,
+    paddingVertical: 5,
+    paddingHorizontal: 60,
+    minWidth: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   selectProOkText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -1734,7 +1944,7 @@ const styles = StyleSheet.create({
   },
   confirmationModal: {
     width: '70%',
-    backgroundColor: '#FFF8E8',
+    backgroundColor: '#E5DCC9',
     borderRadius: 30,
     paddingTop: 10,
     paddingBottom: 10,
@@ -1788,5 +1998,76 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  confirmedButtonColumn: {
+    width: 140,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+  },
+  confirmedProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  confirmedProfileCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#FFF8E8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#C0B9A6',
+  },
+  confirmedProfileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
+  },
+  confirmedProfileInitials: {
+    color: '#0c4309',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  confirmedProviderMeta: {
+    flexShrink: 1,
+  },
+  confirmedProviderName: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  confirmedProviderSubtitle: {
+    color: '#0c4309',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  confirmedPriceLabel: {
+    color: '#0c4309',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  showDetailsButton: {
+    width: '100%',
+    paddingVertical: 30,
+    backgroundColor: '#FFF8E8',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#C0B9A6',
+  },
+  showDetailsButtonCompact: {
+    paddingVertical: 16,
+  },
+  showDetailsButtonText: {
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0c4309',
   },
 });

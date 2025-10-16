@@ -3,13 +3,14 @@ import * as Location from 'expo-location';
 import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../src/contexts/AuthContext';
+import { useModal } from '../src/contexts/ModalContext';
 import { supabase } from '../src/lib/supabase';
 
 type PlaceSuggestion = {
@@ -56,6 +57,7 @@ type LocationAutocompleteInputProps = {
   suggestions: PlaceSuggestion[];
   loading: boolean;
   currentLocationOption?: CurrentLocationOption;
+  onSuggestionsVisibilityChange?: (visible: boolean) => void;
 };
 
 const createUuid = () => {
@@ -249,11 +251,18 @@ const LocationAutocompleteInput = React.memo<LocationAutocompleteInputProps>(
     suggestions,
     loading,
     currentLocationOption,
+    onSuggestionsVisibilityChange,
   }) => {
     const [isFocused, setIsFocused] = useState(false);
     const hasInput = value.trim().length > 0;
     const shouldShowSuggestions =
       isFocused && hasInput && (loading || Boolean(currentLocationOption) || suggestions.length > 0);
+
+    useEffect(() => {
+      if (onSuggestionsVisibilityChange) {
+        onSuggestionsVisibilityChange(shouldShowSuggestions);
+      }
+    }, [onSuggestionsVisibilityChange, shouldShowSuggestions]);
 
     return (
       <View style={styles.autocompleteWrapper}>
@@ -355,7 +364,8 @@ const LocationAutocompleteInput = React.memo<LocationAutocompleteInputProps>(
 LocationAutocompleteInput.displayName = 'LocationAutocompleteInput';
 
 export default function Moving() {
-  const { user } = useAuth();
+  const { user, setReturnTo, getReturnTo, clearReturnTo } = useAuth();
+  const { showModal } = useModal();
   const params = useLocalSearchParams<{ editServiceId?: string | string[]; editService?: string | string[] }>();
   const editServiceId = useMemo(() => {
     const raw = params.editServiceId;
@@ -420,6 +430,12 @@ export default function Moving() {
   const mapRef = useRef<MapView | null>(null);
   const startDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const locationSnapshotRef = useRef<{
+    startQuery: string;
+    endQuery: string;
+    startLocation: SelectedLocation | null;
+    endLocation: SelectedLocation | null;
+  } | null>(null);
   const [startSessionToken, setStartSessionToken] = useState(createSessionToken);
   const [endSessionToken, setEndSessionToken] = useState(createSessionToken);
   const [startQuery, setStartQuery] = useState('');
@@ -428,6 +444,7 @@ export default function Moving() {
   const [endSuggestions, setEndSuggestions] = useState<PlaceSuggestion[]>([]);
   const [startLoading, setStartLoading] = useState(false);
   const [endLoading, setEndLoading] = useState(false);
+  const [isEndSuggestionsVisible, setIsEndSuggestionsVisible] = useState(false);
   const [startLocation, setStartLocation] = useState<SelectedLocation | null>(null);
   const [endLocation, setEndLocation] = useState<SelectedLocation | null>(null);
   const [locationPermissionStatus, setLocationPermissionStatus] = useState<PermissionStatus>(
@@ -448,6 +465,7 @@ export default function Moving() {
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSignInModal, setShowSignInModal] = useState(false);
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -613,6 +631,36 @@ export default function Moving() {
       isMounted = false;
     };
   }, [loadCurrentLocation]);
+
+  // Restore service details after sign-in
+  useEffect(() => {
+    if (user) {
+      const returnTo = getReturnTo();
+      if (returnTo && returnTo.path === '/moving' && returnTo.data) {
+        const data = returnTo.data;
+        
+        // Restore locations
+        if (data.startLocation) {
+          setStartLocation(data.startLocation);
+          setStartQuery(data.startLocation.description);
+        }
+        if (data.endLocation) {
+          setEndLocation(data.endLocation);
+          setEndQuery(data.endLocation.description);
+        }
+        
+        // Restore other fields
+        if (data.description) setDescription(data.description);
+        if (data.priceQuote) setPriceQuote(data.priceQuote);
+        if (data.attachments) setAttachments(data.attachments);
+        if (typeof data.isAuto === 'boolean') setIsAuto(data.isAuto);
+        if (typeof data.isPersonal === 'boolean') setIsPersonal(data.isPersonal);
+        
+        // Clear the saved data
+        clearReturnTo();
+      }
+    }
+  }, [user, getReturnTo, clearReturnTo]);
 
   const applyLocation = useCallback((target: 'start' | 'end', location: SelectedLocation) => {
     if (target === 'start') {
@@ -964,13 +1012,16 @@ export default function Moving() {
     }
 
     if (!startLocation || !endLocation) {
-      Alert.alert('Missing locations', 'Please enter start and end location.');
+      showModal({
+        title: 'Missing locations',
+        message: 'Please enter start and end location.',
+      });
       return;
     }
 
     Keyboard.dismiss();
     fetchPriceEstimate(trimmed, { start: startLocation, end: endLocation });
-  }, [description, endLocation, fetchPriceEstimate, isPriceLoading, isTranscribing, startLocation]);
+  }, [description, endLocation, fetchPriceEstimate, isPriceLoading, isTranscribing, showModal, startLocation]);
 
   const resolveCustomerId = useCallback(async () => {
     if (customerId) {
@@ -1012,7 +1063,10 @@ export default function Moving() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert('Permission needed', 'Enable photo library access to attach images or videos.');
+        showModal({
+          title: 'Permission needed',
+          message: 'Enable photo library access to attach images or videos.',
+        });
         return;
       }
 
@@ -1033,8 +1087,32 @@ export default function Moving() {
       setAttachments(prev => [...prev, { uri: asset.uri, type, name }]);
     } catch (error) {
       console.warn('Media picker error', error);
-      Alert.alert('Upload failed', 'Unable to select media right now.');
+      showModal({
+        title: 'Upload failed',
+        message: 'Unable to select media right now.',
+      });
     }
+  }, [showModal]);
+
+  const snapshotLocations = useCallback(() => {
+    locationSnapshotRef.current = {
+      startQuery,
+      endQuery,
+      startLocation,
+      endLocation,
+    };
+  }, [endLocation, endQuery, startLocation, startQuery]);
+
+  const restoreLocations = useCallback(() => {
+    const snapshot = locationSnapshotRef.current;
+    if (!snapshot) {
+      return;
+    }
+
+    setStartQuery(snapshot.startQuery);
+    setEndQuery(snapshot.endQuery);
+    setStartLocation(snapshot.startLocation);
+    setEndLocation(snapshot.endLocation);
   }, []);
 
   const handleScheduleHelpr = useCallback(async () => {
@@ -1043,18 +1121,56 @@ export default function Moving() {
     }
 
     if (!user) {
-      Alert.alert('Sign in required', 'Please sign in to schedule a moving service.');
-      router.push('/login');
+      // Save current page and data for return after sign-in
+      setReturnTo('/moving', {
+        startLocation,
+        endLocation,
+        description,
+        isAuto,
+        isPersonal,
+        priceQuote,
+        attachments,
+      });
+      setShowSignInModal(true);
+      return;
+    }
+
+    const trimmedDescription = description.trim();
+    if (trimmedDescription.length === 0) {
+      snapshotLocations();
+      showModal({
+        title: 'Add a description',
+        message: 'Please describe what you need help with before scheduling your moving service.',
+        onDismiss: restoreLocations,
+      });
+      return;
+    }
+
+    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
+    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
+    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
+
+    if (sanitizedPrice === null) {
+      showModal({
+        title: 'Description Missing',
+        message: 'Please enter a description before scheduling your moving service.',
+      });
       return;
     }
 
     if (!startLocation || !endLocation) {
-      Alert.alert('Add locations', 'Please provide both start and end locations before scheduling.');
+      showModal({
+        title: 'Add locations',
+        message: 'Please provide both start and end locations before scheduling.',
+      });
       return;
     }
 
     if (isEditing && !editServiceId) {
-      Alert.alert('Unable to edit', 'We could not determine which service to update.');
+      showModal({
+        title: 'Unable to edit',
+        message: 'We could not determine which service to update.',
+      });
       return;
     }
 
@@ -1068,18 +1184,17 @@ export default function Moving() {
       const resolvedCustomerId = await resolveCustomerId();
 
       if (!resolvedCustomerId) {
-        Alert.alert('Account issue', 'We could not find your customer profile. Please try again.');
+        showModal({
+          title: 'Account issue',
+          message: 'We could not find your customer profile. Please try again.',
+        });
         return;
       }
 
       resolvedCustomerIdValue = resolvedCustomerId;
     }
 
-  const priceDigits = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-  const priceValue = priceDigits.length > 0 ? Number(priceDigits) : null;
-  const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
-  const trimmedDescription = description.trim();
-  const normalizedDescription = trimmedDescription.length > 0 ? trimmedDescription : null;
+  const normalizedDescription = trimmedDescription;
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
@@ -1104,7 +1219,10 @@ export default function Moving() {
 
         if (error) {
           console.error('Failed to update moving service:', error);
-          Alert.alert('Update failed', 'Unable to save changes to your moving request. Please try again.');
+          showModal({
+            title: 'Update failed',
+            message: 'Unable to save changes to your moving request. Please try again.',
+          });
           return;
         }
 
@@ -1116,7 +1234,10 @@ export default function Moving() {
       }
 
       if (!resolvedCustomerIdValue) {
-        Alert.alert('Account issue', 'We could not find your customer profile. Please try again.');
+        showModal({
+          title: 'Account issue',
+          message: 'We could not find your customer profile. Please try again.',
+        });
         return;
       }
 
@@ -1150,11 +1271,16 @@ export default function Moving() {
       });
     } catch (error) {
       console.error('Unexpected scheduling error:', error);
-      Alert.alert('Scheduling failed', 'An unexpected error occurred. Please try again.');
+      showModal({
+        title: 'Scheduling failed',
+        message: 'An unexpected error occurred. Please try again.',
+      });
     } finally {
       setIsSubmitting(false);
     }
   }, [
+    attachments,
+    showModal,
     customerId,
     customerLookupError,
     description,
@@ -1167,6 +1293,9 @@ export default function Moving() {
     priceQuote,
     resolveCustomerId,
     router,
+    setReturnTo,
+    snapshotLocations,
+    restoreLocations,
     startLocation,
     user,
   ]);
@@ -1174,7 +1303,10 @@ export default function Moving() {
   const transcribeAudioAsync = useCallback(
     async (uri: string) => {
       if (!openAiApiKey) {
-        Alert.alert('Missing API key', 'Add an OpenAI API key to enable voice mode.');
+        showModal({
+          title: 'Missing API key',
+          message: 'Add an OpenAI API key to enable voice mode.',
+        });
         return '';
       }
 
@@ -1206,13 +1338,16 @@ export default function Moving() {
         return text;
       } catch (error) {
         console.warn('Transcription error', error);
-        Alert.alert('Transcription failed', 'Unable to transcribe your recording.');
+        showModal({
+          title: 'Transcription failed',
+          message: 'Unable to transcribe your recording.',
+        });
         return '';
       } finally {
         FileSystem.deleteAsync(uri).catch(() => undefined);
       }
     },
-    [openAiApiKey],
+    [openAiApiKey, showModal],
   );
 
   const stopRecordingAndTranscribe = useCallback(async () => {
@@ -1268,7 +1403,10 @@ export default function Moving() {
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
-        Alert.alert('Microphone needed', 'Enable microphone access to record your request.');
+        showModal({
+          title: 'Microphone needed',
+          message: 'Enable microphone access to record your request.',
+        });
         return;
       }
 
@@ -1287,9 +1425,12 @@ export default function Moving() {
       setIsRecording(true);
     } catch (error) {
       console.warn('Failed to start recording', error);
-      Alert.alert('Recording failed', 'Unable to start voice mode.');
+      showModal({
+        title: 'Recording failed',
+        message: 'Unable to start voice mode.',
+      });
     }
-  }, [isRecording, isTranscribing, stopRecordingAndTranscribe]);
+  }, [isRecording, isTranscribing, showModal, stopRecordingAndTranscribe]);
 
   const fetchPredictions = useCallback(
     async (
@@ -1521,6 +1662,10 @@ export default function Moving() {
     [currentLocationLoading, currentLocationLoadingTarget, currentLocationSecondaryText, handleUseCurrentLocation],
   );
 
+  const handleEndSuggestionsVisibilityChange = useCallback((visible: boolean) => {
+    setIsEndSuggestionsVisible(visible);
+  }, []);
+
   useEffect(() => {
     if (!startLocation || !endLocation) {
       setRouteCoordinates([]);
@@ -1687,7 +1832,13 @@ export default function Moving() {
               />
               </View>
             </View>
-            <View style={[styles.locationSection2, styles.locationSectionEnd]}>
+            <View
+              style={[
+                styles.locationSection2,
+                styles.locationSectionEnd,
+                isEndSuggestionsVisible && styles.locationSectionEndDropdownVisible,
+              ]}
+            >
               <View style={styles.locationLabelRow}>
                 <Image
                   source={require('../assets/icons/finish-flag.png')}
@@ -1705,6 +1856,7 @@ export default function Moving() {
                   (currentLocationLoading && currentLocationLoadingTarget === 'end')
                 }
                 currentLocationOption={endCurrentLocationOption}
+                onSuggestionsVisibilityChange={handleEndSuggestionsVisibilityChange}
               />
               </View>
               
@@ -1929,6 +2081,50 @@ export default function Moving() {
           </View>
         </View>
       </View>
+
+      {/* Sign-In Required Modal */}
+      <Modal
+        visible={showSignInModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSignInModal(false)}
+      >
+        <View style={styles.signInOverlayBackground}>
+          <View style={styles.signInModal}>
+            <Text style={styles.signInTitle}>Sign In Required</Text>
+            <View style={styles.signInDivider} />
+            <Text style={styles.signInMessage}>
+              Please sign in or sign up to schedule a moving service.
+            </Text>
+            <View style={styles.signInButtonsRow}>
+              <Pressable 
+                style={styles.signInButton} 
+                onPress={() => {
+                  setShowSignInModal(false);
+                  router.push('/login');
+                }}
+              >
+                <Text style={styles.signInButtonText}>Sign In</Text>
+              </Pressable>
+              <Pressable 
+                style={styles.signUpButton} 
+                onPress={() => {
+                  setShowSignInModal(false);
+                  router.push('/signup');
+                }}
+              >
+                <Text style={styles.signUpButtonText}>Sign Up</Text>
+              </Pressable>
+            </View>
+            <Pressable
+              style={styles.cancelButton}
+              onPress={() => setShowSignInModal(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2464,9 +2660,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5DCC9',
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
-    paddingHorizontal: 6,
+    paddingLeft: 6,
+    paddingRight: 0,
     marginBottom: 10,
     position: 'relative',
+  },
+
+  locationSectionEndDropdownVisible: {
+    borderBottomRightRadius: 0,
   },
 
   locationSectionStart: {
@@ -2593,5 +2794,105 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     resizeMode: 'contain',
+  },
+  // Sign-In Modal Styles
+  signInOverlayBackground: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  signInModal: {
+    width: '70%',
+    backgroundColor: '#FFF8E8',
+    borderRadius: 30,
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  signInTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0c4309',
+    textAlign: 'center',
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  signInDivider: {
+    alignSelf: 'stretch',
+    height: 1,
+    backgroundColor: '#CAC4D0',
+    marginBottom: 10,
+    marginHorizontal: -30,
+  },
+  signInMessage: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#0c4309',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginBottom: 16,
+    paddingHorizontal: 0,
+  },
+  signInButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 12,
+  },
+  signInButton: {
+    flex: 1,
+    backgroundColor: '#0c4309',
+    borderRadius: 30,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  signInButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  signUpButton: {
+    flex: 1,
+    backgroundColor: '#E5DCC9',
+    borderRadius: 30,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderWidth: 2,
+    borderColor: '#0c4309',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  signUpButtonText: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  cancelButton: {
+    marginTop: 12,
+    paddingVertical: 6,
+  },
+  cancelButtonText: {
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });

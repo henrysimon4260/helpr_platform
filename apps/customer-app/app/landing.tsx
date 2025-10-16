@@ -1,14 +1,18 @@
-import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSourcePropType, Platform, InteractionManager, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Animated, Easing, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSourcePropType, Platform, InteractionManager, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Animated, Easing, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { SvgXml } from 'react-native-svg';
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { RouteParams } from '../constants/routes';
 import { useAuth } from '../src/contexts/AuthContext';
+import { useModal } from '../src/contexts/ModalContext';
+import { supabase } from '../src/lib/supabase';
+import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../src/lib/selectProModalTracker';
 // @ts-ignore - Only for native platforms
 import LottieView from 'lottie-react-native';
 
@@ -34,7 +38,7 @@ const resolveOpenAIApiKey = () => {
 
 export default function Landing() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -47,9 +51,14 @@ export default function Landing() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const { showModal } = useModal();
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const isScreenFocused = useIsFocused();
+  const userEmail = user?.email ?? null;
+  const statusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previousServiceStatusesRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -130,6 +139,108 @@ export default function Landing() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      previousServiceStatusesRef.current = {};
+      resetSelectProModalTracker();
+    }
+  }, [user]);
+
+  const evaluateServiceStatuses = useCallback(async () => {
+    if (!isScreenFocused || authLoading) {
+      return;
+    }
+
+    if (!userEmail) {
+      return;
+    }
+
+    try {
+      const { data: customer, error: customerError } = await supabase
+        .from('customer')
+        .select('customer_id')
+  .eq('email', userEmail)
+        .maybeSingle();
+
+      if (customerError) {
+        console.error('Landing status watch failed to load customer record:', customerError);
+        return;
+      }
+
+      if (!customer?.customer_id) {
+        previousServiceStatusesRef.current = {};
+        return;
+      }
+
+      const { data: services, error: servicesError } = await supabase
+        .from('service')
+        .select('service_id, status')
+        .eq('customer_id', customer.customer_id);
+
+      if (servicesError) {
+        console.error('Landing status watch failed to load services:', servicesError);
+        return;
+      }
+
+      const nextStatuses: Record<string, string> = {};
+      services?.forEach((row: { service_id?: string | null; status?: string | null }) => {
+        if (!row?.service_id) {
+          return;
+        }
+        const normalizedStatus = (row.status ?? '').toLowerCase();
+        nextStatuses[row.service_id] = normalizedStatus;
+
+        const previousStatus = previousServiceStatusesRef.current[row.service_id];
+        const hasShownModal = hasShownSelectProModal(row.service_id);
+
+        if (
+          previousStatus === 'finding_pros' &&
+          normalizedStatus === 'select_service_provider' &&
+          !hasShownModal
+        ) {
+          markSelectProModalShown(row.service_id);
+          showModal({
+            title: 'Select a Pro',
+            message: 'Workers are available to fill your request! Select a pro when you\'re ready.',
+            buttons: [
+              {
+                text: 'Go',
+                onPress: () => router.push('/booked-services' as never),
+              },
+            ],
+          });
+        }
+      });
+
+      previousServiceStatusesRef.current = nextStatuses;
+    } catch (error) {
+      console.error('Landing status watch encountered an unexpected error:', error);
+    }
+  }, [authLoading, isScreenFocused, router, showModal, userEmail]);
+
+  useEffect(() => {
+    if (!isScreenFocused) {
+      if (statusPollRef.current) {
+        clearInterval(statusPollRef.current);
+        statusPollRef.current = null;
+      }
+      return;
+    }
+
+    evaluateServiceStatuses();
+
+    statusPollRef.current = setInterval(() => {
+      evaluateServiceStatuses();
+    }, 5000);
+
+    return () => {
+      if (statusPollRef.current) {
+        clearInterval(statusPollRef.current);
+        statusPollRef.current = null;
+      }
+    };
+  }, [evaluateServiceStatuses, isScreenFocused]);
+
   const navigate = (route: keyof RouteParams) => router.push(route as any);
 
   const handleAccountPress = useCallback(() => {
@@ -145,7 +256,10 @@ export default function Landing() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert('Permission needed', 'Enable photo library access to add photos or videos.');
+        showModal({
+          title: 'Permission needed',
+          message: 'Enable photo library access to add photos or videos.',
+        });
         return;
       }
 
@@ -166,14 +280,31 @@ export default function Landing() {
       setAttachments(prev => [...prev, { uri: asset.uri, type, name }]);
     } catch (error) {
       console.warn('Media picker error', error);
-      Alert.alert('Upload failed', 'Unable to select media right now.');
+      showModal({
+        title: 'Upload failed',
+        message: 'Unable to select media right now.',
+      });
     }
-  }, []);
+  }, [showModal]);
 
+  const handleCustomServiceContinue = useCallback(() => {
+    if (jobDescription.trim().length === 0) {
+      showModal({
+        title: 'Add a description',
+        message: 'Please describe your custom service before continuing.',
+      });
+      return;
+    }
+
+    router.push('/customService' as never);
+  }, [jobDescription, router, showModal]);
   const transcribeAudioAsync = useCallback(
     async (uri: string) => {
       if (!openAiApiKey) {
-        Alert.alert('Missing API key', 'Add an OpenAI API key to enable voice mode.');
+  showModal({
+          title: 'Missing API key',
+          message: 'Add an OpenAI API key to enable voice mode.',
+        });
         return '';
       }
 
@@ -205,13 +336,16 @@ export default function Landing() {
         return text;
       } catch (error) {
         console.warn('Transcription error', error);
-        Alert.alert('Transcription failed', 'Unable to transcribe your recording.');
+  showModal({
+          title: 'Transcription failed',
+          message: 'Unable to transcribe your recording.',
+        });
         return '';
       } finally {
         FileSystem.deleteAsync(uri).catch(() => undefined);
       }
     },
-    [openAiApiKey],
+    [openAiApiKey, showModal],
   );
 
   const stopRecordingAndTranscribe = useCallback(async () => {
@@ -264,7 +398,10 @@ export default function Landing() {
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
-        Alert.alert('Microphone needed', 'Enable microphone access to use voice mode.');
+  showModal({
+          title: 'Microphone needed',
+          message: 'Enable microphone access to use voice mode.',
+        });
         return;
       }
 
@@ -283,9 +420,12 @@ export default function Landing() {
       setIsRecording(true);
     } catch (error) {
       console.warn('Failed to start recording', error);
-      Alert.alert('Recording failed', 'Unable to start voice mode.');
+      showModal({
+        title: 'Recording failed',
+        message: 'Unable to start voice mode.',
+      });
     }
-  }, [isRecording, isTranscribing, stopRecordingAndTranscribe]);
+  }, [isRecording, isTranscribing, showModal, stopRecordingAndTranscribe]);
 
   const handleMenuPress = () => {
     if (Platform.OS === 'web') {
@@ -326,6 +466,12 @@ export default function Landing() {
       <circle cx="12" cy="13" r="4" fill="none" stroke="#ffffff" stroke-width="2"/>
     </svg>
   `;
+
+  const arrowRightSvg = `
+    <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  `;
    
    const helpIconSvg = `
     <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -354,9 +500,8 @@ export default function Landing() {
   );
 
   return (
-    // root without padding so overlay anchors to the real screen edges
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-  <Animated.View style={[styles.fadeContainer, { opacity: fadeAnim, transform: [{ scale: landingScaleAnim }] }]}> 
+      <Animated.View style={[styles.fadeContainer, { opacity: fadeAnim, transform: [{ scale: landingScaleAnim }] }]}> 
         <KeyboardAvoidingView
           style={styles.root}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -395,40 +540,26 @@ export default function Landing() {
               placeholderTextColor="#666666"
               value={jobDescription}
               onChangeText={handleDescriptionChange}
-              editable={!isTranscribing}
             />
-              <View style={styles.inputButtonsContainer}>
-                <View style={styles.voiceContainer}>
-                  <Pressable
-                    style={[styles.voiceButton, (isRecording || isTranscribing) && styles.voiceButtonActive]}
-                    onPress={handleVoiceModePress}
-                    disabled={isTranscribing}
-                  >
-                    <Animated.View style={{ transform: [{ scale: voicePulseValue }] }}>
-                      <SvgXml xml={voiceIconSvg} width="20" height="20" />
-                    </Animated.View>
-                  </Pressable>
-                  <View style={styles.voiceStatusRow}>
-                    <Text style={styles.inputButtonsText}>
-                      {isRecording ? 'Listening…' : isTranscribing ? 'Processing…' : 'Voice Mode'}
-                    </Text>
-                    {isTranscribing ? <ActivityIndicator size="small" color="#0c4309" style={styles.voiceStatusSpinner} /> : null}
-                  </View>
-                </View>
-                <View style={styles.cameraContainer}> 
-                  <Text style={styles.inputButtonsText}>Add Photo or Video</Text> 
-                  <Pressable style={styles.cameraButton} onPress={handleMediaUpload}>
-                    <SvgXml xml={cameraIconSvg} width="20" height="20" />
-                  </Pressable>
-                </View>
-              </View>
+            <View style={styles.inputButtonsContainer}>
+              <Pressable style={styles.cameraButton} onPress={handleMediaUpload}>
+                <SvgXml xml={cameraIconSvg} width="20" height="20" />
+              </Pressable>
               {attachments.length > 0 ? (
-                <View style={styles.attachmentsSummary}>
-                  <Text style={styles.attachmentsSummaryText}>
-                    {attachments.length} file{attachments.length > 1 ? 's' : ''} attached
-                  </Text>
-                </View>
+                <Text style={styles.attachmentCountText}>
+                  {attachments.length} file{attachments.length > 1 ? 's' : ''}
+                </Text>
               ) : null}
+              <Pressable
+                style={styles.continueButtonInline}
+                onPress={handleCustomServiceContinue}
+              >
+                <View style={styles.continueButtonContent}>
+                  <Text style={styles.continueButtonLabel}>Go</Text>
+                  <SvgXml xml={arrowRightSvg} width="20" height="20" />
+                </View>
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>
@@ -668,19 +799,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
     paddingTop: 10,
-    marginBottom: 20,
+    paddingBottom: 10,
     height: 150,
     borderWidth: 1,
     borderColor: '#e1e1e1ff'
   },
   jobDescriptionText: {
-
+    flex: 1,
     color: '#333333',
     fontSize: 16,
     textAlign: 'left',
     textAlignVertical: 'top',
     paddingLeft: 15,
-    paddingRight: 20,
+    paddingRight: 15,
+    paddingBottom: 50,
   },
   inputButtonsContainer: {
     position: 'absolute',
@@ -690,51 +822,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-     // Adjusted gap to account for added text width
-  },
-  voiceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cameraContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-     // Space between text and camera button
-  },
-  voiceButton: {
-    width: 60,
-    height: 40,
-    borderRadius:20,
-    backgroundColor: '#E5DCC9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  voiceButtonActive: {
-    backgroundColor: '#d6c5a5',
-  },
-  voiceStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    marginLeft: 6,
-    marginBottom: 4,
-  },
-  voiceStatusSpinner: {
-    marginLeft: 4,
-  },
-  inputButtonsText: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: '#0c4309',
-    textAlign: 'center',
   },
   cameraButton: {
-    width: 60,
+    width: 50,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#0c4309',
@@ -745,20 +835,44 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-    marginLeft: 8,
   },
-  inputButtonIcon: {
-    fontSize: 16,
-    marginRight: 0,
-  },
-  attachmentsSummary: {
-    marginTop: 8,
-    marginLeft: 15,
-  },
-  attachmentsSummaryText: {
+  attachmentCountText: {
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#0c4309',
+    marginLeft: 10,
+  },
+  continueButtonInline: {
+    minWidth: 72,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#0c4309',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  continueButtonText: {
+    color: '#FFF8E8',
+    fontSize: 16,
+    fontWeight: '700',
+    marginRight: 6,
+    textTransform: 'uppercase',
+  },
+  continueButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  continueButtonLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   // Menu button positioned consistently in bottom left corner across all devices
   menuButton: {
@@ -805,9 +919,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     shadowColor: '#000000',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
   },
   menuIconTextLarge: {
     fontSize: 120,

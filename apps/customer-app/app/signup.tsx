@@ -1,11 +1,15 @@
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../src/contexts/AuthContext';
+import { useModal } from '../src/contexts/ModalContext';
 
 export default function Signup() {
   console.log('Signup screen rendered');
 
+  const { getReturnTo, clearReturnTo } = useAuth();
+  const { showModal } = useModal();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,27 +28,45 @@ export default function Signup() {
 
   const validateSignupInputs = () => {
     if (!firstName.trim()) {
-      Alert.alert('Validation Error', 'Please enter your first name.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your first name.',
+      });
       return false;
     }
     if (!lastName.trim()) {
-      Alert.alert('Validation Error', 'Please enter your last name.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your last name.',
+      });
       return false;
     }
     if (!email.trim()) {
-      Alert.alert('Validation Error', 'Please enter your email address.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter your email address.',
+      });
       return false;
     }
     if (!password.trim()) {
-      Alert.alert('Validation Error', 'Please enter a password.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Please enter a password.',
+      });
       return false;
     }
     if (password.length < 6) {
-      Alert.alert('Validation Error', 'Password must be at least 6 characters long.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Password must be at least 6 characters long.',
+      });
       return false;
     }
     if (password !== confirmPassword) {
-      Alert.alert('Validation Error', 'Passwords do not match.');
+      showModal({
+        title: 'Validation Error',
+        message: 'Passwords do not match.',
+      });
       return false;
     }
     return true;
@@ -65,14 +87,20 @@ export default function Signup() {
 
       if (authError) {
         console.error('❌ Auth signup error:', authError);
-        Alert.alert('Signup Failed', authError.message);
+        showModal({
+          title: 'Signup Failed',
+          message: authError.message,
+        });
         setAuthLoading(false);
         return;
       }
 
       if (!authData.user) {
         console.error('❌ No user data returned from signup');
-        Alert.alert('Signup Failed', 'Account creation failed. Please try again.');
+        showModal({
+          title: 'Signup Failed',
+          message: 'Account creation failed. Please try again.',
+        });
         setAuthLoading(false);
         return;
       }
@@ -93,7 +121,10 @@ export default function Signup() {
 
       if (customerError) {
         console.error('❌ Customer record creation error:', customerError);
-        Alert.alert('Signup Failed', `Account created but profile setup failed: ${customerError.message}`);
+        showModal({
+          title: 'Signup Failed',
+          message: `Account created but profile setup failed: ${customerError.message}`,
+        });
         setAuthLoading(false);
         return;
       }
@@ -102,11 +133,17 @@ export default function Signup() {
 
       // Show OTP verification modal - Supabase should have sent confirmation email
       setShowOTPVerification(true);
-      Alert.alert('Account Created!', 'Check your email for a 6-digit verification code to complete signup!');
+      showModal({
+        title: 'Account Created!',
+        message: 'Check your email for a 6-digit verification code to complete signup!',
+      });
 
     } catch (error) {
       console.error('❌ Unexpected signup error:', error);
-      Alert.alert('Signup Failed', 'An unexpected error occurred. Please try again.');
+      showModal({
+        title: 'Signup Failed',
+        message: 'An unexpected error occurred. Please try again.',
+      });
     }
 
     setAuthLoading(false);
@@ -123,11 +160,20 @@ export default function Signup() {
 
     if (error) {
       console.error('❌ OTP verification error:', error);
-      Alert.alert('Verification Failed', error.message);
+      showModal({
+        title: 'Verification Failed',
+        message: error.message,
+      });
     } else {
       console.log('✅ Email verified successfully');
       setShowOTPVerification(false);
-      router.replace('/landing');
+      const returnTo = getReturnTo();
+      if (returnTo) {
+        clearReturnTo();
+        router.replace(returnTo.path as any);
+      } else {
+        router.replace('/landing');
+      }
     }
 
     setAuthLoading(false);
@@ -140,9 +186,15 @@ export default function Signup() {
     });
 
     if (error) {
-      Alert.alert('Error', 'Failed to resend code');
+      showModal({
+        title: 'Error',
+        message: 'Failed to resend code',
+      });
     } else {
-      Alert.alert('Code Sent', 'A new verification code has been sent to your email');
+      showModal({
+        title: 'Code Sent',
+        message: 'A new verification code has been sent to your email',
+      });
     }
   };
 

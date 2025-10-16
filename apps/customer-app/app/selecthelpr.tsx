@@ -1,12 +1,14 @@
-import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../src/lib/supabase';
+import { useModal } from '../src/contexts/ModalContext';
 
 type ServiceFillRequestRow = {
   service_provider_id: string;
   bid: string | null;
+  proposed_date_time: string | null;
 };
 
 type ServiceProviderRow = {
@@ -14,6 +16,9 @@ type ServiceProviderRow = {
   first_name: string | null;
   last_name: string | null;
   email: string | null;
+  profile_picture_url: string | null;
+  rating: number | null;
+  jobs_completed: number | null;
 };
 
 type ProviderRequestDisplay = {
@@ -24,6 +29,10 @@ type ProviderRequestDisplay = {
   bid: number;
   bidLabel: string;
   email: string | null;
+  profileImageUrl: string | null;
+  rating: number | null;
+  jobsCompleted: number | null;
+  proposedDateTimeLabel: string | null;
 };
 
 const parseBid = (rawBid: string | null): number => {
@@ -54,6 +63,27 @@ const formatPrice = (value: number): string => {
   }
 };
 
+const formatProposedDateTime = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+
+    return parsed.toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  } catch (error) {
+    console.warn('Unable to format proposed date time:', error);
+    return null;
+  }
+};
+
 const SelectHelpr = () => {
   const params = useLocalSearchParams<{ serviceId?: string | string[] }>();
   const serviceId = useMemo(() => {
@@ -68,6 +98,10 @@ const SelectHelpr = () => {
   const [requests, setRequests] = useState<ProviderRequestDisplay[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectingProviderId, setSelectingProviderId] = useState<string | null>(null);
+  const [serviceSchedulingType, setServiceSchedulingType] = useState<string | null>(null);
+  const { showModal } = useModal();
+
+  const isAsapService = useMemo(() => (serviceSchedulingType ?? '').toLowerCase() === 'asap', [serviceSchedulingType]);
 
   const fetchRequests = useCallback(async () => {
     if (!serviceId) {
@@ -80,10 +114,27 @@ const SelectHelpr = () => {
     setError(null);
 
     try {
-      const { data: fillRows, error: fillError } = await supabase
+      const fillPromise = supabase
         .from('service_fill_request')
-        .select('service_provider_id, bid')
+        .select('service_provider_id, bid, proposed_date_time')
         .eq('service_id', serviceId);
+
+      const servicePromise = supabase
+        .from('service')
+        .select('scheduling_type')
+        .eq('service_id', serviceId)
+        .maybeSingle();
+
+      const [{ data: fillRows, error: fillError }, { data: serviceRow, error: serviceError }] = await Promise.all([
+        fillPromise,
+        servicePromise,
+      ]);
+
+      if (serviceError) {
+        throw serviceError;
+      }
+
+      setServiceSchedulingType(serviceRow?.scheduling_type ?? null);
 
       if (fillError) {
         throw fillError;
@@ -94,9 +145,11 @@ const SelectHelpr = () => {
         return;
       }
 
+      const typedFillRows = (fillRows ?? []) as unknown as ServiceFillRequestRow[];
+
       const providerIds = Array.from(
         new Set(
-          (fillRows as ServiceFillRequestRow[])
+          typedFillRows
             .map(row => row?.service_provider_id)
             .filter((id): id is string => Boolean(id)),
         ),
@@ -109,7 +162,7 @@ const SelectHelpr = () => {
 
       const { data: providerRows, error: providerError } = await supabase
         .from('service_provider')
-        .select('service_provider_id, first_name, last_name, email')
+        .select('service_provider_id, first_name, last_name, email, profile_picture_url, rating, jobs_completed')
         .in('service_provider_id', providerIds);
 
       if (providerError) {
@@ -120,7 +173,7 @@ const SelectHelpr = () => {
         (providerRows ?? []).map(row => [row.service_provider_id, row as ServiceProviderRow]),
       );
 
-      const formatted: ProviderRequestDisplay[] = (fillRows as ServiceFillRequestRow[])
+      const formatted: ProviderRequestDisplay[] = typedFillRows
         .filter(row => row?.service_provider_id)
         .map(row => {
           const provider = providerMap.get(row.service_provider_id);
@@ -129,6 +182,16 @@ const SelectHelpr = () => {
           const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || 'Unnamed Helpr';
           const initials = `${firstName.charAt(0) ?? ''}${lastName.charAt(0) ?? ''}`.toUpperCase() || 'H';
           const bid = parseBid(row.bid);
+          const proposedDateTimeLabel = formatProposedDateTime(row.proposed_date_time ?? null);
+          const profileImageUrl = provider?.profile_picture_url ?? null;
+          const rating =
+            typeof provider?.rating === 'number' && !Number.isNaN(provider.rating) && provider.rating > 0
+              ? provider.rating
+              : null;
+          const jobsCompleted =
+            typeof provider?.jobs_completed === 'number' && !Number.isNaN(provider.jobs_completed) && provider.jobs_completed > 0
+              ? provider.jobs_completed
+              : null;
 
           return {
             service_provider_id: row.service_provider_id,
@@ -138,6 +201,10 @@ const SelectHelpr = () => {
             bid,
             bidLabel: formatPrice(bid),
             email: provider?.email ?? null,
+            profileImageUrl,
+            rating,
+            jobsCompleted,
+            proposedDateTimeLabel,
           };
         })
         .sort((a, b) => a.bid - b.bid);
@@ -196,15 +263,19 @@ const SelectHelpr = () => {
           params: { 
             serviceId,
             showConfirmedModal: 'true',
+            helprFirstName: request.firstName,
           },
         });
       } catch (selectError) {
         console.error('Failed to select helpr:', selectError);
-        Alert.alert('Unable to select Helpr', 'Please try again.');
+        showModal({
+          title: 'Unable to select Helpr',
+          message: 'Please try again.',
+        });
         setSelectingProviderId(null);
       }
     },
-    [serviceId],
+    [serviceId, showModal],
   );
 
   const renderContent = () => {
@@ -259,19 +330,45 @@ const SelectHelpr = () => {
             <View key={request.service_provider_id} style={styles.requestCard}>
               <View style={styles.requestCardLeft}>
                 <View style={styles.profileCircle}>
-                  <Text style={styles.profileInitials}>{request.initials}</Text>
+                  {request.profileImageUrl ? (
+                    <Image source={{ uri: request.profileImageUrl }} style={styles.profileImage} />
+                  ) : (
+                    <Text style={styles.profileInitials}>{request.initials}</Text>
+                  )}
                 </View>
-                <Text style={styles.providerName} numberOfLines={1}>
-                  {request.firstName}
-                </Text>
+                <View style={styles.providerDetails}>
+                  <Text style={styles.providerName} numberOfLines={1}>
+                    {request.firstName}
+                  </Text>
+                  <View style={styles.providerMetaRow}>
+                    <View style={request.rating ? styles.ratingPill : styles.newBadge}>
+                      <Text style={request.rating ? styles.ratingPillText : styles.newBadgeText}>
+                        {request.rating ? `⭐️ ${request.rating.toFixed(1)}` : 'New to Helpr'}
+                      </Text>
+                    </View>
+                    {typeof request.jobsCompleted === 'number' && request.jobsCompleted > 0 && (
+                      <Text style={styles.providerSecondary}>
+                        {`${request.jobsCompleted} job${request.jobsCompleted === 1 ? '' : 's'}`}
+                      </Text>
+                    )}
+                  </View>
+                </View>
               </View>
               <View style={styles.requestCardRight}>
-                <Text style={styles.bidHeadline}>Bid</Text>
                 <Text style={styles.bidValue}>{request.bidLabel}</Text>
+                {isAsapService && request.proposedDateTimeLabel ? (
+                  <View style={styles.requestedTimeContainer}>
+                    <Text style={styles.requestedTimeLabel}>Requested time</Text>
+                    <Text style={styles.requestedTimeValue}>{request.proposedDateTimeLabel}</Text>
+                  </View>
+                ) : null}
                 <Pressable
                   style={[styles.selectButton, isSelecting ? styles.selectButtonDisabled : null]}
                   onPress={() => handleSelectProvider(request)}
                   disabled={isSelecting}
+                  accessibilityRole="button"
+                  accessibilityLabel={isSelecting ? `Selecting ${request.firstName}` : `Select ${request.firstName}`}
+                  accessibilityHint="Confirms this Helpr for your service"
                 >
                   <Text style={styles.selectButtonText}>{isSelecting ? 'Selecting…' : 'Select'}</Text>
                 </Pressable>
@@ -410,17 +507,22 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   profileCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#E5DCC9',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
+  profileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 28,
+  },
   profileInitials: {
     color: '#0c4309',
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
   },
   providerName: {
@@ -429,20 +531,70 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flexShrink: 1,
   },
-  requestCardRight: {
-    alignItems: 'flex-end',
+  providerDetails: {
+    flex: 1,
   },
-  bidHeadline: {
+  providerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  ratingPill: {
+    backgroundColor: '#0c4309',
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  ratingPillText: {
+    color: '#FFF8E8',
     fontSize: 12,
     fontWeight: '600',
+  },
+  newBadge: {
+    backgroundColor: 'rgba(12, 67, 9, 0.12)',
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  newBadgeText: {
     color: '#0c4309',
-    marginBottom: 2,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  providerSecondary: {
+    marginLeft: 10,
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  requestCardRight: {
+    alignItems: 'flex-end',
   },
   bidValue: {
     fontSize: 17,
     fontWeight: '700',
     color: '#0c4309',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  requestedTimeContainer: {
+    alignItems: 'flex-end',
     marginBottom: 10,
+  },
+  requestedTimeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0c4309',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  requestedTimeValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0c4309',
+    marginTop: 2,
+    maxWidth: 160,
+    textAlign: 'right',
   },
   selectButton: {
     backgroundColor: '#0c4309',
@@ -451,6 +603,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     minWidth: 100,
     alignItems: 'center',
+    marginTop: 4,
   },
   selectButtonDisabled: {
     opacity: 0.6,

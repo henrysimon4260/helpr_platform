@@ -1,12 +1,14 @@
-import { View, Text, StyleSheet, Pressable, Image, ScrollView, Alert, ActivityIndicator, Platform, InteractionManager, Modal, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator, Platform, InteractionManager, Modal, TextInput } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
+import { useModal } from '../src/contexts/ModalContext';
 // @ts-ignore - Only for native platforms
 import LottieView from 'lottie-react-native';
 
@@ -50,11 +52,11 @@ type ServiceRow = {
 };
 
 type ServiceRequestRow = {
-  service_request_id?: string;
   service_id: string;
   service_provider_id: string;
   bid: string | number | null;
   created_at?: string | null;
+  proposed_date_time?: string | null;
 };
 
 const helpIconSvg = `
@@ -75,11 +77,12 @@ export default function Landing() {
   const router = useRouter();
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
+  const isDateTimePickerSupported = useMemo(() => Platform.OS === 'ios' || Platform.OS === 'android', []);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [canRenderLottie, setCanRenderLottie] = useState(Platform.OS !== 'web');
   const { user, loading: authLoading } = useAuth();
-
+  const { showModal } = useModal();
   const [servicesLoading, setServicesLoading] = useState(true);
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [servicesError, setServicesError] = useState<string | null>(null);
@@ -92,6 +95,28 @@ export default function Landing() {
   const [bidInput, setBidInput] = useState('');
   const [descriptionModalVisible, setDescriptionModalVisible] = useState(false);
   const [descriptionModalService, setDescriptionModalService] = useState<ServiceRow | null>(null);
+  const [suggestTimeModalVisible, setSuggestTimeModalVisible] = useState(false);
+  const [suggestTimeModalService, setSuggestTimeModalService] = useState<ServiceRow | null>(null);
+  const [suggestedTimeSelection, setSuggestedTimeSelection] = useState<Date | null>(null);
+  const [suggestedTimeDraft, setSuggestedTimeDraft] = useState<Date>(() => new Date());
+  const [suggestTimeError, setSuggestTimeError] = useState<string | null>(null);
+  const [suggestTimeSubmitting, setSuggestTimeSubmitting] = useState(false);
+
+  const formattedSuggestedTime = useMemo(() => {
+    if (!suggestedTimeSelection) {
+      return 'Select Date and Time';
+    }
+
+    try {
+      return suggestedTimeSelection.toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+    } catch (error) {
+      console.warn('Failed to format suggested time:', error);
+      return suggestedTimeSelection.toString();
+    }
+  }, [suggestedTimeSelection]);
 
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -125,12 +150,22 @@ export default function Landing() {
     setServicesError(null);
 
     try {
-      const { data: authUserResponse, error: authUserError } = await supabase.auth.getUser();
-      if (authUserError) {
-        throw authUserError;
-      }
+      let authUser = user ?? null;
+      if (!authUser) {
+        const { data: authUserResponse, error: authUserError } = await supabase.auth.getUser();
 
-      const authUser = user ?? authUserResponse.user ?? null;
+        if (authUserError) {
+          const isSessionMissing =
+            authUserError.name === 'AuthSessionMissingError' ||
+            (typeof authUserError.message === 'string' && authUserError.message.toLowerCase().includes('session missing'));
+
+          if (!isSessionMissing) {
+            throw authUserError;
+          }
+        }
+
+        authUser = authUserResponse?.user ?? null;
+      }
 
       if (!authUser?.id) {
         setProviderId(null);
@@ -157,7 +192,12 @@ export default function Landing() {
       const providerIdentifier = authUser.id;
       setProviderId(providerIdentifier);
 
-      const statusesToQuery = ['finding_pros', 'pending', 'scheduled', 'confirmed', 'Finding_Pros', 'Pending', 'Scheduled', 'Confirmed'];
+      const statusesToQuery = [
+        'finding_pros', 'pending', 'scheduled', 'confirmed', 
+        'helpr_otw', 'in_progress', 'select_service_provider',
+        'Finding_Pros', 'Pending', 'Scheduled', 'Confirmed',
+        'Helpr_Otw', 'In_Progress', 'Select_Service_Provider'
+      ];
 
       const { data: serviceData, error: serviceError } = await supabase
         .from('service')
@@ -173,7 +213,7 @@ export default function Landing() {
         .filter((service): service is ServiceRow => Boolean(service?.service_id))
         .filter(service => {
           const status = (service.status ?? '').toString().toLowerCase();
-          return status === 'finding_pros' || status === 'pending' || status === 'scheduled' || status === 'confirmed';
+          return status === 'finding_pros' || status === 'pending' || status === 'scheduled' || status === 'confirmed' || status === 'helpr_otw' || status === 'in_progress' || status === 'select_service_provider';
         });
 
       if (visibleServices.length === 0) {
@@ -439,9 +479,203 @@ export default function Landing() {
     [customBids, serviceRequests, sanitizeBidValue],
   );
 
+  const submitServiceRequest = useCallback(
+    async (service: ServiceRow, options: { proposedDateTime?: string | null } = {}) => {
+      if (!providerId) {
+        showModal({
+          title: 'Provider not found',
+          message: 'We could not verify your provider profile. Please sign out and sign back in.',
+        });
+        return false;
+      }
+
+      const bidValue = getEffectiveBidForService(service);
+      const numericBid = bidValue ? Number(bidValue) : null;
+
+      if (numericBid === null || Number.isNaN(numericBid)) {
+        showModal({
+          title: 'Bid required',
+          message: 'Please enter a bid amount before requesting this job.',
+        });
+        return false;
+      }
+
+      const schedulingTypeNormalized = (service.scheduling_type ?? '').toLowerCase();
+      const shouldProposeDateTime = schedulingTypeNormalized === 'asap';
+      const proposedDateTime = shouldProposeDateTime
+        ? options.proposedDateTime?.trim() || null
+        : null;
+
+      const { data, error } = await supabase
+        .from('service_fill_request')
+        .insert({
+          service_provider_id: providerId,
+          service_id: service.service_id,
+          bid: numericBid,
+          proposed_date_time: proposedDateTime,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Failed to create service request:', error);
+        showModal({
+          title: 'Unable to request job',
+          message: 'Please try again in a moment.',
+        });
+        return false;
+      }
+
+      const newRow = data as ServiceRequestRow;
+      const combinedRow: ServiceRequestRow = {
+        ...newRow,
+        proposed_date_time: proposedDateTime ?? newRow.proposed_date_time ?? null,
+      };
+
+      const isAutoFill = (service.autofill_type ?? '').toString().toLowerCase() === 'autofill';
+
+      if (isAutoFill) {
+        try {
+          const { data: assignmentRows, error: assignError } = await supabase
+            .from('service')
+            .update({
+              service_provider_id: providerId,
+              status: 'confirmed',
+              price: numericBid,
+              scheduling_type: 'scheduled',
+              scheduled_date_time: proposedDateTime ?? service.scheduled_date_time ?? null,
+            })
+            .eq('service_id', service.service_id)
+            .in('status', ['finding_pros', 'select_service_provider'])
+            .is('service_provider_id', null)
+            .select('service_id');
+
+          if (assignError) {
+            throw assignError;
+          }
+
+          if (assignmentRows && assignmentRows.length > 0) {
+            await supabase
+              .from('service_fill_request')
+              .delete()
+              .eq('service_id', service.service_id);
+
+            setServiceRequests(prev => {
+              const next = { ...prev };
+              delete next[service.service_id];
+              return next;
+            });
+
+            setCustomBids(prev => {
+              const next = { ...prev };
+              delete next[service.service_id];
+              return next;
+            });
+
+            setServices(prev => prev.map(existing =>
+              existing.service_id === service.service_id
+                ? {
+                    ...existing,
+                    status: 'confirmed',
+                    service_provider_id: providerId,
+                    price: numericBid,
+                    scheduling_type: 'scheduled',
+                    scheduled_date_time: proposedDateTime ?? existing.scheduled_date_time ?? null,
+                  }
+                : existing,
+            ));
+
+            setSelectedService(prev => (prev && prev.service_id === service.service_id
+              ? {
+                  ...prev,
+                  status: 'confirmed',
+                  service_provider_id: providerId,
+                  price: numericBid,
+                  scheduling_type: 'scheduled',
+                  scheduled_date_time: proposedDateTime ?? prev.scheduled_date_time ?? null,
+                }
+              : prev));
+
+            await fetchServices();
+
+            showModal({
+              title: 'Job confirmed',
+              message: 'AutoFill matched you to this job instantly. Head to Service Details for next steps.',
+            });
+            return true;
+          }
+
+          await supabase
+            .from('service_fill_request')
+            .delete()
+            .eq('service_id', service.service_id)
+            .eq('service_provider_id', providerId);
+
+          showModal({
+            title: 'Job filled',
+            message: 'Another Helpr was just assigned to this AutoFill job.',
+          });
+          return false;
+        } catch (assignError) {
+          console.error('AutoFill assignment failed:', assignError);
+          await supabase
+            .from('service_fill_request')
+            .delete()
+            .eq('service_id', service.service_id)
+            .eq('service_provider_id', providerId);
+
+          showModal({
+            title: 'AutoFill unavailable',
+            message: 'We were unable to claim this job automatically. Please try again.',
+          });
+          return false;
+        }
+      }
+
+      setServiceRequests(prev => ({
+        ...prev,
+        [service.service_id]: combinedRow,
+      }));
+
+      setCustomBids(prev => ({
+        ...prev,
+        [service.service_id]: bidValue ?? numericBid.toFixed(2),
+      }));
+
+      const currentStatus = (service.status ?? '').toLowerCase();
+      if (currentStatus === 'finding_pros') {
+        try {
+          const { data: updatedRows, error: statusUpdateError } = await supabase
+            .from('service')
+            .update({ status: 'select_service_provider' })
+            .eq('service_id', service.service_id)
+            .eq('status', 'finding_pros')
+            .select('service_id');
+
+          if (statusUpdateError) {
+            console.error('Failed to update service status to select_service_provider:', statusUpdateError);
+          } else if (updatedRows && updatedRows.length > 0) {
+            setServices(prev => prev.map(existing => existing.service_id === service.service_id
+              ? { ...existing, status: 'select_service_provider' }
+              : existing,
+            ));
+          }
+        } catch (statusError) {
+          console.error('Unexpected error while updating service status:', statusError);
+        }
+      }
+
+      return true;
+    },
+    [providerId, showModal, getEffectiveBidForService, supabase, setServiceRequests, setCustomBids, setServices, setSelectedService, fetchServices],
+  );
+
   const handleToggleServiceRequest = useCallback(async (service: ServiceRow) => {
     if (!providerId) {
-      Alert.alert('Provider not found', 'We could not verify your provider profile. Please sign out and sign back in.');
+      showModal({
+        title: 'Provider not found',
+        message: 'We could not verify your provider profile. Please sign out and sign back in.',
+      });
       return;
     }
 
@@ -451,17 +685,17 @@ export default function Landing() {
 
     // Handle canceling a confirmed job
     if (isConfirmed && service.service_provider_id === providerId) {
-      Alert.alert(
-        'Cancel Confirmed Job',
-        'Are you sure you want to cancel this confirmed job? The customer will be notified.',
-        [
+      showModal({
+        title: 'Cancel Confirmed Job',
+        message: 'Are you sure you want to cancel this confirmed job? The customer will be notified.',
+        allowBackdropDismiss: false,
+        buttons: [
           { text: 'No', style: 'cancel' },
           {
             text: 'Yes, Cancel',
             style: 'destructive',
             onPress: async () => {
               try {
-                // Delete the service fill request if it exists
                 const { error: deleteRequestError } = await supabase
                   .from('service_fill_request')
                   .delete()
@@ -470,10 +704,8 @@ export default function Landing() {
 
                 if (deleteRequestError) {
                   console.error('Failed to delete service fill request:', deleteRequestError);
-                  // Continue anyway - the fill request might have already been deleted
                 }
 
-                // Update the service to unassign the provider
                 const { error: updateError } = await supabase
                   .from('service')
                   .update({
@@ -486,7 +718,6 @@ export default function Landing() {
                   throw updateError;
                 }
 
-                // Update local state
                 setServiceRequests(prev => {
                   const next = { ...prev };
                   delete next[service.service_id];
@@ -494,15 +725,21 @@ export default function Landing() {
                 });
 
                 await fetchServices();
-                Alert.alert('Job Cancelled', 'You have been removed from this job.');
+                showModal({
+                  title: 'Job Cancelled',
+                  message: 'You have been removed from this job.',
+                });
               } catch (error) {
                 console.error('Failed to cancel confirmed job:', error);
-                Alert.alert('Unable to cancel', 'Please try again in a moment.');
+                showModal({
+                  title: 'Unable to cancel',
+                  message: 'Please try again in a moment.',
+                });
               }
             },
           },
         ],
-      );
+      });
       return;
     }
 
@@ -516,7 +753,10 @@ export default function Landing() {
 
       if (deleteError) {
         console.error('Failed to cancel service request:', deleteError);
-        Alert.alert('Unable to cancel request', 'Please try again in a moment.');
+        showModal({
+          title: 'Unable to cancel request',
+          message: 'Please try again in a moment.',
+        });
         return;
       }
 
@@ -529,43 +769,32 @@ export default function Landing() {
       return;
     }
 
-    // Handle creating a new service fill request
-    const bidValue = getEffectiveBidForService(service);
-    const numericBid = bidValue ? Number(bidValue) : null;
-
-    if (numericBid === null || Number.isNaN(numericBid)) {
-      Alert.alert('Bid required', 'Please enter a bid amount before requesting this job.');
+    const schedulingTypeNormalized = (service.scheduling_type ?? '').toLowerCase();
+    if (schedulingTypeNormalized === 'asap') {
+      setSuggestTimeModalService(service);
+      const now = new Date();
+      setSuggestedTimeDraft(now);
+      setSuggestedTimeSelection(now);
+      setSuggestTimeError(null);
+      setSuggestTimeModalVisible(true);
       return;
     }
 
-    const { data, error } = await supabase
-      .from('service_fill_request')
-      .insert({
-        service_provider_id: providerId,
-        service_id: service.service_id,
-        bid: numericBid,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Failed to create service request:', error);
-      Alert.alert('Unable to request job', 'Please try again in a moment.');
-      return;
-    }
-
-    const newRow = data as ServiceRequestRow;
-
-    setServiceRequests(prev => ({
-      ...prev,
-      [service.service_id]: newRow,
-    }));
-
-    setCustomBids(prev => ({
-      ...prev,
-      [service.service_id]: bidValue ?? numericBid.toFixed(2),
-    }));
-  }, [getEffectiveBidForService, providerId, serviceRequests, fetchServices]);
+    await submitServiceRequest(service);
+  }, [
+    fetchServices,
+    providerId,
+    serviceRequests,
+    showModal,
+    submitServiceRequest,
+    supabase,
+    setServiceRequests,
+    setSuggestTimeError,
+    setSuggestedTimeDraft,
+    setSuggestedTimeSelection,
+    setSuggestTimeModalService,
+    setSuggestTimeModalVisible,
+  ]);
 
   const openAdjustBidModal = useCallback(
     (service: ServiceRow) => {
@@ -589,7 +818,10 @@ export default function Landing() {
 
     const sanitizedBid = sanitizeBidValue(bidInput);
     if (!sanitizedBid) {
-      Alert.alert('Invalid bid', 'Enter a valid dollar amount.');
+      showModal({
+        title: 'Invalid bid',
+        message: 'Enter a valid dollar amount.',
+      });
       return;
     }
 
@@ -614,7 +846,7 @@ export default function Landing() {
 
     setAdjustModalVisible(false);
     setModalService(null);
-  }, [bidInput, modalService, sanitizeBidValue]);
+  }, [bidInput, modalService, sanitizeBidValue, showModal]);
 
   const openDescriptionModal = useCallback((service: ServiceRow) => {
     setDescriptionModalService(service);
@@ -624,6 +856,74 @@ export default function Landing() {
   const closeDescriptionModal = useCallback(() => {
     setDescriptionModalVisible(false);
     setDescriptionModalService(null);
+  }, []);
+
+  const handleSuggestTimeCancel = useCallback(() => {
+    if (suggestTimeSubmitting) {
+      return;
+    }
+    setSuggestTimeModalVisible(false);
+    setSuggestTimeModalService(null);
+    setSuggestedTimeSelection(null);
+    setSuggestedTimeDraft(new Date());
+    setSuggestTimeError(null);
+  }, [suggestTimeSubmitting]);
+
+  const handleSuggestTimeConfirm = useCallback(async () => {
+    if (!suggestTimeModalService) {
+      return;
+    }
+
+    if (!suggestedTimeSelection) {
+      setSuggestTimeError('Please choose a date and time so the customer can review it.');
+      return;
+    }
+
+    setSuggestTimeSubmitting(true);
+    try {
+      const isoString = suggestedTimeSelection.toISOString();
+      const success = await submitServiceRequest(suggestTimeModalService, { proposedDateTime: isoString });
+      if (success) {
+        setSuggestTimeModalVisible(false);
+        setSuggestTimeModalService(null);
+        setSuggestedTimeSelection(null);
+        setSuggestedTimeDraft(new Date());
+        setSuggestTimeError(null);
+      }
+    } finally {
+      setSuggestTimeSubmitting(false);
+    }
+  }, [submitServiceRequest, suggestedTimeSelection, suggestTimeModalService]);
+
+  const handleDraftDateChange = useCallback((_: any, date?: Date) => {
+    if (!date) {
+      return;
+    }
+
+    setSuggestedTimeDraft(prev => {
+      const next = new Date(prev);
+      next.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
+      setSuggestedTimeSelection(new Date(next));
+      return next;
+    });
+    setSuggestTimeError(null);
+  }, []);
+
+  const handleDraftTimeChange = useCallback((_: any, date?: Date) => {
+    if (!date) {
+      return;
+    }
+
+    setSuggestedTimeDraft(prev => {
+      const next = new Date(prev);
+      next.setHours(date.getHours());
+      next.setMinutes(date.getMinutes());
+      next.setSeconds(0);
+      next.setMilliseconds(0);
+      setSuggestedTimeSelection(new Date(next));
+      return next;
+    });
+    setSuggestTimeError(null);
   }, []);
 
   const renderServiceCard = (service: ServiceRow) => {
@@ -639,7 +939,9 @@ export default function Landing() {
     const bidDisplay = effectiveBid ? formatPrice(Number(effectiveBid)) : basePriceLabel;
     const isRequested = Boolean(serviceRequests[service.service_id]);
     const normalizedStatus = (service.status ?? '').toLowerCase();
-    const isConfirmed = normalizedStatus === 'confirmed';
+    const isConfirmed = normalizedStatus === 'confirmed' || normalizedStatus === 'helpr_otw' || normalizedStatus === 'in_progress';
+    const statusLabel = normalizedStatus === 'helpr_otw' ? 'On the Way' : normalizedStatus === 'in_progress' ? 'In Progress' : 'Confirmed';
+    const isAutoFill = (service.autofill_type ?? '').toString().toLowerCase() === 'autofill';
 
     return (
       <Pressable
@@ -658,9 +960,14 @@ export default function Landing() {
                   {formatServiceType(service.service_type)}
                 </Text>
               </View>
+              {isAutoFill && !isConfirmed ? (
+                <View style={styles.autoFillPill}>
+                  <Text style={styles.autoFillPillText}>AutoFill</Text>
+                </View>
+              ) : null}
               {isConfirmed && (
                 <View style={styles.confirmedPill}>
-                  <Text style={styles.confirmedPillText}>Confirmed</Text>
+                  <Text style={styles.confirmedPillText}>{statusLabel}</Text>
                 </View>
               )}
             </View>
@@ -675,42 +982,62 @@ export default function Landing() {
                 </Text>
               </View>
             </View>
-            <Pressable
-              style={styles.descriptionButton}
-              onPress={() => openDescriptionModal(service)}
-            >
-              <Text style={styles.descriptionButtonText}>See full description</Text>
-              <SvgXml xml={greenArrowSvg} width={16} height={16} style={styles.descriptionButtonIcon} />
-            </Pressable>
-          </View>
-          <View style={[styles.priceColumn, isConfirmed ? styles.confirmedPriceColumn : null]}>
-            <View style={[styles.priceRow, isConfirmed ? styles.confirmedPriceRow : null]}>
-              <Text style={[styles.priceValue, isConfirmed ? styles.confirmedPriceValue : null]}>
-                {bidDisplay}
-              </Text>
-              {!isConfirmed ? <Text style={styles.priceEstimate}>bid</Text> : null}
-            </View>
-            <Pressable
-              style={[
-                styles.requestActionButton,
-                isRequested || isConfirmed ? styles.requestActionButtonCancel : styles.requestActionButtonRequest,
-                isConfirmed ? styles.confirmedCancelButton : null,
-              ]}
-              onPress={() => handleToggleServiceRequest(service)}
-            >
-              <Text style={styles.requestActionButtonText}>
-                {isConfirmed ? 'Cancel' : isRequested ? 'Cancel Request' : 'Request'}
-              </Text>
-            </Pressable>
-            {!isConfirmed ? (
+            {!isConfirmed && (
               <Pressable
-                style={styles.adjustBidSecondaryButton}
-                onPress={() => openAdjustBidModal(service)}
+                style={styles.descriptionButton}
+                onPress={() => openDescriptionModal(service)}
               >
-                <Text style={styles.adjustBidSecondaryButtonText}>Adjust Bid</Text>
+                <Text style={styles.descriptionButtonText}>See full description</Text>
+                <SvgXml xml={greenArrowSvg} width={16} height={16} style={styles.descriptionButtonIcon} />
               </Pressable>
-            ) : null}
+            )}
           </View>
+          {isConfirmed ? (
+            <View style={styles.confirmedButtonColumn}>
+              <Text style={styles.confirmedBidValue}>{bidDisplay}</Text>
+              <Pressable
+                style={styles.showDetailsButton}
+                onPress={() => router.push({
+                  pathname: '/ServiceDetails' as any,
+                  params: { serviceId: service.service_id }
+                })}
+                accessibilityRole="button"
+                accessibilityLabel="View service details"
+                accessibilityHint="Opens details for this job"
+              >
+                <Text style={styles.showDetailsButtonText}>Service Details</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.priceColumn}>
+              <View style={styles.priceRow}>
+                <Text style={styles.priceValue}>
+                  {bidDisplay}
+                </Text>
+                {!isAutoFill ? <Text style={styles.priceEstimate}>bid</Text> : null}
+              </View>
+              <Pressable
+                style={[
+                  styles.requestActionButton,
+                  isRequested ? styles.requestActionButtonCancel : styles.requestActionButtonRequest,
+                  isAutoFill ? styles.requestActionButtonSolo : null,
+                ]}
+                onPress={() => handleToggleServiceRequest(service)}
+              >
+                <Text style={styles.requestActionButtonText}>
+                  {isRequested ? 'Cancel Request' : 'Request'}
+                </Text>
+              </Pressable>
+              {!isAutoFill ? (
+                <Pressable
+                  style={styles.adjustBidSecondaryButton}
+                  onPress={() => openAdjustBidModal(service)}
+                >
+                  <Text style={styles.adjustBidSecondaryButtonText}>Adjust Bid</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
         </View>
       </Pressable>
     );
@@ -748,7 +1075,7 @@ export default function Landing() {
     <View style={styles.container}>
       <StatusBar style="dark" backgroundColor="#0c4309" />
       <View style={styles.header}>
-        <Text style={styles.title}>Available Jobs</Text>
+        <Text style={styles.title}>Available Services</Text>
       </View>
       <View style={styles.GreenHeaderBar} />
       <View style={styles.contentContainer}>
@@ -764,7 +1091,7 @@ export default function Landing() {
               <Text style={styles.retryButtonText}>Try again</Text>
             </Pressable>
           </View>
-  ) : sortedServices.length === 0 ? (
+        ) : sortedServices.length === 0 ? (
           <View style={styles.noServicesContainer}>
             <Text style={styles.noServicesText}>No Jobs Available</Text>
           </View>
@@ -798,6 +1125,84 @@ export default function Landing() {
           </ScrollView>
         )}
       </View>
+
+      <Modal
+        visible={suggestTimeModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleSuggestTimeCancel}
+      >
+        <View style={styles.suggestTimeOverlay}>
+          <View style={styles.suggestTimeContent}>
+            <Text style={styles.suggestTimeTitle}>Suggest A Time</Text>
+            <Text style={styles.suggestTimeSubtitle}>
+              Let the customer know when you can arrive for this ASAP job.
+            </Text>
+            <View style={styles.suggestTimeSummaryBox}>
+              <Text style={styles.suggestTimeSummaryLabel}>Arrival time</Text>
+              <Text style={styles.suggestTimeSummaryValue}>{formattedSuggestedTime}</Text>
+            </View>
+
+            {isDateTimePickerSupported ? (
+              <View style={styles.inlinePickerGroup}>
+                <View style={styles.inlinePickerSection}>
+                  <Text style={styles.inlinePickerLabel}>Date</Text>
+                  <DateTimePicker
+                    value={suggestedTimeDraft}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'compact' : 'spinner'}
+                    onChange={handleDraftDateChange}
+                    style={styles.inlinePickerControl}
+                  />
+                </View>
+
+                <View style={styles.inlinePickerDivider} />
+
+                <View style={styles.inlinePickerSection}>
+                  <Text style={styles.inlinePickerLabel}>Time</Text>
+                  <DateTimePicker
+                    value={suggestedTimeDraft}
+                    mode="time"
+                    display={Platform.OS === 'ios' ? 'compact' : 'spinner'}
+                    onChange={handleDraftTimeChange}
+                    style={styles.inlinePickerControl}
+                  />
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.suggestTimePickerUnsupportedText}>
+                Date and time selection isn’t available on this platform yet.
+              </Text>
+            )}
+
+            {suggestTimeError ? (
+              <Text style={styles.suggestTimeErrorText}>{suggestTimeError}</Text>
+            ) : null}
+            <View style={styles.suggestTimeButtonRow}>
+              <Pressable
+                style={[styles.suggestTimeButton, styles.suggestTimeCancelButton]}
+                onPress={handleSuggestTimeCancel}
+                disabled={suggestTimeSubmitting}
+              >
+                <Text style={styles.suggestTimeCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.suggestTimeButton,
+                  styles.suggestTimeConfirmButton,
+                  suggestTimeSubmitting ? styles.suggestTimeConfirmDisabled : null,
+                ]}
+                onPress={handleSuggestTimeConfirm}
+                disabled={suggestTimeSubmitting}
+              >
+                <Text style={styles.suggestTimeConfirmText}>
+                  {suggestTimeSubmitting ? 'Sending…' : 'Send Request'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={adjustModalVisible}
@@ -923,6 +1328,17 @@ export default function Landing() {
               >
                 <View style={styles.menuItemRow}>
                   <Text style={styles.menuItemText}>Account</Text>
+                </View>
+              </Pressable>
+              <Pressable 
+                style={styles.menuItem} 
+                onPress={() => {
+                  setIsMenuOpen(false);
+                  navigate('past-services');
+                }}
+              >
+                <View style={styles.menuItemRow}>
+                  <Text style={styles.menuItemText}>Past Services</Text>
                 </View>
               </Pressable>
             </View>
@@ -1070,8 +1486,8 @@ const styles = StyleSheet.create({
   serviceCard: {
     backgroundColor: '#F5E7D0',
     borderRadius: 14,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginBottom: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
@@ -1090,8 +1506,8 @@ const styles = StyleSheet.create({
     borderColor: '#C0B9A6',
     borderWidth: 1,
     borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingHorizontal: 25,
+    paddingVertical: 3,
     marginBottom: 6,
   },
   serviceTypeText: {
@@ -1099,6 +1515,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     letterSpacing: 0.2,
+  },
+  autoFillPill: {
+    marginTop: 4,
+    backgroundColor: '#0c4309',
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 3,
+  },
+  autoFillPillText: {
+    color: '#FFF8E8',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   pillRow: {
     flexDirection: 'column',
@@ -1108,8 +1538,9 @@ const styles = StyleSheet.create({
   confirmedPill: {
     backgroundColor: '#0c4309',
     borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingHorizontal: 30,
+    paddingVertical: 3,
+    marginTop: 3,
   },
   confirmedPillText: {
     color: '#FFF8E8',
@@ -1139,7 +1570,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   cardInfoColumn: {
-    flex: 1,
     paddingRight: 0,
     // borderColor: 'red',
     // borderWidth: 1
@@ -1152,12 +1582,15 @@ const styles = StyleSheet.create({
   },
   descriptionButton: {
     flexDirection: 'row',
-    alignItems: 'center',
     alignSelf: 'flex-start',
     backgroundColor: 'transparent',
     paddingHorizontal: 0,
     paddingVertical: 6,
-    marginTop: 5,
+    marginTop: 7,
+    marginLeft: 4
+    // borderColor: '#0c4309',
+    // borderWidth: 1,
+    // borderRadius: 18,
   },
   descriptionButtonText: {
     color: '#0c4309',
@@ -1172,7 +1605,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 0,
-    marginTop: 5,
+    marginTop: 20,
   },
   locationIcon: {
     width: 18,
@@ -1187,10 +1620,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   priceColumn: {
-    alignItems: 'stretch',
+    alignItems: 'center',
     justifyContent: 'center',
     minWidth: 140,
-    paddingLeft: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   confirmedPriceColumn: {
     alignItems: 'center',
@@ -1198,9 +1632,9 @@ const styles = StyleSheet.create({
   },
   priceRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
   },
   confirmedPriceRow: {
     justifyContent: 'center',
@@ -1211,6 +1645,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#0c4309',
+    textAlign: 'center',
   },
   confirmedPriceValue: {
     textAlign: 'center',
@@ -1221,6 +1656,7 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     marginLeft: 6,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   priceLabel: {
     fontSize: 12,
@@ -1240,6 +1676,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     marginBottom: 5,
+  },
+  requestActionButtonSolo: {
+    marginBottom: 0,
   },
   confirmedCancelButton: {
     marginBottom: 0,
@@ -1268,6 +1707,153 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#0c4309',
+  },
+  suggestTimeOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  suggestTimeContent: {
+    width: '90%',
+    maxWidth: 420,
+    backgroundColor: '#F5E7D0',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  suggestTimeTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0c4309',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  suggestTimeSubtitle: {
+    fontSize: 14,
+    color: '#49454F',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  suggestTimeSummaryBox: {
+    backgroundColor: '#FFF2DA',
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#D3C7AE',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  suggestTimeSummaryLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#74684F',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  suggestTimeSummaryValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0c4309',
+  },
+  inlinePickerGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF8E8',
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#D3C7AE',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+    gap: 12,
+  },
+  inlinePickerSection: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  inlinePickerLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#74684F',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+    letterSpacing: 0.6,
+  },
+  inlinePickerControl: {
+    width: Platform.OS === 'ios' ? undefined : 120,
+    minWidth: Platform.OS === 'ios' ? 0 : 110,
+  },
+  inlinePickerDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: '#D3C7AE',
+    opacity: 0.7,
+  },
+  suggestTimeErrorText: {
+    color: '#C94736',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  suggestTimeButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 24,
+  },
+  suggestTimePickerUnsupportedText: {
+    fontSize: 14,
+    color: '#49454F',
+    textAlign: 'center',
+    marginVertical: 32,
+  },
+  suggestTimeButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  suggestTimeCancelButton: {
+    backgroundColor: '#E5DCC9',
+    marginRight: 8,
+  },
+  suggestTimeConfirmButton: {
+    backgroundColor: '#0c4309',
+    marginLeft: 8,
+  },
+  suggestTimeConfirmDisabled: {
+    opacity: 0.7,
+  },
+  suggestTimeCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0c4309',
+  },
+  suggestTimeConfirmText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFF8E8',
   },
   bidModalOverlay: {
     flex: 1,
@@ -1301,7 +1887,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bidModalInput: {
-    backgroundColor: '#E5DCC9',
+    backgroundColor: 'transparent',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -1520,5 +2106,33 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     flex: 1,
+  },
+  confirmedBidValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0c4309',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  confirmedButtonColumn: {
+    width: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  showDetailsButton: {
+    width: '100%',
+    paddingVertical: 22,
+    backgroundColor: '#FFF8E8',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#C0B9A6',
+  },
+  showDetailsButtonText: {
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0c4309',
   },
 });

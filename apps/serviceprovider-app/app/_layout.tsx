@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { AuthProvider } from '../src/contexts/AuthContext';
+import { ModalProvider } from '../src/contexts/ModalContext';
 import { supabase } from '../src/lib/supabase';
 
 export default function Layout() {
@@ -47,18 +48,20 @@ export default function Layout() {
 
   return (
     <AuthProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-        }}
-      >
+      <ModalProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+          }}
+        >
         <Stack.Screen name="index" options={{ animation: 'none' }} />
         <Stack.Screen name="login" options={{ animation: 'fade', animationDuration: 100 }} />
         <Stack.Screen name="signup" options={{ animation: 'fade', animationDuration: 100 }} />
         <Stack.Screen name="account" options={{ animation: 'fade', animationDuration: 100 }} />
         <Stack.Screen name="landing" options={{ animation: 'none' }} />
         <Stack.Screen name="customer-service-chat" options={{ animation: 'fade', animationDuration: 100 }} />
-      </Stack>
+        </Stack>
+      </ModalProvider>
     </AuthProvider>
   );
 }

@@ -1,15 +1,18 @@
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Asset, ImageLibraryOptions, ImagePickerResponse, launchImageLibrary } from 'react-native-image-picker';
 import { SvgXml } from 'react-native-svg';
 import { supabase } from '../src/lib/supabase';
+import { useModal } from '../src/contexts/ModalContext';
 
 interface ProviderData {
   service_provider_id: string;
   first_name: string;
   last_name: string;
   email: string;
-  phone_number: string | null;
+  phone: string | null;
+  profile_picture_url: string | null;
 }
 
 export default function Account() {
@@ -18,6 +21,8 @@ export default function Account() {
   const [editing, setEditing] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<Asset | null>(null);
 
   // Edit form state
   const [editFirstName, setEditFirstName] = useState('');
@@ -45,6 +50,7 @@ export default function Account() {
     { id: '1', type: 'card', last4: '4242', brand: 'Visa', isDefault: true },
   ]);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const { showModal } = useModal();
 
   useEffect(() => {
     fetchProviderData();
@@ -60,7 +66,10 @@ export default function Account() {
       } = await supabase.auth.getUser();
 
       if (userError || !user || !user.email) {
-        Alert.alert('Error', 'Please sign in to view your account');
+        showModal({
+          title: 'Error',
+          message: 'Please sign in to view your account',
+        });
         router.replace('/login');
         return;
       }
@@ -76,7 +85,10 @@ export default function Account() {
 
       if (providerError) {
         console.error('Error fetching provider data:', providerError);
-        Alert.alert('Error', 'Failed to load account data');
+        showModal({
+          title: 'Error',
+          message: 'Failed to load account data',
+        });
         return;
       }
 
@@ -86,7 +98,8 @@ export default function Account() {
           email: user.email,
           first_name: user.user_metadata?.first_name ?? '',
           last_name: user.user_metadata?.last_name ?? '',
-          phone_number: (user.user_metadata?.phone_number as string | null) ?? null,
+          phone: (user.user_metadata?.phone as string | null) ?? null,
+          profile_picture_url: null,
         };
 
         const {
@@ -100,7 +113,10 @@ export default function Account() {
 
         if (createError) {
           console.error('Error creating provider profile:', createError);
-          Alert.alert('Error', 'Failed to initialize your account profile');
+          showModal({
+            title: 'Error',
+            message: 'Failed to initialize your account profile',
+          });
           return;
         }
 
@@ -111,28 +127,146 @@ export default function Account() {
               first_name: profileDefaults.first_name,
               last_name: profileDefaults.last_name,
               email: profileDefaults.email,
-              phone_number: profileDefaults.phone_number,
+              phone: profileDefaults.phone,
+              profile_picture_url: profileDefaults.profile_picture_url
             };
         setProviderData(provider);
         setEditFirstName(provider.first_name || '');
         setEditLastName(provider.last_name || '');
         setEditEmail(provider.email);
-        setEditPhone(provider.phone_number || '');
+        setEditPhone(provider.phone || '');
         return;
       }
 
-      const typedProvider = existingProvider as ProviderData;
+  const typedProvider = existingProvider as ProviderData;
       setProviderData(typedProvider);
       setEditFirstName(typedProvider.first_name || '');
       setEditLastName(typedProvider.last_name || '');
       setEditEmail(typedProvider.email || user.email);
-      setEditPhone(typedProvider.phone_number || '');
+      setEditPhone(typedProvider.phone || '');
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      showModal({
+        title: 'Error',
+        message: 'An unexpected error occurred',
+      });
     } finally {
       setLoading(false);
     }
+  };
+
+  const uploadProfilePhoto = async (providerId: string, asset: Asset) => {
+    if (!asset?.uri) {
+      return;
+    }
+
+    try {
+      setPhotoUploading(true);
+
+      const response = await fetch(asset.uri);
+      const arrayBuffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+
+      const extension = asset.fileName?.split('.').pop()?.toLowerCase() ?? asset.type?.split('/').pop() ?? 'jpg';
+      const objectPath = `providers/${providerId}/profile-${Date.now()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('profile-pictures')
+        .upload(objectPath, bytes, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: asset.type ?? 'image/jpeg',
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('profile-pictures')
+        .getPublicUrl(objectPath);
+
+      const publicUrl = publicUrlData?.publicUrl ?? null;
+
+      if (!publicUrl) {
+        throw new Error('Missing public URL for uploaded profile image.');
+      }
+
+      const { error: updateProviderError } = await supabase
+        .from('service_provider')
+        .update({ profile_picture_url: publicUrl })
+        .eq('service_provider_id', providerId);
+
+      if (updateProviderError) {
+        throw updateProviderError;
+      }
+
+      try {
+        await supabase.auth.updateUser({
+          data: { profile_picture_url: publicUrl },
+        });
+      } catch (metadataError) {
+        console.warn('Failed to update auth metadata with profile image URL:', metadataError);
+      }
+
+      setProviderData(prev => prev ? {
+        ...prev,
+        profile_picture_url: publicUrl,
+      } : prev);
+
+      showModal({
+        title: 'Profile Photo Updated',
+        message: 'Your profile photo has been updated successfully!',
+      });
+    } catch (error) {
+      console.error('Failed to upload profile photo:', error);
+      showModal({
+        title: 'Upload Failed',
+        message: 'We could not update your profile photo. Please try again.',
+      });
+    } finally {
+      setPendingPhoto(null);
+      setPhotoUploading(false);
+    }
+  };
+
+  const handlePickProfilePhoto = () => {
+    if (!providerData || photoUploading) {
+      return;
+    }
+
+    const options: ImageLibraryOptions = {
+      mediaType: 'photo',
+      quality: 0.8,
+      selectionLimit: 1,
+    };
+
+    launchImageLibrary(options, (response: ImagePickerResponse) => {
+      if (response.didCancel) {
+        return;
+      }
+
+      if (response.errorCode) {
+        console.error('Image picker error:', response.errorMessage ?? response.errorCode);
+        showModal({
+          title: 'Photo Selection Failed',
+          message: response.errorMessage ?? 'Unable to access your photo library. Please try again.',
+        });
+        return;
+      }
+
+      const asset = response.assets?.[0];
+      if (!asset?.uri) {
+        showModal({
+          title: 'Photo Selection Failed',
+          message: 'No image was selected. Please choose a photo to continue.',
+        });
+        return;
+      }
+
+      setPendingPhoto(asset);
+      uploadProfilePhoto(providerData.service_provider_id, asset);
+    });
   };
 
   const saveProfileChanges = async () => {
@@ -150,7 +284,10 @@ export default function Account() {
 
         if (updateError) {
           console.error('Error updating email:', updateError);
-          Alert.alert('Error', 'Failed to send verification email');
+          showModal({
+            title: 'Error',
+            message: 'Failed to send verification email',
+          });
           return;
         }
 
@@ -165,13 +302,16 @@ export default function Account() {
         .update({
           first_name: editFirstName.trim(),
           last_name: editLastName.trim(),
-          phone_number: editPhone.trim() || null,
+          phone: editPhone.trim() || null,
         })
         .eq('service_provider_id', providerData.service_provider_id);
 
       if (error) {
         console.error('Error updating profile:', error);
-        Alert.alert('Error', 'Failed to update profile');
+        showModal({
+          title: 'Error',
+          message: 'Failed to update profile',
+        });
         return;
       }
 
@@ -179,14 +319,21 @@ export default function Account() {
         ...providerData,
         first_name: editFirstName.trim(),
         last_name: editLastName.trim(),
-        phone_number: editPhone.trim() || null,
+        phone: editPhone.trim() || null,
+        profile_picture_url: providerData.profile_picture_url,
       });
 
       setEditing(false);
-      Alert.alert('Success', 'Profile updated successfully!');
+      showModal({
+        title: 'Success',
+        message: 'Profile updated successfully!',
+      });
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      showModal({
+        title: 'Error',
+        message: 'An unexpected error occurred',
+      });
     } finally {
       setLoading(false);
     }
@@ -194,17 +341,26 @@ export default function Account() {
 
   const changePassword = async () => {
     if (!newPassword || !confirmNewPassword || !providerData) {
-      Alert.alert('Error', 'Please fill in all password fields');
+      showModal({
+        title: 'Error',
+        message: 'Please fill in all password fields',
+      });
       return;
     }
 
     if (newPassword !== confirmNewPassword) {
-      Alert.alert('Error', 'New passwords do not match');
+      showModal({
+        title: 'Error',
+        message: 'New passwords do not match',
+      });
       return;
     }
 
     if (newPassword.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters long');
+      showModal({
+        title: 'Error',
+        message: 'Password must be at least 6 characters long',
+      });
       return;
     }
 
@@ -217,7 +373,10 @@ export default function Account() {
 
       if (otpError) {
         console.error('Error sending OTP:', otpError);
-        Alert.alert('Error', 'Failed to send verification code');
+        showModal({
+          title: 'Error',
+          message: 'Failed to send verification code',
+        });
         return;
       }
 
@@ -226,29 +385,40 @@ export default function Account() {
       setShowPasswordOTPModal(true);
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      showModal({
+        title: 'Error',
+        message: 'An unexpected error occurred',
+      });
     } finally {
       setPasswordLoading(false);
     }
   };
 
   const signOut = async () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await supabase.auth.signOut();
-            router.replace('/login');
-          } catch (error) {
-            console.error('Error signing out:', error);
-            Alert.alert('Error', 'Failed to sign out');
-          }
+    showModal({
+      title: 'Sign Out',
+      message: 'Are you sure you want to sign out?',
+      allowBackdropDismiss: false,
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await supabase.auth.signOut();
+              router.replace('/login');
+            } catch (error) {
+              console.error('Error signing out:', error);
+              showModal({
+                title: 'Error',
+                message: 'Failed to sign out',
+              });
+            }
+          },
         },
-      },
-    ]);
+      ],
+    });
   };
 
   const verifyEmailOTP = async () => {
@@ -265,7 +435,10 @@ export default function Account() {
 
       if (verifyError) {
         console.error('Error verifying OTP:', verifyError);
-        Alert.alert('Error', 'Invalid verification code');
+        showModal({
+          title: 'Error',
+          message: 'Invalid verification code',
+        });
         return;
       }
 
@@ -275,13 +448,16 @@ export default function Account() {
           email: pendingEmailChange,
           first_name: editFirstName.trim(),
           last_name: editLastName.trim(),
-          phone_number: editPhone.trim() || null,
+          phone: editPhone.trim() || null,
         })
         .eq('service_provider_id', providerData.service_provider_id);
 
       if (providerError) {
         console.error('Error updating provider record:', providerError);
-        Alert.alert('Error', 'Failed to update profile');
+        showModal({
+          title: 'Error',
+          message: 'Failed to update profile',
+        });
         return;
       }
 
@@ -290,16 +466,23 @@ export default function Account() {
         email: pendingEmailChange,
         first_name: editFirstName.trim(),
         last_name: editLastName.trim(),
-        phone_number: editPhone.trim() || null,
+        phone: editPhone.trim() || null,
+        profile_picture_url: providerData.profile_picture_url,
       });
 
       setShowEmailOTPModal(false);
       setOtpCode('');
       setPendingEmailChange('');
-      Alert.alert('Success', 'Email and profile updated successfully!');
+      showModal({
+        title: 'Success',
+        message: 'Email and profile updated successfully!',
+      });
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      showModal({
+        title: 'Error',
+        message: 'An unexpected error occurred',
+      });
     } finally {
       setOtpLoading(false);
     }
@@ -319,7 +502,10 @@ export default function Account() {
 
       if (verifyError) {
         console.error('Error verifying OTP:', verifyError);
-        Alert.alert('Error', 'Invalid verification code');
+        showModal({
+          title: 'Error',
+          message: 'Invalid verification code',
+        });
         return;
       }
 
@@ -329,7 +515,10 @@ export default function Account() {
 
       if (error) {
         console.error('Error changing password:', error);
-        Alert.alert('Error', 'Failed to change password');
+        showModal({
+          title: 'Error',
+          message: 'Failed to change password',
+        });
         return;
       }
 
@@ -339,10 +528,16 @@ export default function Account() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmNewPassword('');
-      Alert.alert('Success', 'Password changed successfully!');
+      showModal({
+        title: 'Success',
+        message: 'Password changed successfully!',
+      });
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      showModal({
+        title: 'Error',
+        message: 'An unexpected error occurred',
+      });
     } finally {
       setOtpLoading(false);
     }
@@ -360,14 +555,23 @@ export default function Account() {
 
       if (error) {
         console.error('Error resending OTP:', error);
-        Alert.alert('Error', 'Failed to resend verification code');
+        showModal({
+          title: 'Error',
+          message: 'Failed to resend verification code',
+        });
         return;
       }
 
-      Alert.alert('Success', 'Verification code sent!');
+      showModal({
+        title: 'Success',
+        message: 'Verification code sent!',
+      });
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      showModal({
+        title: 'Error',
+        message: 'An unexpected error occurred',
+      });
     } finally {
       setResendLoading(false);
     }
@@ -385,39 +589,52 @@ export default function Account() {
 
       if (error) {
         console.error('Error resending OTP:', error);
-        Alert.alert('Error', 'Failed to resend verification code');
+        showModal({
+          title: 'Error',
+          message: 'Failed to resend verification code',
+        });
         return;
       }
 
-      Alert.alert('Success', 'Verification code sent!');
+      showModal({
+        title: 'Success',
+        message: 'Verification code sent!',
+      });
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      showModal({
+        title: 'Error',
+        message: 'An unexpected error occurred',
+      });
     } finally {
       setResendLoading(false);
     }
   };
 
   const addPaymentMethod = () => {
-    Alert.alert('Add Payment Method', 'Payment method integration would be implemented here');
+    showModal({
+      title: 'Add Payment Method',
+      message: 'Payment method integration would be implemented here',
+    });
     setShowAddPayment(false);
   };
 
   const removePaymentMethod = (id: string) => {
-    Alert.alert(
-      'Remove Payment Method',
-      'Are you sure you want to remove this payment method?',
-      [
+    showModal({
+      title: 'Remove Payment Method',
+      message: 'Are you sure you want to remove this payment method?',
+      allowBackdropDismiss: false,
+      buttons: [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
             setPaymentMethods(prev => prev.filter(pm => pm.id !== id));
-          }
-        }
-      ]
-    );
+          },
+        },
+      ],
+    });
   };
 
   const chevronIcon = `
@@ -445,6 +662,14 @@ export default function Account() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="#0c4309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M12 11C14.2091 11 16 9.20914 16 7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7C8 9.20914 9.79086 11 12 11Z" stroke="#0c4309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  `;
+
+  const cameraIcon = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 7H6.5L8 5H16L17.5 7H20C21.1046 7 22 7.89543 22 9V19C22 20.1046 21.1046 21 20 21H4C2.89543 21 2 20.1046 2 19V9C2 7.89543 2.89543 7 4 7Z" stroke="#FFF8E8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="12" cy="14" r="4" stroke="#FFF8E8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="18" cy="10" r="1" fill="#FFF8E8"/>
     </svg>
   `;
 
@@ -482,28 +707,63 @@ export default function Account() {
       </View>
 
       <View style={styles.profileSection}>
-        <View style={styles.avatarContainer}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {providerData.first_name.charAt(0).toUpperCase()}
-              {providerData.last_name.charAt(0).toUpperCase()}
-            </Text>
-          </View>
+        <View style={styles.avatarWrapper}>
+          <TouchableOpacity
+            style={styles.avatarTouchable}
+            onPress={handlePickProfilePhoto}
+            activeOpacity={0.8}
+            disabled={photoUploading}
+          >
+            <View style={styles.avatarContainer}>
+              {providerData.profile_picture_url ? (
+                <Image
+                  source={{ uri: pendingPhoto?.uri ?? providerData.profile_picture_url }}
+                  style={styles.profileImage}
+                />
+              ) : (
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {(providerData.first_name?.charAt(0) || providerData.email?.charAt(0) || '?').toUpperCase()}
+                    {(providerData.last_name?.charAt(0) || '').toUpperCase()}
+                  </Text>
+                </View>
+              )}
+
+              {photoUploading && (
+                <View style={styles.avatarLoadingOverlay}>
+                  <ActivityIndicator color="#FFF" />
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.avatarEditButton, photoUploading && styles.avatarEditButtonDisabled]}
+            onPress={handlePickProfilePhoto}
+            activeOpacity={0.8}
+            disabled={photoUploading}
+          >
+            {photoUploading ? (
+              <ActivityIndicator size="small" color="#FFF8E8" />
+            ) : (
+              <SvgXml xml={cameraIcon} width="18" height="18" />
+            )}
+          </TouchableOpacity>
         </View>
         <View style={styles.profileInfo}>
           <Text style={styles.name}>
             {providerData.first_name} {providerData.last_name}
           </Text>
           <Text style={styles.email} numberOfLines={1}>{providerData.email}</Text>
-          {providerData.phone_number && (
-            <Text style={styles.phone}>{providerData.phone_number}</Text>
+          {providerData.phone && (
+            <Text style={styles.phone}>{providerData.phone}</Text>
           )}
         </View>
         <TouchableOpacity style={styles.editIcon} onPress={() => {
           setEditFirstName(providerData?.first_name || '');
           setEditLastName(providerData?.last_name || '');
           setEditEmail(providerData?.email || '');
-          setEditPhone(providerData?.phone_number || '');
+          setEditPhone(providerData?.phone || '');
           setEditing(true);
         }}>
           <Text style={styles.editIconText}>Edit</Text>
@@ -547,7 +807,7 @@ export default function Account() {
                 setEditFirstName(providerData?.first_name || '');
                 setEditLastName(providerData?.last_name || '');
                 setEditEmail(providerData?.email || '');
-                setEditPhone(providerData?.phone_number || '');
+                setEditPhone(providerData?.phone || '');
                 setEditing(false);
               }}>
                 <Text style={styles.closeText}>✕</Text>
@@ -914,16 +1174,37 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  avatarContainer: {
+  avatarWrapper: {
     marginRight: 16,
+    position: 'relative',
+    width: 96,
+    height: 96,
   },
-  avatar: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#0c4309',
+  avatarTouchable: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 48,
+    overflow: 'hidden',
+  },
+  avatarContainer: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#0c4309',
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 48,
   },
   avatarText: {
     fontSize: 24,
@@ -932,6 +1213,33 @@ const styles = StyleSheet.create({
   },
   profileInfo: {
     flex: 1,
+  },
+  avatarEditButton: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#0c4309',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#FFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  avatarEditButtonDisabled: {
+    opacity: 0.7,
+  },
+  avatarLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   name: {
     fontSize: 20,

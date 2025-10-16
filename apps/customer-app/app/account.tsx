@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { supabase } from '../src/lib/supabase';
+import { useModal, ModalButtonConfig } from '../src/contexts/ModalContext';
 
 interface CustomerData {
   customer_id: string;
@@ -45,6 +46,18 @@ export default function Account() {
     { id: '1', type: 'card', last4: '4242', brand: 'Visa', isDefault: true },
   ]);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const { showModal } = useModal();
+
+  const presentModal = useCallback(
+    (title: string, message: string, buttons?: ModalButtonConfig[]) => {
+      showModal({
+        title,
+        message,
+        buttons,
+      });
+    },
+    [showModal],
+  );
 
   useEffect(() => {
     fetchCustomerData();
@@ -60,7 +73,7 @@ export default function Account() {
       } = await supabase.auth.getUser();
 
       if (userError || !user || !user.email) {
-        Alert.alert('Error', 'Please sign in to view your account');
+        presentModal('Error', 'Please sign in to view your account');
         router.replace('/login');
         return;
       }
@@ -76,7 +89,7 @@ export default function Account() {
 
       if (customerError) {
         console.error('Error fetching customer data:', customerError);
-        Alert.alert('Error', 'Failed to load account data');
+        presentModal('Error', 'Failed to load account data');
         return;
       }
 
@@ -99,7 +112,7 @@ export default function Account() {
 
         if (createError) {
           console.error('Error creating customer profile:', createError);
-          Alert.alert('Error', 'Failed to initialize your account profile');
+          presentModal('Error', 'Failed to initialize your account profile');
           return;
         }
 
@@ -127,7 +140,7 @@ export default function Account() {
       setEditPhone(existingCustomer.phone_number || '');
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      presentModal('Error', 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
@@ -150,7 +163,7 @@ export default function Account() {
 
         if (updateError) {
           console.error('Error updating email:', updateError);
-          Alert.alert('Error', 'Failed to send verification email');
+          presentModal('Error', 'Failed to send verification email');
           return;
         }
 
@@ -173,7 +186,7 @@ export default function Account() {
 
       if (error) {
         console.error('Error updating profile:', error);
-        Alert.alert('Error', 'Failed to update profile');
+        presentModal('Error', 'Failed to update profile');
         return;
       }
 
@@ -186,11 +199,11 @@ export default function Account() {
       });
 
       setEditing(false);
-      Alert.alert('Success', 'Profile updated successfully!');
+      presentModal('Success', 'Profile updated successfully!');
 
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      presentModal('Error', 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
@@ -198,17 +211,17 @@ export default function Account() {
 
     const changePassword = async () => {
     if (!newPassword || !confirmNewPassword || !customerData) {
-      Alert.alert('Error', 'Please fill in all password fields');
+      presentModal('Error', 'Please fill in all password fields');
       return;
     }
 
     if (newPassword !== confirmNewPassword) {
-      Alert.alert('Error', 'New passwords do not match');
+      presentModal('Error', 'New passwords do not match');
       return;
     }
 
     if (newPassword.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters long');
+      presentModal('Error', 'Password must be at least 6 characters long');
       return;
     }
 
@@ -223,7 +236,7 @@ export default function Account() {
 
       if (otpError) {
         console.error('Error sending OTP:', otpError);
-        Alert.alert('Error', 'Failed to send verification code');
+        presentModal('Error', 'Failed to send verification code');
         return;
       }
 
@@ -234,33 +247,29 @@ export default function Account() {
 
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      presentModal('Error', 'An unexpected error occurred');
     } finally {
       setPasswordLoading(false);
     }
   };
 
   const signOut = async () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await supabase.auth.signOut();
-              router.replace('/login');
-            } catch (error) {
-              console.error('Error signing out:', error);
-              Alert.alert('Error', 'Failed to sign out');
-            }
+    presentModal('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await supabase.auth.signOut();
+            router.replace('/login');
+          } catch (error) {
+            console.error('Error signing out:', error);
+            presentModal('Error', 'Failed to sign out');
           }
-        }
-      ]
-    );
+        },
+      },
+    ]);
   };
 
   const verifyEmailOTP = async () => {
@@ -278,7 +287,7 @@ export default function Account() {
 
       if (verifyError) {
         console.error('Error verifying OTP:', verifyError);
-        Alert.alert('Error', 'Invalid verification code');
+        presentModal('Error', 'Invalid verification code');
         return;
       }
 
@@ -295,7 +304,7 @@ export default function Account() {
 
       if (customerError) {
         console.error('Error updating customer record:', customerError);
-        Alert.alert('Error', 'Failed to update profile');
+        presentModal('Error', 'Failed to update profile');
         return;
       }
 
@@ -311,11 +320,11 @@ export default function Account() {
       setShowEmailOTPModal(false);
       setOtpCode('');
       setPendingEmailChange('');
-      Alert.alert('Success', 'Email and profile updated successfully!');
+      presentModal('Success', 'Email and profile updated successfully!');
 
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      presentModal('Error', 'An unexpected error occurred');
     } finally {
       setOtpLoading(false);
     }
@@ -336,7 +345,7 @@ export default function Account() {
 
       if (verifyError) {
         console.error('Error verifying OTP:', verifyError);
-        Alert.alert('Error', 'Invalid verification code');
+        presentModal('Error', 'Invalid verification code');
         return;
       }
 
@@ -347,7 +356,7 @@ export default function Account() {
 
       if (error) {
         console.error('Error changing password:', error);
-        Alert.alert('Error', 'Failed to change password');
+        presentModal('Error', 'Failed to change password');
         return;
       }
 
@@ -357,11 +366,11 @@ export default function Account() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmNewPassword('');
-      Alert.alert('Success', 'Password changed successfully!');
+      presentModal('Success', 'Password changed successfully!');
 
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      presentModal('Error', 'An unexpected error occurred');
     } finally {
       setOtpLoading(false);
     }
@@ -379,15 +388,15 @@ export default function Account() {
 
       if (error) {
         console.error('Error resending OTP:', error);
-        Alert.alert('Error', 'Failed to resend verification code');
+        presentModal('Error', 'Failed to resend verification code');
         return;
       }
 
-      Alert.alert('Success', 'Verification code sent!');
+      presentModal('Success', 'Verification code sent!');
 
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      presentModal('Error', 'An unexpected error occurred');
     } finally {
       setResendLoading(false);
     }
@@ -406,15 +415,15 @@ export default function Account() {
 
       if (error) {
         console.error('Error resending OTP:', error);
-        Alert.alert('Error', 'Failed to resend verification code');
+        presentModal('Error', 'Failed to resend verification code');
         return;
       }
 
-      Alert.alert('Success', 'Verification code sent!');
+      presentModal('Success', 'Verification code sent!');
 
     } catch (error) {
       console.error('Unexpected error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      presentModal('Error', 'An unexpected error occurred');
     } finally {
       setResendLoading(false);
     }
@@ -422,25 +431,21 @@ export default function Account() {
 
   const addPaymentMethod = () => {
     // Mock adding a payment method
-    Alert.alert('Add Payment Method', 'Payment method integration would be implemented here');
+    presentModal('Add Payment Method', 'Payment method integration would be implemented here');
     setShowAddPayment(false);
   };
 
   const removePaymentMethod = (id: string) => {
-    Alert.alert(
-      'Remove Payment Method',
-      'Are you sure you want to remove this payment method?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            setPaymentMethods(prev => prev.filter(pm => pm.id !== id));
-          }
-        }
-      ]
-    );
+    presentModal('Remove Payment Method', 'Are you sure you want to remove this payment method?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          setPaymentMethods(prev => prev.filter(pm => pm.id !== id));
+        },
+      },
+    ]);
   };
 
   const chevronIcon = `

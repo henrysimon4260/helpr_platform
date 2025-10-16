@@ -5,6 +5,7 @@ export type RouteParams = {
   login: undefined;
   signup: undefined;
   'customer-service-chat': undefined;
+  'past-services': undefined;
 };
 
 export const ROUTES = [
@@ -13,6 +14,7 @@ export const ROUTES = [
   'login',
   'signup',
   'customer-service-chat',
+  'past-services',
 ] as const;
 
 export type RouteName = typeof ROUTES[number];
