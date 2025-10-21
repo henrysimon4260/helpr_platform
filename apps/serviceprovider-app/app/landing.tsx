@@ -101,6 +101,7 @@ export default function Landing() {
   const [suggestedTimeDraft, setSuggestedTimeDraft] = useState<Date>(() => new Date());
   const [suggestTimeError, setSuggestTimeError] = useState<string | null>(null);
   const [suggestTimeSubmitting, setSuggestTimeSubmitting] = useState(false);
+  const [customerData, setCustomerData] = useState<Record<string, { first_name?: string; last_name?: string }>>({});
 
   const formattedSuggestedTime = useMemo(() => {
     if (!suggestedTimeSelection) {
@@ -136,6 +137,7 @@ export default function Landing() {
     setServiceRequests({});
     setCustomBids({});
     setSelectedService(null);
+    setCustomerData({});
   }, []);
 
   const fetchServices = useCallback(async () => {
@@ -172,6 +174,8 @@ export default function Landing() {
         resetServiceState();
         setServicesLoading(false);
         initialLoadRef.current = true;
+        // Redirect unauthenticated users to login
+        router.replace('/login');
         return;
       }
 
@@ -222,6 +226,38 @@ export default function Landing() {
       }
 
       setServices(visibleServices);
+
+      // Fetch customer data for confirmed services
+      const confirmedServices = visibleServices.filter(service => {
+        const status = (service.status ?? '').toLowerCase();
+        return (status === 'confirmed' || status === 'helpr_otw' || status === 'in_progress') && service.customer_id;
+      });
+
+      if (confirmedServices.length > 0) {
+        const customerIds = confirmedServices
+          .map(service => service.customer_id)
+          .filter((id): id is string => Boolean(id));
+
+        if (customerIds.length > 0) {
+          const { data: customerDataResult, error: customerError } = await supabase
+            .from('customer')
+            .select('customer_id, first_name, last_name')
+            .in('customer_id', customerIds);
+
+          if (!customerError && customerDataResult) {
+            const customerMap: Record<string, { first_name?: string; last_name?: string }> = {};
+            customerDataResult.forEach(customer => {
+              if (customer.customer_id) {
+                customerMap[customer.customer_id] = {
+                  first_name: customer.first_name ?? undefined,
+                  last_name: customer.last_name ?? undefined,
+                };
+              }
+            });
+            setCustomerData(customerMap);
+          }
+        }
+      }
 
       const serviceIds = visibleServices
         .map(service => service.service_id)
@@ -357,13 +393,14 @@ export default function Landing() {
         return new Intl.NumberFormat('en-US', {
           style: 'currency',
           currency: 'USD',
-          minimumFractionDigits: 2,
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
         }).format(price);
       } catch {
-        return `$${price.toFixed(2)}`;
+        return `$${Math.round(price)}`;
       }
     }
-    return '$0.00';
+    return '$0';
   }, []);
 
   const formatScheduledDateTime = useCallback((isoDate?: string | null) => {
@@ -600,7 +637,7 @@ export default function Landing() {
 
             showModal({
               title: 'Job confirmed',
-              message: 'AutoFill matched you to this job instantly. Head to Service Details for next steps.',
+              message: 'Head to Service Details for next steps.',
             });
             return true;
           }
@@ -970,6 +1007,7 @@ export default function Landing() {
                   <Text style={styles.confirmedPillText}>{statusLabel}</Text>
                 </View>
               )}
+
             </View>
             <View style={styles.cardActionRow}>
               <View style={styles.locationGroup}>
@@ -1005,7 +1043,7 @@ export default function Landing() {
                 accessibilityLabel="View service details"
                 accessibilityHint="Opens details for this job"
               >
-                <Text style={styles.showDetailsButtonText}>Service Details</Text>
+                <Text style={styles.showDetailsButtonText}>Details</Text>
               </Pressable>
             </View>
           ) : (
@@ -1070,6 +1108,13 @@ export default function Landing() {
   const navigate = (route: string) => {
     router.push(route as any);
   };
+
+  // Redirect unauthenticated users to login
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login');
+    }
+  }, [authLoading, user, router]);
 
   return (
     <View style={styles.container}>
@@ -1217,16 +1262,18 @@ export default function Landing() {
               Original price:{' '}
               {modalService && typeof modalService.price === 'number'
                 ? formatPrice(modalService.price)
-                : '$0.00'}
+                : '$0'}
             </Text>
-            <TextInput
-              style={styles.bidModalInput}
-              keyboardType="decimal-pad"
-              value={bidInput}
-              onChangeText={setBidInput}
-              placeholder="Enter your bid"
-              placeholderTextColor="#7a735f"
-            />
+            <View style={styles.bidInputContainer}>
+              <TextInput
+                style={styles.bidModalInput}
+                keyboardType="decimal-pad"
+                value={bidInput}
+                onChangeText={setBidInput}
+                placeholder="Enter your bid"
+                placeholderTextColor="#7a735f"
+              />
+            </View>
             <View style={styles.bidModalButtonRow}>
               <Pressable style={styles.bidModalCancelButton} onPress={handleAdjustBidCancel}>
                 <Text style={styles.bidModalCancelText}>Cancel</Text>
@@ -1535,19 +1582,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 4,
   },
-  confirmedPill: {
-    backgroundColor: '#0c4309',
-    borderRadius: 18,
-    paddingHorizontal: 30,
-    paddingVertical: 3,
-    marginTop: 3,
-  },
-  confirmedPillText: {
-    color: '#FFF8E8',
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
+
   serviceStatusPill: {
     alignSelf: 'flex-start',
     backgroundColor: '#A3926D',
@@ -1578,7 +1613,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'nowrap',
-    marginTop: 6,
+    marginTop: 2,
   },
   descriptionButton: {
     flexDirection: 'row',
@@ -1886,14 +1921,26 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
+  bidInputContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
   bidModalInput: {
     backgroundColor: 'transparent',
-    borderRadius: 14,
+    borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
     color: '#0c4309',
-    marginBottom: 20,
+    minHeight: 48,
   },
   bidModalButtonRow: {
     flexDirection: 'row',
@@ -2112,7 +2159,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0c4309',
     marginBottom: 12,
+    marginTop: 8,
     textAlign: 'center',
+  },
+  confirmedPill: {
+    backgroundColor: '#0c4309',
+    borderRadius: 18,
+    paddingHorizontal: 30,
+    paddingVertical: 3,
+    marginTop: 3,
+  },
+  confirmedPillText: {
+    color: '#FFF8E8',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   confirmedButtonColumn: {
     width: 120,

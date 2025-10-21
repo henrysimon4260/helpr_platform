@@ -8,6 +8,7 @@ import MapView, { Marker, Polyline, PROVIDER_DEFAULT, LatLng } from 'react-nativ
 import * as Location from 'expo-location';
 import LottieView from 'lottie-react-native';
 import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../src/contexts/AuthContext';
 
 const resolveGooglePlacesKey = () => {
   const extras = (Constants?.expoConfig?.extra ?? {}) as Record<string, unknown>;
@@ -105,11 +106,20 @@ const ensureRouteEndpoints = (
   return newPath;
 };
 
+const LOTTIE_FRAME_RATE = 29.97;
+const STATUS_FRAME_MAP: Record<string, number> = {
+  confirmed: 0,
+  helpr_otw: 20,
+  in_progress: 50,
+  completed: 70,
+};
+
 export default function ServiceDetails() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const serviceId = params.serviceId as string;
   const googlePlacesApiKey = useMemo(resolveGooglePlacesKey, []);
+  const { user, loading: authLoading } = useAuth();
 
   const [service, setService] = useState<ServiceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -131,9 +141,13 @@ export default function ServiceDetails() {
   const [ratingComment, setRatingComment] = useState<string | null>(null);
   const mapRef = useRef<MapView | null>(null);
   const animationRef = useRef<LottieView | null>(null);
-  const previousStatusRef = useRef<string | null>(null);
+  const [animationLoaded, setAnimationLoaded] = useState(false);
+  const latestRequestRef = useRef(0);
 
   const fetchServiceData = useCallback(async () => {
+    const requestId = Date.now();
+    latestRequestRef.current = requestId;
+    console.log('🔄 Fetching service data for:', serviceId);
     try {
       const { data, error } = await supabase
         .from('service')
@@ -143,6 +157,11 @@ export default function ServiceDetails() {
 
       if (error) throw error;
 
+      if (latestRequestRef.current !== requestId) {
+        return;
+      }
+
+      console.log('✅ Service data fetched. Status:', data.status);
       setService(data);
       setRating(0);
       setRatingRecordId(null);
@@ -156,6 +175,10 @@ export default function ServiceDetails() {
           .eq('customer_id', data.customer_id)
           .eq('service_provider_id', data.service_provider_id)
           .maybeSingle();
+
+        if (latestRequestRef.current !== requestId) {
+          return;
+        }
 
         if (!ratingFetchError && ratingRow) {
           const typedRow = ratingRow as CustomerRatingRow;
@@ -172,6 +195,10 @@ export default function ServiceDetails() {
           .eq('service_provider_id', data.service_provider_id)
           .single();
 
+        if (latestRequestRef.current !== requestId) {
+          return;
+        }
+
         if (!providerError && providerData) {
           setHelprFirstName(providerData.first_name);
         }
@@ -180,19 +207,26 @@ export default function ServiceDetails() {
       if (data.customer_id) {
         const { data: customerData, error: customerError } = await supabase
           .from('customer')
-          .select('first_name, last_name, profile_image_url')
+          .select('first_name, last_name, profile_picture_url')
           .eq('customer_id', data.customer_id)
           .single();
+
+        if (latestRequestRef.current !== requestId) {
+          return;
+        }
 
         if (!customerError && customerData) {
           setCustomerFirstName(customerData.first_name ?? null);
           setCustomerLastName(customerData.last_name ?? null);
-          setCustomerProfileImageUrl(customerData.profile_image_url ?? null);
+          setCustomerProfileImageUrl(customerData.profile_picture_url ?? null);
         }
       }
 
       if (data.start_location) {
         const startGeocode = await geocodeAddress(data.start_location);
+        if (latestRequestRef.current !== requestId) {
+          return;
+        }
         if (startGeocode) {
           setStartLocation(startGeocode);
         }
@@ -200,11 +234,17 @@ export default function ServiceDetails() {
 
       if (data.end_location) {
         const endGeocode = await geocodeAddress(data.end_location);
+        if (latestRequestRef.current !== requestId) {
+          return;
+        }
         if (endGeocode) {
           setEndLocation(endGeocode);
         }
       } else if (data.location && !data.start_location && !data.end_location) {
         const locationGeocode = await geocodeAddress(data.location);
+        if (latestRequestRef.current !== requestId) {
+          return;
+        }
         if (locationGeocode) {
           setStartLocation(locationGeocode);
         }
@@ -212,13 +252,22 @@ export default function ServiceDetails() {
     } catch (error) {
       console.error('Error fetching service:', error);
     } finally {
-      setLoading(false);
+      if (latestRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [serviceId]);
 
   useEffect(() => {
     fetchServiceData();
   }, [fetchServiceData]);
+
+  // Redirect unauthenticated users to login
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login');
+    }
+  }, [authLoading, user, router]);
 
   useEffect(() => {
     if (!startLocation || !endLocation) {
@@ -314,15 +363,22 @@ export default function ServiceDetails() {
           event: 'UPDATE',
           schema: 'public',
           table: 'service',
-          filter: `service_id=eq.${serviceId}`,
         },
-        () => {
-          fetchServiceData();
+        (payload) => {
+          if (payload.new && payload.new.service_id === serviceId) {
+            fetchServiceData();
+          }
         }
       )
       .subscribe();
 
+    // Poll every 5 seconds as a fallback
+    const pollInterval = setInterval(() => {
+      fetchServiceData();
+    }, 5000);
+
     return () => {
+      clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
   }, [serviceId, fetchServiceData]);
@@ -391,9 +447,9 @@ export default function ServiceDetails() {
       case 'confirmed':
         return 'Service Details';
       case 'helpr_otw':
-        return helprFirstName ? `${helprFirstName} is on the way!` : 'On the Way';
+        return 'Service Details';
       case 'in_progress':
-        return 'In Progress';
+        return 'Service In Progress';
       case 'completed':
         return 'Service Completed';
       default:
@@ -481,41 +537,172 @@ export default function ServiceDetails() {
 
   const getAnimationFrame = (status: string | null | undefined) => {
     const normalized = (status ?? '').toLowerCase();
-    switch (normalized) {
-      case 'confirmed':
-        return 0;
-      case 'helpr_otw':
-        return 20;
-      case 'in_progress':
-        return 50;
-      case 'completed':
-        return 70;
-      default:
-        return 0;
-    }
+    return STATUS_FRAME_MAP[normalized] ?? 0;
   };
 
-  // Animate to the appropriate frame when service status changes
+  const currentServiceIdRef = useRef<string | null>(null);
+  const currentStatusRef = useRef<string | null>(null);
+  const currentFrameRef = useRef<number | null>(null);
+  const isAnimatingRef = useRef(false);
+  const pendingAnimationRef = useRef<{ frame: number; status: string } | null>(null);
+
+  // Synchronise the progress animation with the latest service state.
   useEffect(() => {
-    if (!animationRef.current || !service?.status) {
+    const lottieView = animationRef.current;
+    const activeServiceId = service?.service_id;
+    const rawStatus = service?.status;
+
+    console.log('🔍 Animation sync check:', { 
+      hasLottie: !!lottieView, 
+      serviceId: activeServiceId, 
+      status: rawStatus,
+      loaded: animationLoaded,
+      currentServiceId: currentServiceIdRef.current,
+      currentStatus: currentStatusRef.current,
+      currentFrame: currentFrameRef.current
+    });
+
+    if (!lottieView || !activeServiceId || !rawStatus || !animationLoaded) {
       return;
     }
 
-    const normalized = service.status.toLowerCase();
-    const previous = previousStatusRef.current;
-    const startFrame = previous ? getAnimationFrame(previous) : 0;
-    const endFrame = getAnimationFrame(normalized);
+    const normalizedStatus = rawStatus.toLowerCase();
+    const targetFrame = getAnimationFrame(normalizedStatus);
 
-    if (startFrame === endFrame) {
-      animationRef.current.play(endFrame, endFrame + 1);
-    } else if (startFrame < endFrame) {
-      animationRef.current.play(startFrame, endFrame);
-    } else {
-      animationRef.current.play(0, endFrame);
+    const isNewService = currentServiceIdRef.current !== activeServiceId;
+    const previousStatus = currentStatusRef.current;
+    const previousFrame = currentFrameRef.current;
+
+    const syncToFrame = (frame: number, status: string) => {
+      const instance = animationRef.current as unknown as {
+        goToAndStop?(position: number, isFrame: boolean): void;
+        pause?: () => void;
+      } | null;
+
+      if (!instance) {
+        return;
+      }
+
+      try {
+        instance.pause?.();
+        if (typeof instance.goToAndStop === 'function') {
+          instance.goToAndStop(frame, true);
+        } else {
+          animationRef.current?.play(frame, frame);
+        }
+      } finally {
+        currentFrameRef.current = frame;
+        currentStatusRef.current = status;
+      }
+    };
+
+    const animateForward = (fromFrame: number, toFrame: number, status: string) => {
+      if (fromFrame >= toFrame) {
+        syncToFrame(toFrame, status);
+        return;
+      }
+
+      if (isAnimatingRef.current) {
+        const existingPending = pendingAnimationRef.current;
+        if (!existingPending || toFrame >= existingPending.frame) {
+          pendingAnimationRef.current = { frame: toFrame, status };
+        }
+        return;
+      }
+
+      const instance = animationRef.current;
+      if (!instance) {
+        return;
+      }
+
+      isAnimatingRef.current = true;
+      pendingAnimationRef.current = null;
+
+      try {
+        instance.play(fromFrame, toFrame);
+      } catch (error) {
+        console.warn('Failed to play animation segment', error);
+        syncToFrame(toFrame, status);
+        isAnimatingRef.current = false;
+        return;
+      }
+
+      const estimatedDuration = Math.max(
+        400,
+        ((toFrame - fromFrame) / LOTTIE_FRAME_RATE) * 1000,
+      );
+
+      setTimeout(() => {
+        syncToFrame(toFrame, status);
+        isAnimatingRef.current = false;
+
+        const pending = pendingAnimationRef.current;
+        if (pending) {
+          pendingAnimationRef.current = null;
+          const resumeFrom = currentFrameRef.current ?? toFrame;
+          animateForward(resumeFrom, pending.frame, pending.status);
+        }
+      }, estimatedDuration + 80);
+    };
+
+    if (isNewService) {
+      console.log('🎬 New service detected, animating from 0 to', targetFrame, 'for status:', normalizedStatus);
+      currentServiceIdRef.current = activeServiceId;
+      currentStatusRef.current = null;
+      currentFrameRef.current = 0;
+      isAnimatingRef.current = false;
+      pendingAnimationRef.current = null;
+      animateForward(0, targetFrame, normalizedStatus);
+      return;
     }
 
-    previousStatusRef.current = normalized;
-  }, [service?.status]);
+    if (!previousStatus) {
+      syncToFrame(targetFrame, normalizedStatus);
+      return;
+    }
+
+    if (previousStatus === normalizedStatus) {
+      if (previousFrame !== targetFrame) {
+        syncToFrame(targetFrame, normalizedStatus);
+      }
+      return;
+    }
+
+    const startingFrame = previousFrame ?? getAnimationFrame(previousStatus);
+    animateForward(startingFrame, targetFrame, normalizedStatus);
+  }, [service?.service_id, service?.status, animationLoaded]);
+
+  useEffect(() => {
+    if (!service?.service_id) {
+      return;
+    }
+    // Reset all animation state when service changes
+    console.log('🔄 [Provider] Service changed to:', service?.service_id, 'Status:', service?.status);
+    setAnimationLoaded(false);
+    currentServiceIdRef.current = null;
+    currentStatusRef.current = null;
+    currentFrameRef.current = null;
+    isAnimatingRef.current = false;
+    pendingAnimationRef.current = null;
+    
+    // Fallback: set loaded to true after a short delay if callback doesn't fire
+    const fallbackTimer = setTimeout(() => {
+      console.log('⏰ [Provider] Animation load fallback triggered');
+      setAnimationLoaded(true);
+    }, 500);
+    
+    return () => clearTimeout(fallbackTimer);
+  }, [service?.service_id]);
+
+  useEffect(() => {
+    return () => {
+      currentServiceIdRef.current = null;
+      currentStatusRef.current = null;
+      currentFrameRef.current = null;
+      isAnimatingRef.current = false;
+      pendingAnimationRef.current = null;
+    };
+  }, []);
 
   const handleRateCustomer = useCallback(
     async (value: number) => {
@@ -697,6 +884,12 @@ export default function ServiceDetails() {
       
       {/* Header */}
       <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Image 
+            source={require('../assets/icons/backButton.png')} 
+            style={styles.backButtonIcon} 
+          />
+        </Pressable>
         <Text style={styles.headerTitle}>{getStatusTitle(service?.status)}</Text>
       </View>
 
@@ -757,11 +950,17 @@ export default function ServiceDetails() {
           <View style={styles.animationContentRow}>
             <View style={styles.animationWrapper}>
               <LottieView
+                key={service?.service_id ?? 'service-animation'}
                 ref={animationRef}
                 source={require('../assets/animations/ServiceProgressionAnimation.json')}
                 autoPlay={false}
                 loop={false}
+                speed={1}
                 style={styles.lottieAnimation}
+                onAnimationLoaded={() => { 
+                  console.log('🎨 [Provider] Animation loaded for service:', service?.service_id);
+                  setAnimationLoaded(true); 
+                }}
               />
             </View>
             <View style={styles.stageLabelsContainer}>
@@ -791,11 +990,12 @@ export default function ServiceDetails() {
         {/* Update Status Button */}
         <View style={styles.actionButtonContainer}>
           {service?.status?.toLowerCase() === 'completed' ? (
-            <View style={styles.reviewSection}>
-              <Text style={styles.reviewTitle}>
-                {`Leave a review for ${customerFirstName ?? 'your customer'}`}
-              </Text>
-              <View style={styles.reviewContentRow}>
+            <>
+              <View style={styles.reviewSection}>
+                <Text style={styles.reviewTitle}>
+                  {`Leave A Review For ${customerFirstName || 'Your Customer'}`}
+                </Text>
+                <View style={styles.reviewContentRow}>
                 {customerProfileImageUrl ? (
                   <Image
                     source={{ uri: customerProfileImageUrl }}
@@ -843,30 +1043,27 @@ export default function ServiceDetails() {
                       <Text style={styles.commentPreviewText}>{ratingComment}</Text>
                     </View>
                   ) : null}
-                  <Pressable
-                    style={[styles.commentButton, commentSaving ? styles.commentButtonDisabled : null]}
-                    onPress={handleOpenCommentModal}
-                    disabled={commentSaving}
-                  >
-                    <Text style={styles.commentButtonText}>
-                      {ratingComment ? 'Edit comment' : 'Leave a comment'}
-                    </Text>
-                  </Pressable>
                 </View>
               </View>
             </View>
+            <View style={styles.commentButtonContainer}>
+              <Pressable
+                style={[styles.commentButton, commentSaving ? styles.commentButtonDisabled : null]}
+                onPress={handleOpenCommentModal}
+                disabled={commentSaving}
+              >
+                <Text style={styles.commentButtonText}>
+                  {ratingComment ? 'Edit Comment' : 'Leave A Comment'}
+                </Text>
+              </Pressable>
+            </View>
+            </>
           ) : null}
           {service?.status !== 'completed' && (
             <Pressable style={styles.updateButton} onPress={handleUpdateStatus}>
               <Text style={styles.updateButtonText}>{getButtonText(service?.status)}</Text>
             </Pressable>
           )}
-          <Pressable 
-            style={styles.backToServicesButton} 
-            onPress={() => router.push('/landing' as any)}
-          >
-            <Text style={styles.backToServicesText}>back to available services</Text>
-          </Pressable>
         </View>
       </ScrollView>
 
@@ -927,14 +1124,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFF8E8',
   },
-  commentButton: {
+  commentButtonContainer: {
+    alignItems: 'center',
     marginTop: 12,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  commentButton: {
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#0c4309',
     paddingVertical: 8,
     paddingHorizontal: 14,
-    alignSelf: 'flex-start',
   },
   commentButtonDisabled: {
     opacity: 0.6,
@@ -1027,26 +1228,34 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#FFF8E8',
     paddingTop: Platform.OS === 'ios' ? 90 : 40,
-    paddingBottom: 0,
+    paddingBottom: 15,
     paddingHorizontal: 20,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+  },
+  backButton: {
+    marginBottom: 20,
+    alignSelf: 'flex-start',
+  },
+  backButtonIcon: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
   },
   headerTitle: {
-    alignItems: 'flex-start',
     fontSize: 24,
     fontWeight: '700',
     color: '#0c4309',
+    textAlign: 'left',
+    alignSelf: 'flex-start',
   },
   scrollContainer: {
     flex: 1,
   },
   contentContainer: {
-    paddingBottom: 50,
-    paddingTop: 16,
+    paddingBottom: 40,
+    paddingTop: 0,
   },
   mapContainer: {
-    height: 222,
+    height: 262,
     backgroundColor: '#fff',
     position: 'relative',
     borderColor: '#9b9b9bff',
@@ -1091,7 +1300,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     width: '100%',
     paddingRight: 20,
-    paddingBottom: 20,
+    paddingBottom: 0, 
   },
   animationWrapper: {
     width: 50,
@@ -1106,23 +1315,23 @@ const styles = StyleSheet.create({
   stageLabelsContainer: {
     flex: 1,
     justifyContent: 'flex-start',
-    height: 220,
+    height: 200,
     paddingTop: 8,
     paddingBottom: 15,
   },
   stageLabelOnTheWay: {
     justifyContent: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 28,
   },
   stageLabelTextOnTheWay: {
     fontSize: 16,
     fontWeight: '700',
     color: '#0c4309',
-    marginBottom: 4,
+    marginBottom: 0,
   },
   stageLabelSubtextOnTheWayWrapper: {
     width: '100%',
-    minHeight: 44,
+    minHeight: 32,
     justifyContent: 'flex-start',
   },
   stageLabelSubtextOnTheWay: {
@@ -1160,11 +1369,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0c4309',
-    marginBottom: 4,
   },
   actionButtonContainer: {
     paddingHorizontal: 20,
-    paddingTop: 0,
+    paddingTop: 40,
   },
   updateButton: {
     backgroundColor: '#0c4309',
@@ -1178,30 +1386,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  backToServicesButton: {
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  backToServicesText: {
-    color: '#0c4309',
-    fontSize: 16,
-    fontWeight: '600',
-  },
   reviewSection: {
-    marginBottom: 16,
-    padding: 14,
+    marginTop: 0,
+    marginHorizontal: 20,
     borderRadius: 18,
     backgroundColor: '#fff8e8',
+    alignSelf: 'center',
   },
   reviewTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: '#0c4309',
-    marginBottom: 10,
+    marginBottom: 15,
+    alignSelf: 'center',
+    marginTop: 15,
   },
   reviewContentRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignSelf: 'center',
   },
   reviewAvatar: {
     width: 64,
@@ -1226,21 +1428,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   reviewBody: {
-    flex: 1,
   },
   reviewSubtitle: {
     fontSize: 13,
     fontWeight: '600',
     color: '#0c4309',
     marginBottom: 8,
+    marginTop: 6,
+    alignSelf: 'center',
   },
   starRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 0,
+    alignSelf: 'flex-start',
   },
   starButton: {
-    marginRight: 10,
+    marginRight: 3,
+    marginLeft: 3,
   },
   ratingStatusText: {
     fontSize: 12,

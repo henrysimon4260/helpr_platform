@@ -168,10 +168,14 @@ export default function Signup() {
       console.log('✅ Email verified successfully');
       setShowOTPVerification(false);
       const returnTo = getReturnTo();
-      if (returnTo) {
-        clearReturnTo();
+      if (returnTo && returnTo.path && returnTo.data) {
+        // Only redirect to returnTo if we have both a path AND data (indicating we saved form state)
+        console.log('🔄 Redirecting to:', returnTo.path, 'with data:', returnTo.data);
         router.replace(returnTo.path as any);
+        // Note: Don't clear returnTo here - let the destination screen clear it after reading
       } else {
+        // No valid returnTo data, clear it and go to landing
+        clearReturnTo();
         router.replace('/landing');
       }
     }

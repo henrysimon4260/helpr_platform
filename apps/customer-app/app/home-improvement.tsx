@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SvgXml } from 'react-native-svg';
@@ -10,8 +10,18 @@ export default function Moving() {
   const [isPersonal, setIsPersonal] = useState(true);
   const slideAnimation = useRef(new Animated.Value(0)).current;
   const slideAnimation2 = useRef(new Animated.Value(0)).current;
+  const slideAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const slideAnimation2Ref = useRef<Animated.CompositeAnimation | null>(null);
   
   const navigate = (route: keyof RouteParams) => router.push(route as any);
+
+  // Cleanup animations on unmount
+  useEffect(() => {
+    return () => {
+      slideAnimationRef.current?.stop();
+      slideAnimation2Ref.current?.stop();
+    };
+  }, []);
 
   const voiceIconSvg = `
     <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -124,13 +134,20 @@ export default function Moving() {
                     <Pressable
                       style={StyleSheet.absoluteFill}
                       onPress={() => {
-                        setIsAuto(prev => !prev);
-                        Animated.spring(slideAnimation, {
-                          toValue: isAuto ? 1 : 0,
-                          useNativeDriver: false,
-                          friction: 8,
-                          tension: 50
-                        }).start();
+                        setIsAuto(prev => {
+                          const next = !prev;
+                          // Cancel any in-progress animation
+                          slideAnimationRef.current?.stop();
+                          // Start new animation
+                          slideAnimationRef.current = Animated.spring(slideAnimation, {
+                            toValue: next ? 0 : 1,
+                            useNativeDriver: false,
+                            friction: 8,
+                            tension: 50
+                          });
+                          slideAnimationRef.current.start();
+                          return next;
+                        });
                       }}
                     >
                       <Animated.View
@@ -174,13 +191,20 @@ export default function Moving() {
                       <Pressable
                         style={StyleSheet.absoluteFill}
                         onPress={() => {
-                          setIsPersonal(prev => !prev);
-                          Animated.spring(slideAnimation2, {
-                            toValue: isPersonal ? 1 : 0,
-                            useNativeDriver: false,
-                            friction: 8,
-                            tension: 50
-                          }).start();
+                          setIsPersonal(prev => {
+                            const next = !prev;
+                            // Cancel any in-progress animation
+                            slideAnimation2Ref.current?.stop();
+                            // Start new animation
+                            slideAnimation2Ref.current = Animated.spring(slideAnimation2, {
+                              toValue: next ? 0 : 1,
+                              useNativeDriver: false,
+                              friction: 8,
+                              tension: 50
+                            });
+                            slideAnimation2Ref.current.start();
+                            return next;
+                          });
                         }}
                       >
                         <Animated.View

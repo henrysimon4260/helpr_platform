@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Asset, ImageLibraryOptions, ImagePickerResponse, launchImageLibrary } from 'react-native-image-picker';
 import { SvgXml } from 'react-native-svg';
+import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../src/lib/supabase';
 import { useModal } from '../src/contexts/ModalContext';
 
@@ -23,6 +24,7 @@ export default function Account() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<Asset | null>(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
 
   // Edit form state
   const [editFirstName, setEditFirstName] = useState('');
@@ -55,6 +57,13 @@ export default function Account() {
   useEffect(() => {
     fetchProviderData();
   }, []);
+
+  // Refresh data when screen comes into focus (e.g., after signup)
+  useFocusEffect(
+    useCallback(() => {
+      fetchProviderData();
+    }, [])
+  );
 
   const fetchProviderData = async () => {
     try {
@@ -138,8 +147,15 @@ export default function Account() {
         return;
       }
 
-  const typedProvider = existingProvider as ProviderData;
+      const typedProvider = existingProvider as ProviderData;
+      console.log('Account: Loaded existing provider data:', {
+        id: typedProvider.service_provider_id,
+        email: typedProvider.email,
+        hasProfilePicture: !!typedProvider.profile_picture_url,
+        profilePictureUrl: typedProvider.profile_picture_url
+      });
       setProviderData(typedProvider);
+      setImageLoadError(false); // Reset image error state when loading new data
       setEditFirstName(typedProvider.first_name || '');
       setEditLastName(typedProvider.last_name || '');
       setEditEmail(typedProvider.email || user.email);
@@ -213,6 +229,8 @@ export default function Account() {
         ...prev,
         profile_picture_url: publicUrl,
       } : prev);
+
+      setImageLoadError(false); // Reset error state after successful upload
 
       showModal({
         title: 'Profile Photo Updated',
@@ -715,10 +733,19 @@ export default function Account() {
             disabled={photoUploading}
           >
             <View style={styles.avatarContainer}>
-              {providerData.profile_picture_url ? (
+              {(pendingPhoto?.uri || (providerData.profile_picture_url && !imageLoadError)) ? (
                 <Image
-                  source={{ uri: pendingPhoto?.uri ?? providerData.profile_picture_url }}
+                  source={{ uri: (pendingPhoto?.uri || providerData.profile_picture_url)! }}
                   style={styles.profileImage}
+                  onError={(error) => {
+                    console.log('Profile image failed to load:', error.nativeEvent.error);
+                    console.log('Attempted to load URL:', pendingPhoto?.uri || providerData.profile_picture_url);
+                    setImageLoadError(true);
+                  }}
+                  onLoad={() => {
+                    console.log('Profile image loaded successfully:', pendingPhoto?.uri || providerData.profile_picture_url);
+                    setImageLoadError(false);
+                  }}
                 />
               ) : (
                 <View style={styles.avatar}>

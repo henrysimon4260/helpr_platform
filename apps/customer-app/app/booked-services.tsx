@@ -8,6 +8,7 @@ import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../src/lib/selectProModalTracker';
+import { hasViewedCompletedService, clearViewedCompletedServices } from '../src/lib/viewedCompletedServices';
 
 type ServiceRow = {
   service_id: string;
@@ -62,7 +63,7 @@ export default function BookedServices() {
     }
     return Array.isArray(serviceIdParam) ? serviceIdParam[0] : serviceIdParam;
   }, [serviceIdParam]);
-  const [overlayVisible, setOverlayVisible] = useState(false);
+
   const [selectProModalVisible, setSelectProModalVisible] = useState(false);
   const [confirmationModalVisible, setConfirmationModalVisible] = useState(false);
   const [confirmationModalType, setConfirmationModalType] = useState<'finding_pros' | 'confirmed'>('finding_pros');
@@ -95,13 +96,14 @@ export default function BookedServices() {
   const selectedServiceId = selectedService?.service_id ?? null;
   const [fillRequestCounts, setFillRequestCounts] = useState<Record<string, number>>({});
   const [providerProfiles, setProviderProfiles] = useState<Record<string, ServiceProviderProfile>>({});
+  const [viewedCompletedServices, setViewedCompletedServices] = useState<Set<string>>(new Set());
   const initialLoadRef = useRef(true);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previousServiceStatusesRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (showOverlay || temporaryService) {
-      setOverlayVisible(true);
+      setPickerVisible(true);
     }
   }, [showOverlay, temporaryService]);
 
@@ -113,9 +115,7 @@ export default function BookedServices() {
     }
   }, [showConfirmedModal, helprFirstName]);
 
-  const closeOverlay = useCallback(() => {
-    setOverlayVisible(false);
-  }, []);
+
 
   // Generate date options
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -123,7 +123,7 @@ export default function BookedServices() {
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
   
   // Flexible time slots (30-minute intervals from 8 AM to 8 PM)
-  const timeSlots = [];
+  const timeSlots: string[] = [];
   for (let hour = 8; hour <= 20; hour++) {
     for (let minute = 0; minute < 60; minute += 30) {
       const period = hour < 12 ? 'AM' : 'PM';
@@ -134,6 +134,44 @@ export default function BookedServices() {
   }
   
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('9:00 AM');
+
+  // Get available time slots based on selected date
+  const availableTimeSlots = useMemo(() => {
+    const today = new Date();
+    const isToday = selectedDate.getFullYear() === today.getFullYear() &&
+                   selectedDate.getMonth() === today.getMonth() &&
+                   selectedDate.getDate() === today.getDate();
+    
+    if (!isToday) {
+      return timeSlots; // Show all time slots for other days
+    }
+    
+    // For today, only show time slots that are at least 1 hour from now
+    return timeSlots.filter((timeSlot) => {
+      const [time, period] = timeSlot.split(' ');
+      const [hourStr, minuteStr] = time.split(':');
+      let hour = parseInt(hourStr);
+      const minute = parseInt(minuteStr);
+      
+      // Convert to 24-hour format
+      if (period === 'PM' && hour !== 12) hour += 12;
+      if (period === 'AM' && hour === 12) hour = 0;
+      
+      const slotTime = new Date(today);
+      slotTime.setHours(hour, minute, 0, 0);
+      
+      const oneHourFromNow = new Date(today.getTime() + 60 * 60 * 1000);
+      
+      return slotTime > oneHourFromNow;
+    });
+  }, [selectedDate, timeSlots]);
+
+  // Update selected time slot when available slots change
+  useEffect(() => {
+    if (availableTimeSlots.length > 0 && !availableTimeSlots.includes(selectedTimeSlot)) {
+      setSelectedTimeSlot(availableTimeSlots[0]);
+    }
+  }, [availableTimeSlots, selectedTimeSlot]);
 
   const fetchServices = useCallback(async () => {
     if (authLoading) {
@@ -304,9 +342,26 @@ export default function BookedServices() {
   useEffect(() => {
     if (!user) {
       resetSelectProModalTracker();
+      clearViewedCompletedServices();
       previousServiceStatusesRef.current = {};
+      setViewedCompletedServices(new Set());
     }
   }, [user]);
+
+  // Update viewed completed services state periodically
+  useEffect(() => {
+    const updateViewedServices = () => {
+      const updatedViewed = new Set<string>();
+      services.forEach(service => {
+        if (service.status?.toLowerCase() === 'completed' && hasViewedCompletedService(service.service_id)) {
+          updatedViewed.add(service.service_id);
+        }
+      });
+      setViewedCompletedServices(updatedViewed);
+    };
+
+    updateViewedServices();
+  }, [services]);
 
   useEffect(() => {
     if (!isFocused) {
@@ -348,27 +403,7 @@ export default function BookedServices() {
     previousServiceStatusesRef.current = next;
   }, [isFocused, services, showModal]);
 
-  const formatStatusLabel = useCallback((status?: string | null) => {
-    if (!status) {
-      return 'Finding Pros';
-    }
 
-    const normalized = status.toLowerCase();
-    if (normalized === 'cancelled') {
-      return 'Cancelled';
-    }
-    if (normalized === 'helpr_otw') {
-      return 'On the Way';
-    }
-    if (normalized === 'in_progress') {
-      return 'In Progress';
-    }
-    if (normalized === 'confirmed') {
-      return 'Job Confirmed';
-    }
-
-    return 'Finding Pros';
-  }, []);
 
   const formatServiceType = useCallback((serviceType?: string | null) => {
     if (!serviceType) {
@@ -409,14 +444,15 @@ export default function BookedServices() {
         return new Intl.NumberFormat('en-US', {
           style: 'currency',
           currency: 'USD',
-          minimumFractionDigits: 2,
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
         }).format(price);
       } catch (error) {
         console.warn('Price formatting fallback triggered:', error);
-        return `$${price.toFixed(2)}`;
+        return `$${Math.round(price)}`;
       }
     }
-    return '$0.00';
+    return '$0';
   }, []);
 
   const formatScheduledDateTime = useCallback((isoDate?: string | null) => {
@@ -450,9 +486,9 @@ export default function BookedServices() {
       const type = (service.scheduling_type ?? '').toLowerCase();
       const status = (service.status ?? '').toLowerCase();
 
-      // Exclude completed services
+      // Include completed services only if they haven't been viewed yet
       if (status === 'completed') {
-        return false;
+        return !viewedCompletedServices.has(service.service_id);
       }
 
       if (!type) {
@@ -502,7 +538,7 @@ export default function BookedServices() {
 
       return aTime - bTime;
     });
-  }, [services]);
+  }, [services, viewedCompletedServices]);
 
   const asapServices = useMemo(
     () => confirmedServices.filter(service => (service.scheduling_type ?? '').toLowerCase() === 'asap'),
@@ -547,26 +583,13 @@ export default function BookedServices() {
 
   const renderServiceCard = (service: ServiceRow) => {
     const isSelected = selectedService?.service_id === service.service_id;
-    const requestCount = fillRequestCounts[service.service_id] ?? 0;
+
     const normalizedStatus = (service.status ?? '').toLowerCase();
     const isConfirmed = normalizedStatus === 'confirmed';
     const isHelprOtw = normalizedStatus === 'helpr_otw';
     const isInProgress = normalizedStatus === 'in_progress';
-    const hasRequests = requestCount > 0 && !isConfirmed && !isHelprOtw && !isInProgress;
-    
-    // Determine status label with priority
-    let statusLabel: string;
-    if (isHelprOtw) {
-      statusLabel = 'On the Way';
-    } else if (isInProgress) {
-      statusLabel = 'In Progress';
-    } else if (isConfirmed) {
-      statusLabel = 'Job Confirmed';
-    } else if (hasRequests) {
-      statusLabel = 'Select a Pro';
-    } else {
-      statusLabel = formatStatusLabel(service.status);
-    }
+    const isCompleted = normalizedStatus === 'completed';
+    const isFindingPros = normalizedStatus === 'finding_pros';
     
     const shortLocation = getShortLocation(service);
     const priceLabel = formatPrice(service.price);
@@ -576,22 +599,14 @@ export default function BookedServices() {
     const displayProviderName = providerFirstName || 'Your Helpr';
     const providerInitials = `${providerFirstName ? providerFirstName.charAt(0) : ''}${providerLastName ? providerLastName.charAt(0) : ''}`.toUpperCase() || 'H';
     const profileImageUrl = profile?.profile_picture_url ?? null;
-    const isAssigned = isConfirmed || isHelprOtw || isInProgress;
-    const hasAssignedProvider = Boolean(service.service_provider_id);
-  const assignedSubtitle = isHelprOtw ? 'On the Way' : isInProgress ? 'In Progress' : 'Job Confirmed';
+    const isAssigned = isConfirmed || isHelprOtw || isInProgress || isCompleted;
 
-    const statusContent = (
-      <View style={styles.statusContentRow}>
-        <Text style={styles.serviceStatusText} numberOfLines={1}>
-          {statusLabel}
-        </Text>
-        {hasRequests ? (
-          <View style={styles.requestCountBadge}>
-            <Text style={styles.requestCountText}>{requestCount}</Text>
-          </View>
-        ) : null}
-      </View>
-    );
+    const fillRequestCount = fillRequestCounts[service.service_id] || 0;
+    const showFindingProsPill = isFindingPros || (fillRequestCount > 0 && !isAssigned);
+    const hasAssignedProvider = Boolean(service.service_provider_id);
+    const assignedSubtitle = isCompleted ? 'Completed' : isHelprOtw ? 'On the Way' : isInProgress ? 'In Progress' : 'Job Confirmed';
+
+
 
     return (
       <Pressable
@@ -604,24 +619,41 @@ export default function BookedServices() {
       >
         <View style={styles.cardContentRow}>
           <View style={styles.cardInfoColumn}>
-            <View style={styles.serviceTypePill}>
-              <Text style={styles.serviceTypeText} numberOfLines={1}>
-                {formatServiceType(service.service_type)}
-              </Text>
+            <View style={styles.pillsRow}>
+              <View style={styles.serviceTypePill}>
+                <Text style={styles.serviceTypeText} numberOfLines={1}>
+                  {formatServiceType(service.service_type)}
+                </Text>
+              </View>
             </View>
-            {hasRequests ? (
+            {fillRequestCount > 0 && !isAssigned ? (
               <Pressable
                 style={[styles.serviceStatusPill, styles.selectProStatusPill]}
-                onPress={(event: GestureResponderEvent) => {
+                onPress={(event) => {
                   event.stopPropagation();
-                  handleSelectPro(service);
+                  router.push({
+                    pathname: '/selecthelpr' as any,
+                    params: { serviceId: service.service_id }
+                  });
                 }}
               >
-                {statusContent}
+                <View style={styles.statusContentRow}>
+                  <Text style={styles.serviceStatusText} numberOfLines={1}>
+                    Select a Pro
+                  </Text>
+                  <View style={styles.requestCountBadge}>
+                    <Text style={styles.requestCountText}>{fillRequestCount}</Text>
+                  </View>
+                </View>
               </Pressable>
-            ) : isConfirmed ? null : (
-              <View style={styles.serviceStatusPill}>{statusContent}</View>
-            )}
+            ) : !isAssigned ? (
+              <View style={styles.serviceStatusPill}>
+                <Text style={styles.serviceStatusText} numberOfLines={1}>
+                  Finding Pros
+                </Text>
+              </View>
+            ) : null}
+
             {isAssigned && hasAssignedProvider ? (
               <View style={styles.confirmedProfileRow}>
                 <View style={styles.confirmedProfileCircle}>
@@ -657,11 +689,11 @@ export default function BookedServices() {
           </View>
           {isAssigned ? (
             <View style={styles.confirmedButtonColumn}>
-              {isConfirmed && (
+              {(isConfirmed || isCompleted) && (
                 <Text style={styles.confirmedPriceLabel}>{priceLabel}</Text>
               )}
               <Pressable
-                style={[styles.showDetailsButton, isConfirmed ? styles.showDetailsButtonCompact : null]}
+                style={[styles.showDetailsButton, (isConfirmed || isCompleted) ? styles.showDetailsButtonCompact : null]}
                 onPress={() => router.push({
                   pathname: '/ServiceDetails' as any,
                   params: { serviceId: service.service_id }
@@ -670,7 +702,7 @@ export default function BookedServices() {
                 accessibilityLabel="View service details"
                 accessibilityHint="Opens the full service details screen"
               >
-                <Text style={styles.showDetailsButtonText}>Service Details</Text>
+                <Text style={styles.showDetailsButtonText}>Details</Text>
               </Pressable>
             </View>
           ) : (
@@ -775,18 +807,7 @@ export default function BookedServices() {
     }
   }, [showModal]);
 
-  const handleSelectPro = useCallback((service: ServiceRow) => {
-    if (!service?.service_id) {
-      return;
-    }
 
-    router.push({
-      pathname: 'selecthelpr' as any,
-      params: {
-        serviceId: service.service_id,
-      },
-    });
-  }, []);
 
   const updateServiceRow = useCallback(
     async (changes: Record<string, unknown>, targetServiceId?: string | null) => {
@@ -823,6 +844,25 @@ export default function BookedServices() {
     [selectedServiceId, serviceId, showModal],
   );
 
+
+
+  const isDateInPast = (day: number) => {
+    const today = new Date();
+    const checkDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+    return checkDate < today && !isSameDay(checkDate, today);
+  };
+
+  const isSameDay = (date1: Date, date2: Date) => {
+    return date1.getFullYear() === date2.getFullYear() &&
+           date1.getMonth() === date2.getMonth() &&
+           date1.getDate() === date2.getDate();
+  };
+
+  const handleDateSelect = (day: number) => {
+    const newDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+    setSelectedDate(newDate);
+  };
+
   const handleScheduleAsap = useCallback(async () => {
     const targetService = selectedService || temporaryService;
     
@@ -854,28 +894,11 @@ export default function BookedServices() {
 
     if (success) {
       await fetchServices();
-      closeOverlay();
+      setPickerVisible(false);
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
     }
-  }, [closeOverlay, fetchServices, selectedService, showModal, temporaryService, updateServiceRow]);
-
-  const isDateInPast = (day: number) => {
-    const today = new Date();
-    const checkDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-    return checkDate < today && !isSameDay(checkDate, today);
-  };
-
-  const isSameDay = (date1: Date, date2: Date) => {
-    return date1.getFullYear() === date2.getFullYear() &&
-           date1.getMonth() === date2.getMonth() &&
-           date1.getDate() === date2.getDate();
-  };
-
-  const handleDateSelect = (day: number) => {
-    const newDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-    setSelectedDate(newDate);
-  };
+  }, [fetchServices, selectedService, showModal, temporaryService, updateServiceRow]);
 
   const handleConfirm = useCallback(async () => {
     const targetService = selectedService || temporaryService;
@@ -886,19 +909,6 @@ export default function BookedServices() {
         message: 'Please select a service to schedule.',
       });
       return;
-    }
-
-    // If this is a temporary service, create it in the database first
-    if (temporaryService && targetService.service_id === temporaryService.service_id) {
-      const { error } = await supabase.from('service').insert(temporaryService);
-      if (error) {
-        console.error('Failed to create service:', error);
-        showModal({
-          title: 'Scheduling failed',
-          message: 'Unable to save your service. Please try again.',
-        });
-        return;
-      }
     }
 
     const finalDateTime = new Date(selectedDate);
@@ -915,6 +925,31 @@ export default function BookedServices() {
     
     finalDateTime.setHours(hour, minute, 0, 0);
     
+    // Check if the selected time is at least one hour in the future
+    const now = new Date();
+    const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+    
+    if (finalDateTime <= oneHourFromNow) {
+      showModal({
+        title: 'Invalid Time',
+        message: 'Please select a time that is at least one hour in the future.',
+      });
+      return;
+    }
+
+    // If this is a temporary service, create it in the database first
+    if (temporaryService && targetService.service_id === temporaryService.service_id) {
+      const { error } = await supabase.from('service').insert(temporaryService);
+      if (error) {
+        console.error('Failed to create service:', error);
+        showModal({
+          title: 'Scheduling failed',
+          message: 'Unable to save your service. Please try again.',
+        });
+        return;
+      }
+    }
+    
     const success = await updateServiceRow({
       scheduling_type: 'scheduled',
       scheduled_date_time: finalDateTime.toISOString(),
@@ -923,7 +958,6 @@ export default function BookedServices() {
     if (success) {
       await fetchServices();
       setPickerVisible(false);
-      setOverlayVisible(false);
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
     }
@@ -996,61 +1030,7 @@ export default function BookedServices() {
         )}
       </View>
 
-      {/* Overlay Modal */}
-      <Modal
-        visible={overlayVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeOverlay}
-        style={{ zIndex: 1000 }}
-      >
-        <View style={styles.overlayBackground}>
-          <View style={styles.overlayPopup}>
-            <View style={styles.popupHeader}>
-              <Text style={styles.selectADateTitle}>Schedule Your Service</Text>
-            </View>
-            <View style={styles.scheduleOptions}>
-              <View style={styles.popupActions}>
-                <Pressable style={styles.primaryButton} onPress={handleScheduleAsap}>
-                  <Text style={styles.primaryButtonText}>ASAP</Text>
-                  <Text style={styles.primaryButtonSubText}>Get a Helpr as soon as possible</Text>
-                </Pressable>
-              </View>
-              
-              {/* Divider with "or" */}
-              <View style={styles.dividerContainer}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.orText}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-              
-              <View style={styles.popupActions}>
-                <Pressable style={styles.secondaryButton} onPress={() => {
-                  
-                  setOverlayVisible(false); // Close overlay first
-                  setTimeout(() => setPickerVisible(true), 100); // Then open date picker
-                  
-                }}>
-                  <Text style={styles.secondaryButtonText} numberOfLines={2}>Select{'\n'}Date & Time</Text>
-                </Pressable>
-              </View>
-            </View>
-            
-            {/* Back to Service Details Button */}
-            <View style={styles.backToServiceContainer}>
-              <Pressable 
-                style={styles.backToServiceButton}
-                onPress={() => {
-                  setOverlayVisible(false);
-                  router.back();
-                }}
-              >
-                <Text style={styles.backToServiceText}>Back to Service Details</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+
 
       {/* Custom Date Picker Modal */}
       <Modal
@@ -1059,7 +1039,7 @@ export default function BookedServices() {
         animationType="slide"
         onRequestClose={() => {
           setPickerVisible(false);
-          setTimeout(() => setOverlayVisible(true), 100);
+          router.back();
         }}
         style={{ zIndex: 10000 }}
       >
@@ -1174,43 +1154,82 @@ export default function BookedServices() {
                 showsVerticalScrollIndicator={false}
                 nestedScrollEnabled
               >
-                {timeSlots.map((timeSlot) => (
-                  <Pressable
-                    key={timeSlot}
-                    style={{
-                      padding: 10,
-                      marginVertical: 2,
-                      backgroundColor: selectedTimeSlot === timeSlot ? '#0c4309' : '#E5DCC9',
-                      borderRadius: 8,
-                      alignItems: 'center'
-                    }}
-                    onPress={() => setSelectedTimeSlot(timeSlot)}
-                  >
-                    <Text style={{ 
-                      color: selectedTimeSlot === timeSlot ? 'white' : '#0c4309', 
+                {availableTimeSlots.length > 0 ? (
+                  availableTimeSlots.map((timeSlot) => (
+                    <Pressable
+                      key={timeSlot}
+                      style={{
+                        padding: 10,
+                        marginVertical: 2,
+                        backgroundColor: selectedTimeSlot === timeSlot ? '#0c4309' : '#E5DCC9',
+                        borderRadius: 8,
+                        alignItems: 'center'
+                      }}
+                      onPress={() => setSelectedTimeSlot(timeSlot)}
+                    >
+                      <Text style={{ 
+                        color: selectedTimeSlot === timeSlot ? 'white' : '#0c4309', 
+                        fontSize: 16,
+                        fontWeight: selectedTimeSlot === timeSlot ? 'bold' : 'normal'
+                      }}>
+                        {timeSlot}
+                      </Text>
+                    </Pressable>
+                  ))
+                ) : (
+                  <View style={{
+                    padding: 20,
+                    alignItems: 'center'
+                  }}>
+                    <Text style={{
+                      color: '#0c4309',
                       fontSize: 16,
-                      fontWeight: selectedTimeSlot === timeSlot ? 'bold' : 'normal'
+                      fontWeight: '500',
+                      textAlign: 'center'
                     }}>
-                      {timeSlot}
+                      No available time slots for today.{'\n'}Please select tomorrow or a future date.
                     </Text>
-                  </Pressable>
-                ))}
+                  </View>
+                )}
               </ScrollView>
             </View>
 
-            {/* Selected Date/Time Display */}
-            <View style={{ backgroundColor: '#E5DCC9', padding: 15, borderRadius: 10, marginBottom: 20 }}>
-              <Text style={{ textAlign: 'center', color: '#0c4309', fontSize: 16, fontWeight: 'bold' }}>
-                {selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} at {selectedTimeSlot}
-              </Text>
-            </View>
+            {/* Selected Date/Time Display - Only show if time slots are available */}
+            {availableTimeSlots.length > 0 && (
+              <View style={{ backgroundColor: '#E5DCC9', padding: 15, borderRadius: 10, marginBottom: 20 }}>
+                <Text style={{ textAlign: 'center', color: '#0c4309', fontSize: 16, fontWeight: 'bold' }}>
+                  {(() => {
+                    const today = new Date();
+                    const tomorrow = new Date(today);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    
+                    const isSameDay = (date1: Date, date2: Date) => {
+                      return date1.getFullYear() === date2.getFullYear() &&
+                             date1.getMonth() === date2.getMonth() &&
+                             date1.getDate() === date2.getDate();
+                    };
+                    
+                    let dateLabel;
+                    if (isSameDay(selectedDate, today)) {
+                      dateLabel = 'Today';
+                    } else if (isSameDay(selectedDate, tomorrow)) {
+                      dateLabel = 'Tomorrow';
+                    } else {
+                      dateLabel = selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+                    }
+                    
+                    return `${dateLabel} at ${selectedTimeSlot}`;
+                  })()}
+                </Text>
+              </View>
+            )}
 
             {/* Cancel and Confirm Buttons */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Pressable 
                 onPress={() => {
                   setPickerVisible(false);
-                  setTimeout(() => setOverlayVisible(true), 100);
+                  router.back();
                 }} 
                 style={{ backgroundColor: '#E5DCC9', padding: 15, borderRadius: 8, flex: 1, alignItems: 'center', marginRight: 10 }}
               >
@@ -1219,7 +1238,15 @@ export default function BookedServices() {
               
               <Pressable 
                 onPress={handleConfirm} 
-                style={{ backgroundColor: '#0c4309', padding: 15, borderRadius: 8, flex: 1, alignItems: 'center' }}
+                disabled={availableTimeSlots.length === 0}
+                style={{ 
+                  backgroundColor: availableTimeSlots.length === 0 ? '#999' : '#0c4309', 
+                  padding: 15, 
+                  borderRadius: 8, 
+                  flex: 1, 
+                  alignItems: 'center',
+                  opacity: availableTimeSlots.length === 0 ? 0.5 : 1
+                }}
               >
                 <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>Confirm</Text>
               </Pressable>
@@ -1435,7 +1462,7 @@ const styles = StyleSheet.create({
   serviceCard: {
     backgroundColor: '#F5E7D0',
     borderRadius: 14,
-    paddingHorizontal: 20,
+    paddingHorizontal: 15,
     paddingVertical: 12,
     marginBottom: 14,
     shadowColor: '#000',
@@ -1449,6 +1476,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     elevation: 5,
   },
+  pillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 6,
+  },
   serviceTypePill: {
     alignSelf: 'flex-start',
     backgroundColor: '#E5DCC9',
@@ -1457,7 +1490,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 3,
-    marginBottom: 4,
   },
   serviceTypeText: {
     color: '#0c4309',
@@ -1465,12 +1497,25 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: 0.2,
   },
+  findingProsPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#0c4309',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 3,
+  },
+  findingProsText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
   serviceStatusPill: {
     alignSelf: 'flex-start',
     backgroundColor: '#A3926D',
     borderRadius: 18,
     paddingHorizontal: 18,
-    paddingVertical: 4,
+    paddingVertical: 3,
     minHeight: 20,
     marginTop: 6,
     marginBottom: 8,
@@ -1488,8 +1533,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   requestCountBadge: {
-    backgroundColor: '#FFF8E8',
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
     minWidth: 10,
     height: 15,
     marginLeft: 6,
@@ -1505,14 +1550,11 @@ const styles = StyleSheet.create({
   selectProStatusPill: {
     backgroundColor: '#0c4309',
   },
-  confirmedStatusPill: {
-    backgroundColor: '#0c4309',
-  },
+
   cardContentRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'stretch',
-    marginTop: 6,
   },
   cardInfoColumn: {
     flex: 1,
@@ -1596,27 +1638,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  overlayPopup: {
-    width: '85%',
-    backgroundColor: '#FFF8E8', // Matching app's background
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center', // Center content vertically within popup
-    // iOS shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    // Android shadow
-    elevation: 10,
-  },
-  popupHeader: {
-    alignItems: 'center',
-    justifyContent: 'center', // Center header content
-    marginBottom: 16,
-    width: '100%', // Ensure full width for centering
-  },
+
   popupIcon: {
     width: 48,
     height: 48,
@@ -1663,73 +1685,7 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     marginBottom: 8,
   },
-  scheduleOptions:{
-    flexDirection: 'row',
-    justifyContent: 'center', // Center the entire button group
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: 10, // Add some padding for better spacing
-  },
-  popupActions: {
-    width: '45%', // Adjust width for better centering
-    marginHorizontal: 5, // Add small margin between buttons
-  },
-  dividerContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  dividerLine: {
-    height: 1,
-    backgroundColor: '#0c4309',
-    width: 20,
-    marginVertical: 5,
-  },
-  orText: {
-    fontSize: 14,
-    color: '#0c4309',
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  primaryButton: {
-    backgroundColor: '#E5DCC9',
-    borderRadius: 14, // Slightly increased for more rounded look
-    height: 114, // Increased by 4px for taller buttons
-    paddingVertical: 0, // Remove vertical padding since height is fixed
-    paddingHorizontal: 16, // Reduced by 4px to make buttons appear wider
-    alignItems: 'center',
-    justifyContent: 'center', // Center text vertically
-    width: '100%', // Fill container width
-  },
-  primaryButtonText: {
-    color: '#0c4309',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  primaryButtonSubText: {
-    color: '#0c4309',
-    fontSize: 14,
-    fontWeight: '400',
-    textAlign: 'center',
-  },
-  secondaryButton: {
-    backgroundColor: '#E5DCC9',
-    borderRadius: 14, // Slightly increased for more rounded look
-    height: 114, // Increased by 4px for taller buttons
-    paddingVertical: 0, // Remove vertical padding
-    paddingHorizontal: 14, // Reduced by 4px to make buttons appear wider
-    alignItems: 'center',
-    justifyContent: 'center', // Center text vertically
-    width: '100%', // Fill container width
-  },
-  secondaryButtonText: {
-    color: '#0c4309',
-    fontSize: 14, // Reduced from 16 to better fit the button
-    fontWeight: '600',
-    textAlign: 'center',
-  },
+
   backButton: {
     position: 'absolute',
     top: 58, // Moved up to align with header text
@@ -1925,23 +1881,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  backToServiceContainer: {
-    marginTop: 16,
-    width: '100%',
-    alignItems: 'center',
-  },
-  backToServiceButton: {
-    backgroundColor: 'transparent',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  backToServiceText: {
-    color: '#0c4309',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    textDecorationLine: 'underline',
-  },
+
   confirmationModal: {
     width: '70%',
     backgroundColor: '#E5DCC9',
@@ -2001,19 +1941,19 @@ const styles = StyleSheet.create({
   },
   confirmedButtonColumn: {
     width: 140,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
   },
   confirmedProfileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 12,
+    marginTop: 6,
+    marginBottom: 6,
   },
   confirmedProfileCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#FFF8E8',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2024,11 +1964,11 @@ const styles = StyleSheet.create({
   confirmedProfileImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 26,
+    borderRadius: 30,
   },
   confirmedProfileInitials: {
     color: '#0c4309',
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
   },
   confirmedProviderMeta: {
@@ -2052,12 +1992,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   showDetailsButton: {
-    width: '100%',
-    paddingVertical: 30,
+    paddingVertical: 45,
+    paddingHorizontal: 20,
     backgroundColor: '#FFF8E8',
     borderRadius: 10,
     alignItems: 'center',
-    justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#C0B9A6',
   },
@@ -2069,5 +2008,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#0c4309',
+    paddingHorizontal: 10,
   },
 });

@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useModal } from '../src/contexts/ModalContext';
@@ -14,34 +14,12 @@ export default function Login() {
   const [showOTPVerification, setShowOTPVerification] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const { showModal } = useModal();
+  const { showModal, hideModal } = useModal();
 
   useEffect(() => {
-    // Listen for auth state changes to handle deleted accounts
+    // Log that login screen is loaded
     console.log('Login screen loaded - dev menu should be hidden via app.json');
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 Auth state changed:', event, session?.user?.email);
-
-      if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
-        // Session became invalid (e.g., user deleted from Supabase)
-        console.log('🚨 Session invalidated - user may have been deleted');
-        showModal({
-          title: 'Session Expired',
-          message: 'Your account session has expired. Please sign in again.',
-        });
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
   }, [showModal]);
-
-  useEffect(() => {
-    // Attempt to minimize dev menu visibility
-    console.log('Login screen loaded - dev menu should be hidden via app.json');
-  }, []);
 
   const signInWithEmail = async () => {
     // Validate inputs
@@ -145,6 +123,25 @@ export default function Login() {
 
     setAuthLoading(false);
   };
+
+  const handleOTPCancel = useCallback(() => {
+    console.log('OTP verification cancelled by user - resetting all states');
+    
+    // Reset all states that might be blocking the UI
+    setAuthLoading(false);
+    setShowOTPVerification(false);
+    
+    // Clear OTP input
+    setOtpCode('');
+    
+    // Dismiss keyboard if active
+    Keyboard.dismiss();
+    
+    // Clear any modal state
+    hideModal();
+    
+    console.log('All states reset after OTP cancel - form should be responsive now');
+  }, [hideModal]);
 
   const resendOTP = async () => {
     const { error } = await supabase.auth.resend({
@@ -256,6 +253,7 @@ export default function Login() {
         visible={showOTPVerification}
         animationType="slide"
         transparent={true}
+        onRequestClose={handleOTPCancel}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -295,7 +293,7 @@ export default function Login() {
 
             <TouchableOpacity
               style={styles.cancelButton}
-              onPress={() => setShowOTPVerification(false)}
+              onPress={handleOTPCancel}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>

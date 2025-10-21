@@ -87,7 +87,7 @@ export const ensureServiceProviderProfile = async (
       phone: preferredPhone,
       jobs_completed: 0,
       rating: null,
-      profile_image_url: null,
+      profile_picture_url: null,
     };
 
     const { error: insertError } = await supabase

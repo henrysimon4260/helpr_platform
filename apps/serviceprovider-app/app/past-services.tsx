@@ -106,6 +106,13 @@ export default function PastServices() {
     }
   }, [authLoading, fetchServices]);
 
+  // Redirect unauthenticated users to login
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login');
+    }
+  }, [authLoading, user, router]);
+
   const formatServiceType = useCallback((serviceType?: string | null) => {
     if (!serviceType) {
       return 'Service';
@@ -141,10 +148,11 @@ export default function PastServices() {
       return new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
-        minimumFractionDigits: 2,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
       }).format(price);
     }
-    return '$0.00';
+    return '$0';
   }, []);
 
   const formatDate = useCallback((isoDate?: string | null) => {

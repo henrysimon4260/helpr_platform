@@ -84,10 +84,14 @@ export default function Login() {
     } else {
       console.log('✅ Password sign in successful, user:', passwordData.user?.email);
       const returnTo = getReturnTo();
-      if (returnTo) {
-        clearReturnTo();
+      if (returnTo && returnTo.path && returnTo.data) {
+        // Only redirect to returnTo if we have both a path AND data (indicating we saved form state)
+        console.log('🔄 Redirecting to:', returnTo.path, 'with data:', returnTo.data);
         router.replace(returnTo.path as any);
+        // Note: Don't clear returnTo here - let the destination screen clear it after reading
       } else {
+        // No valid returnTo data, clear it and go to landing
+        clearReturnTo();
         router.replace('/landing');
       }
     }
@@ -118,10 +122,14 @@ export default function Login() {
       setShowOTPVerification(false);
       // Navigate to landing page after successful verification
       const returnTo = getReturnTo();
-      if (returnTo) {
-        clearReturnTo();
+      if (returnTo && returnTo.path && returnTo.data) {
+        // Only redirect to returnTo if we have both a path AND data (indicating we saved form state)
+        console.log('🔄 Redirecting to:', returnTo.path, 'with data:', returnTo.data);
         router.replace(returnTo.path as any);
+        // Note: Don't clear returnTo here - let the destination screen clear it after reading
       } else {
+        // No valid returnTo data, clear it and go to landing
+        clearReturnTo();
         router.replace('/landing');
       }
     }

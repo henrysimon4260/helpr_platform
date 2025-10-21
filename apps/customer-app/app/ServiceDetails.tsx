@@ -8,6 +8,7 @@ import MapView, { Marker, Polyline, PROVIDER_DEFAULT, LatLng } from 'react-nativ
 import * as Location from 'expo-location';
 import LottieView from 'lottie-react-native';
 import { supabase } from '../src/lib/supabase';
+import { markCompletedServiceAsViewed } from '../src/lib/viewedCompletedServices';
 
 const resolveGooglePlacesKey = () => {
   const extras = (Constants?.expoConfig?.extra ?? {}) as Record<string, unknown>;
@@ -106,6 +107,14 @@ const ensureRouteEndpoints = (
   return newPath;
 };
 
+const LOTTIE_FRAME_RATE = 29.97;
+const STATUS_FRAME_MAP: Record<string, number> = {
+  confirmed: 0,
+  helpr_otw: 20,
+  in_progress: 50,
+  completed: 70,
+};
+
 export default function ServiceDetails() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -131,6 +140,9 @@ export default function ServiceDetails() {
   const [ratingComment, setRatingComment] = useState<string | null>(null);
   const mapRef = useRef<MapView | null>(null);
   const animationRef = useRef<LottieView | null>(null);
+  const [animationLoaded, setAnimationLoaded] = useState(false);
+  const latestRequestRef = useRef(0);
+  const pendingAnimationRef = useRef<{ frame: number; status: string } | null>(null);
 
   const helprDisplayName = useMemo(() => {
     const trimmedFirst = helprFirstName?.trim();
@@ -155,7 +167,7 @@ export default function ServiceDetails() {
       return;
     }
 
-    console.log('Fetching service data for:', serviceId);
+    console.log('🔄 Fetching service data for:', serviceId);
 
     try {
       const { data, error } = await supabase
@@ -166,11 +178,16 @@ export default function ServiceDetails() {
 
       if (error) throw error;
 
-      console.log('Service data fetched:', data?.status);
+      console.log('✅ Service data fetched. Status:', data.status);
       setService(data);
       setRating(0);
       setRatingRecordId(null);
       setRatingComment(null);
+
+      // Mark completed services as viewed
+      if (data.status?.toLowerCase() === 'completed') {
+        markCompletedServiceAsViewed(data.service_id);
+      }
 
       if (data.service_provider_id && data.customer_id) {
         const { data: ratingRow, error: ratingFetchError } = await supabase
@@ -236,48 +253,29 @@ export default function ServiceDetails() {
       return;
     }
 
-    console.log('Setting up realtime subscription for service:', serviceId);
-
     const channel = supabase
-      .channel(`service-status-${serviceId}`, {
-        config: {
-          broadcast: { self: true },
-        },
-      })
+      .channel(`service-status-${serviceId}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'service',
-          filter: `service_id=eq.${serviceId}`,
         },
         (payload) => {
-          console.log('🔔 Service status update received!');
-          console.log('Payload:', JSON.stringify(payload, null, 2));
-          console.log('New status:', payload.new?.status);
-          fetchServiceData();
+          if (payload.new && payload.new.service_id === serviceId) {
+            fetchServiceData();
+          }
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Successfully subscribed to service updates');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Channel subscription error');
-        } else if (status === 'TIMED_OUT') {
-          console.error('⏱️ Subscription timed out');
-        }
-      });
+      .subscribe();
 
-    // Poll every 10 seconds as a fallback
+    // Poll every 5 seconds as a fallback
     const pollInterval = setInterval(() => {
-      console.log('🔄 Polling for service updates (fallback)');
       fetchServiceData();
-    }, 10000);
+    }, 5000);
 
     return () => {
-      console.log('Cleaning up subscription and polling');
       clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
@@ -451,48 +449,171 @@ export default function ServiceDetails() {
 
   const getAnimationFrame = (status: string | null | undefined) => {
     const normalized = (status ?? '').toLowerCase();
-    switch (normalized) {
-      case 'confirmed':
-        return 0;
-      case 'helpr_otw':
-        return 20;
-      case 'in_progress':
-        return 50;
-      case 'completed':
-        return 70;
-      default:
-        return 0;
-    }
+    return STATUS_FRAME_MAP[normalized] ?? 0;
   };
 
-  const previousStatusRef = useRef<string | null>(null);
+  const currentServiceIdRef = useRef<string | null>(null);
+  const currentStatusRef = useRef<string | null>(null);
+  const currentFrameRef = useRef<number | null>(null);
+  const isAnimatingRef = useRef(false);
 
-  // Animate to the appropriate frame when service status changes
+  // Synchronize animation with the current service status.
   useEffect(() => {
-    if (!animationRef.current || !service?.status) {
+    const lottieView = animationRef.current;
+    const activeServiceId = service?.service_id;
+    const rawStatus = service?.status;
+
+    console.log('🔍 [Customer] Animation sync check:', { 
+      hasLottie: !!lottieView, 
+      serviceId: activeServiceId, 
+      status: rawStatus,
+      loaded: animationLoaded,
+      currentServiceId: currentServiceIdRef.current,
+      currentStatus: currentStatusRef.current,
+      currentFrame: currentFrameRef.current
+    });
+
+    if (!lottieView || !activeServiceId || !rawStatus || !animationLoaded) {
       return;
     }
 
-    const normalized = service.status.toLowerCase();
-    const previous = previousStatusRef.current;
+    const normalizedStatus = rawStatus.toLowerCase();
+    const targetFrame = getAnimationFrame(normalizedStatus);
 
-    console.log('Animation update - Previous:', previous, 'Current:', normalized);
+    const isNewService = currentServiceIdRef.current !== activeServiceId;
+    const previousStatus = currentStatusRef.current;
+    const previousFrame = currentFrameRef.current;
 
-    const startFrame = previous ? getAnimationFrame(previous) : 0;
-    const endFrame = getAnimationFrame(normalized);
+    const syncToFrame = (frame: number, status: string) => {
+      const instance = animationRef.current as unknown as {
+        goToAndStop?(position: number, isFrame: boolean): void;
+        pause?: () => void;
+      } | null;
 
-    console.log('Animation frames - Start:', startFrame, 'End:', endFrame);
+      if (!instance) {
+        return;
+      }
 
-    if (startFrame === endFrame) {
-      animationRef.current.play(endFrame, endFrame + 1);
-    } else if (startFrame < endFrame) {
-      animationRef.current.play(startFrame, endFrame);
-    } else {
-      animationRef.current.play(0, endFrame);
+      try {
+        instance.pause?.();
+        if (typeof instance.goToAndStop === 'function') {
+          instance.goToAndStop(frame, true);
+        } else {
+          animationRef.current?.play(frame, frame);
+        }
+      } finally {
+        currentFrameRef.current = frame;
+        currentStatusRef.current = status;
+      }
+    };
+
+    const animateForward = (fromFrame: number, toFrame: number, status: string) => {
+      if (fromFrame >= toFrame) {
+        syncToFrame(toFrame, status);
+        return;
+      }
+
+      if (isAnimatingRef.current) {
+        const existingPending = pendingAnimationRef.current;
+        if (!existingPending || toFrame >= existingPending.frame) {
+          pendingAnimationRef.current = { frame: toFrame, status };
+        }
+        return;
+      }
+
+      const instance = animationRef.current;
+      if (!instance) {
+        return;
+      }
+
+      isAnimatingRef.current = true;
+      pendingAnimationRef.current = null;
+
+      try {
+        instance.play(fromFrame, toFrame);
+      } catch (error) {
+        console.warn('Failed to play animation segment', error);
+        syncToFrame(toFrame, status);
+        isAnimatingRef.current = false;
+        return;
+      }
+
+      const estimatedDuration = Math.max(
+        400,
+        ((toFrame - fromFrame) / LOTTIE_FRAME_RATE) * 1000,
+      );
+
+      setTimeout(() => {
+        syncToFrame(toFrame, status);
+        isAnimatingRef.current = false;
+
+        const pending = pendingAnimationRef.current;
+        if (pending) {
+          pendingAnimationRef.current = null;
+          const resumeFrom = currentFrameRef.current ?? toFrame;
+          animateForward(resumeFrom, pending.frame, pending.status);
+        }
+      }, estimatedDuration + 80);
+    };
+
+    if (isNewService) {
+      console.log('🎬 [Customer] New service detected, animating from 0 to', targetFrame, 'for status:', normalizedStatus);
+      currentServiceIdRef.current = activeServiceId;
+      currentStatusRef.current = null;
+      currentFrameRef.current = 0;
+      isAnimatingRef.current = false;
+      pendingAnimationRef.current = null;
+      animateForward(0, targetFrame, normalizedStatus);
+      return;
     }
 
-    previousStatusRef.current = normalized;
-  }, [service?.status]);
+    if (!previousStatus) {
+      syncToFrame(targetFrame, normalizedStatus);
+      return;
+    }
+
+    if (previousStatus === normalizedStatus) {
+      if (previousFrame !== targetFrame) {
+        syncToFrame(targetFrame, normalizedStatus);
+      }
+      return;
+    }
+
+    const startingFrame = previousFrame ?? getAnimationFrame(previousStatus);
+    animateForward(startingFrame, targetFrame, normalizedStatus);
+  }, [service?.service_id, service?.status, animationLoaded]);
+
+  useEffect(() => {
+    if (!service?.service_id) {
+      return;
+    }
+    // Reset all animation state when service changes
+    console.log('🔄 [Customer] Service changed to:', service?.service_id, 'Status:', service?.status);
+    setAnimationLoaded(false);
+    currentServiceIdRef.current = null;
+    currentStatusRef.current = null;
+    currentFrameRef.current = null;
+    isAnimatingRef.current = false;
+    pendingAnimationRef.current = null;
+    
+    // Fallback: set loaded to true after a short delay if callback doesn't fire
+    const fallbackTimer = setTimeout(() => {
+      console.log('⏰ [Customer] Animation load fallback triggered');
+      setAnimationLoaded(true);
+    }, 500);
+    
+    return () => clearTimeout(fallbackTimer);
+  }, [service?.service_id]);
+
+  useEffect(() => {
+    return () => {
+      currentServiceIdRef.current = null;
+      currentStatusRef.current = null;
+      currentFrameRef.current = null;
+      isAnimatingRef.current = false;
+      pendingAnimationRef.current = null;
+    };
+  }, []);
 
   const handleRateService = useCallback(
     async (value: number) => {
@@ -656,6 +777,12 @@ export default function ServiceDetails() {
       
       {/* Header */}
       <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Image 
+            source={require('../assets/icons/backButton.png')} 
+            style={styles.backButtonIcon} 
+          />
+        </Pressable>
         <Text style={styles.headerTitle}>{getStatusTitle(service?.status)}</Text>
       </View>
 
@@ -716,11 +843,17 @@ export default function ServiceDetails() {
           <View style={styles.animationContentRow}>
             <View style={styles.animationWrapper}>
               <LottieView
+                key={service?.service_id ?? 'service-animation'}
                 ref={animationRef}
                 source={require('../assets/animations/ServiceProgressionAnimation.json')}
                 autoPlay={false}
                 loop={false}
+                speed={1}
                 style={styles.lottieAnimation}
+                onAnimationLoaded={() => { 
+                  console.log('🎨 [Customer] Animation loaded for service:', service?.service_id);
+                  setAnimationLoaded(true); 
+                }}
               />
             </View>
             <View style={styles.stageLabelsContainer}>
@@ -748,11 +881,12 @@ export default function ServiceDetails() {
         </View>
 
         {service?.status?.toLowerCase() === 'completed' ? (
-          <View style={styles.reviewSection}>
-            <Text style={styles.reviewTitle}>
-              {`Leave A Review For ${helprTitleName}`}
-            </Text>
-            <View style={styles.reviewContentRow}>
+          <>
+            <View style={styles.reviewSection}>
+              <Text style={styles.reviewTitle}>
+                Leave A Review For {helprFirstName || 'Your Helpr'}
+              </Text>
+              <View style={styles.reviewContentRow}>
               {helprProfileImageUrl ? (
                 <Image
                   source={{ uri: helprProfileImageUrl }}
@@ -791,28 +925,22 @@ export default function ServiceDetails() {
                     <Text style={styles.commentPreviewText}>{ratingComment}</Text>
                   </View>
                 ) : null}
-                <Pressable
-                  style={[styles.commentButton, commentSaving ? styles.commentButtonDisabled : null]}
-                  onPress={handleOpenCommentModal}
-                  disabled={commentSaving}
-                >
-                  <Text style={styles.commentButtonText}>
-                    {ratingComment ? 'Edit Comment' : 'Leave A Comment'}
-                  </Text>
-                </Pressable>
               </View>
             </View>
           </View>
+          <View style={styles.commentButtonContainer}>
+            <Pressable
+              style={[styles.commentButton, commentSaving ? styles.commentButtonDisabled : null]}
+              onPress={handleOpenCommentModal}
+              disabled={commentSaving}
+            >
+              <Text style={styles.commentButtonText}>
+                {ratingComment ? 'Edit Comment' : 'Leave A Comment'}
+              </Text>
+            </Pressable>
+          </View>
+          </>
         ) : null}
-        {/* Back to Booked Services Button */}
-        <View style={styles.actionButtonContainer}>
-          <Pressable
-            style={styles.backToServicesButton}
-            onPress={() => router.push('/booked-services')}
-          >
-            <Text style={styles.backToServicesText}>back to booked services</Text>
-          </Pressable>
-        </View>
       </ScrollView>
 
       <Modal
@@ -872,12 +1000,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFF8E8',
   },
-  commentButton: {
+  commentButtonContainer: {
+    alignItems: 'center',
     marginTop: 0,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  commentButton: {
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0c4309',
     paddingVertical: 8,
     paddingHorizontal: 14,
-    alignSelf: 'center',
   },
   commentButtonDisabled: {
     opacity: 0.6,
@@ -969,23 +1103,31 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#FFF8E8',
     paddingTop: Platform.OS === 'ios' ? 90 : 40,
-    paddingBottom: 0,
+    paddingBottom: 15,
     paddingHorizontal: 20,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+  },
+  backButton: {
+    marginBottom: 20,
+    alignSelf: 'flex-start',
+  },
+  backButtonIcon: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
   },
   headerTitle: {
-    alignItems: 'flex-start',
     fontSize: 24,
     fontWeight: '700',
     color: '#0c4309',
+    textAlign: 'left',
+    alignSelf: 'flex-start',
   },
   scrollContainer: {
     flex: 1,
   },
   contentContainer: {
-    paddingBottom: 50,
-    paddingTop: 16,
+    paddingBottom: 40,
+    paddingTop: 0,
   },
   mapContainer: {
     height: 262,
@@ -1097,19 +1239,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 40,
   },
-  backToServicesButton: {
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  backToServicesText: {
-    color: '#0c4309',
-    fontSize: 16,
-    fontWeight: '600',
-  },
   reviewSection: {
     marginTop: 0,
     marginHorizontal: 20,
-    padding: 14,
+    paddingTop: 10,
+    paddingBottom: 14,
     borderRadius: 18,
     backgroundColor: '#fff8e8',
     alignSelf: 'center',
@@ -1120,7 +1254,6 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     marginBottom: 15,
     alignSelf: 'center',
-    marginTop: 15,
   },
   reviewContentRow: {
     flexDirection: 'row',

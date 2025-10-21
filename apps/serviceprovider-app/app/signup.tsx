@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
+import { ActivityIndicator, Image, InteractionManager, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { Asset, ImageLibraryOptions, ImagePickerResponse, launchImageLibrary } from 'react-native-image-picker';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
@@ -23,7 +23,7 @@ export default function Signup() {
   const [pendingProviderId, setPendingProviderId] = useState<string | null>(null);
   const [profileImage, setProfileImage] = useState<Asset | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const { showModal } = useModal();
+  const { showModal, hideModal } = useModal();
 
   useEffect(() => {
     console.log('Signup screen loaded - creating beautiful user experience');
@@ -133,39 +133,58 @@ export default function Signup() {
       }
 
       try {
+        // Use the same upload approach as account.tsx (which works)
         const response = await fetch(profileImage.uri);
-        const blob = await response.blob();
-
-        const extension = profileImage.fileName?.split('.').pop()?.toLowerCase() ?? profileImage.type?.split('/').pop() ?? 'jpg';
-        const objectPath = `providers/${providerId}/${Date.now()}.${extension}`;
+        const arrayBuffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        
+        const fileExtension = profileImage.fileName?.split('.').pop()?.toLowerCase() ?? 
+                              profileImage.type?.split('/').pop() ?? 'jpg';
+        const fileName = `profile-${Date.now()}.${fileExtension}`;
+        
+        const objectPath = `providers/${providerId}/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
-          .from('profile-images')
-          .upload(objectPath, blob, {
+          .from('profile-pictures')
+          .upload(objectPath, bytes, {
             cacheControl: '3600',
             upsert: true,
             contentType: profileImage.type ?? 'image/jpeg',
           });
 
         if (uploadError) {
+          console.error('Storage upload error:', uploadError);
           throw uploadError;
         }
 
         const { data: publicUrlData } = supabase.storage
-          .from('profile-images')
+          .from('profile-pictures')
           .getPublicUrl(objectPath);
 
         const publicUrl = publicUrlData?.publicUrl ?? null;
 
         if (publicUrl) {
+          console.log('Generated public URL:', publicUrl);
+          
           const { error: updateError } = await supabase
             .from('service_provider')
             .update({ profile_picture_url: publicUrl })
             .eq('service_provider_id', providerId);
 
           if (updateError) {
+            console.error('Database update error:', updateError);
             throw updateError;
           }
+
+          console.log('Profile picture uploaded successfully:', {
+            providerId,
+            publicUrl,
+            objectPath,
+            bytesLength: bytes.length
+          });
+        } else {
+          console.error('Failed to get public URL for uploaded profile picture');
+          throw new Error('Failed to get public URL');
         }
 
         return { success: true as const, url: publicUrl, error: null };
@@ -244,21 +263,29 @@ export default function Signup() {
   };
 
   const verifyOTP = async () => {
+    console.log('Starting OTP verification with code:', otpCode);
     setAuthLoading(true);
 
-    const { data, error } = await supabase.auth.verifyOtp({
-      email: email.trim(),
-      token: otpCode,
-      type: 'signup'
-    });
-
-    if (error) {
-      console.error('❌ OTP verification error:', error);
-      showModal({
-        title: 'Verification Failed',
-        message: error.message,
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: otpCode,
+        type: 'signup'
       });
-    } else {
+
+      console.log('OTP verification response:', { data: !!data, error: error?.message });
+
+      if (error) {
+        console.error('❌ OTP verification error:', error);
+        setAuthLoading(false); // Reset loading state on error
+        showModal({
+          title: 'Verification Failed',
+          message: error.message,
+        });
+        return; // Exit early on error
+      }
+
+      // Success path
       console.log('✅ Email verified successfully');
       const verifiedProviderId = data?.session?.user?.id ?? pendingProviderId;
       const ensureResult = await ensureServiceProviderProfile({
@@ -269,31 +296,93 @@ export default function Signup() {
         phone: sanitizePhoneValue(),
       });
 
+      console.log('Provider profile ensure result:', JSON.stringify(ensureResult, null, 2));
+      
+      let hasWarnings = false;
+      let warningMessage = '';
+
       if (!ensureResult.success) {
         console.error('⚠️ Failed to ensure provider profile:', ensureResult.error);
-        showModal({
-          title: 'Profile Setup Incomplete',
-          message: 'Your email was verified but we could not finish creating your profile. You can continue, but some features may be unavailable until your next sign in.',
-        });
+        hasWarnings = true;
+        warningMessage += 'Profile setup had issues. ';
       }
 
       if (verifiedProviderId && profileImage?.uri) {
+        console.log('Starting profile picture upload for provider:', verifiedProviderId);
         const uploadResult = await uploadProviderProfilePhoto(verifiedProviderId);
+        console.log('Profile picture upload result:', uploadResult);
         if (!uploadResult.success) {
-          showModal({
-            title: 'Photo Upload Incomplete',
-            message: 'We created your account but could not save your profile picture. You can add it later from your account settings.',
-          });
+          hasWarnings = true;
+          warningMessage += 'Profile picture could not be saved. ';
         }
       }
 
+      // Clear all signup state and navigate after interaction is complete
+      console.log('Signup completed successfully, preparing to navigate to landing screen');
+      
+      // Show any warnings as console logs
+      if (hasWarnings) {
+        console.warn('Signup completed with warnings:', warningMessage);
+      }
+      
+      // Dismiss keyboard first
+      Keyboard.dismiss();
+      
+      // Clear any residual modal state
+      hideModal();
+      
+      // Clear critical state immediately
       setPendingProviderId(null);
       setShowOTPVerification(false);
-      router.replace('/landing');
+      setAuthLoading(false);
+      
+      // Use InteractionManager to ensure all UI interactions are complete
+      InteractionManager.runAfterInteractions(() => {
+        // Clear all form data
+        setFirstName('');
+        setLastName('');
+        setEmail('');
+        setPhone('');
+        setPassword('');
+        setConfirmPassword('');
+        setOtpCode('');
+        setProfileImage(null);
+        setPhotoError(null);
+        
+        // Navigate after a longer delay to ensure all React state updates are complete
+        setTimeout(() => {
+          console.log('All state cleared, navigating to landing screen');
+          router.replace('/landing');
+        }, 500);
+      });
+    } catch (unexpectedError) {
+      console.error('❌ Unexpected error during OTP verification:', unexpectedError);
+      setAuthLoading(false);
+      showModal({
+        title: 'Verification Failed',
+        message: 'An unexpected error occurred. Please try again.',
+      });
     }
-
-    setAuthLoading(false);
   };
+
+  const handleOTPCancel = useCallback(() => {
+    console.log('OTP verification cancelled by user - resetting all states');
+    
+    // Reset all states that might be blocking the UI
+    setAuthLoading(false);
+    setShowOTPVerification(false);
+    
+    // Clear OTP input
+    setOtpCode('');
+    
+    // Dismiss keyboard if active
+    Keyboard.dismiss();
+    
+    // Clear any modal state
+    hideModal();
+    
+    console.log('All states reset after OTP cancel - form should be responsive now');
+  }, [hideModal]);
 
   const resendOTP = async () => {
     const { error } = await supabase.auth.resend({
@@ -442,6 +531,7 @@ export default function Signup() {
         visible={showOTPVerification}
         animationType="slide"
         transparent={true}
+        onRequestClose={handleOTPCancel}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -481,7 +571,7 @@ export default function Signup() {
 
             <TouchableOpacity
               style={styles.cancelButton}
-              onPress={() => setShowOTPVerification(false)}
+              onPress={handleOTPCancel}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>

@@ -19,6 +19,7 @@ type ServiceRow = {
   location?: string | null;
   price?: number | null;
   description?: string | null;
+  autofill_type?: string | null;
 };
 
 export default function PastServices() {
@@ -97,13 +98,14 @@ export default function PastServices() {
         return new Intl.NumberFormat('en-US', {
           style: 'currency',
           currency: 'USD',
-          minimumFractionDigits: 2,
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
         }).format(price);
       } catch (error) {
-        return `$${price.toFixed(2)}`;
+        return `$${Math.round(price)}`;
       }
     }
-    return '$0.00';
+    return '$0';
   }, []);
 
   const formatCompletionDate = useCallback((isoDate?: string | null) => {
@@ -168,6 +170,13 @@ export default function PastServices() {
                           {getShortLocation(service)}
                         </Text>
                       </View>
+                      {service.autofill_type && (
+                        <View style={styles.autofillPill}>
+                          <Text style={styles.autofillText}>
+                            {service.autofill_type === 'AutoFill' ? 'AutoFill' : 'Custom'}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                     <Text style={styles.dateText}>
                       {formatCompletionDate(service.date_of_creation)}
@@ -248,23 +257,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5E7D0', 
     borderRadius: 14, 
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 15, // Consistent vertical padding
     marginBottom: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 3,
+    minHeight: 140, // Ensure consistent minimum height for all cards
   },
   cardContentRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'stretch',
-    marginTop: 6,
+    flex: 1, // Make sure content fills the card properly
   },
   cardInfoColumn: {
     flex: 1,
     paddingRight: 16,
+    justifyContent: 'space-between', // Distribute content evenly
   },
   serviceTypePill: {
     alignSelf: 'flex-start',
@@ -304,10 +315,24 @@ const styles = StyleSheet.create({
     flexWrap: 'nowrap',
     marginTop: 4,
     marginBottom: 4,
+    gap: 8, // Reduced space between location and autofill pill
   },
   locationGroup: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  autofillPill: {
+    backgroundColor: '#E5DCC9',
+    borderColor: '#C0B9A6',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  autofillText: {
+    color: '#0c4309',
+    fontSize: 10,
+    fontWeight: '600',
   },
   locationIcon: {
     width: 18,

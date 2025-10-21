@@ -56,10 +56,11 @@ const formatPrice = (value: number): string => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 2,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(safeValue);
   } catch (error) {
-    return `$${safeValue.toFixed(2)}`;
+    return `$${Math.round(safeValue)}`;
   }
 };
 

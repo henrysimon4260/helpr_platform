@@ -110,9 +110,175 @@ const resolveOpenAIApiKey = () => {
   );
 };
 
+type ServiceZoneBoundingBox = {
+  name: string;
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+};
+
+const ALLOWED_SERVICE_ZONES: ServiceZoneBoundingBox[] = [
+  { name: 'Manhattan', minLat: 40.6808, maxLat: 40.8820, minLng: -74.0477, maxLng: -73.9070 },
+  { name: 'Brooklyn', minLat: 40.5512, maxLat: 40.7395, minLng: -74.0530, maxLng: -73.8334 },
+  { name: 'Queens', minLat: 40.5380, maxLat: 40.8007, minLng: -73.9620, maxLng: -73.7004 },
+  { name: 'Bronx', minLat: 40.7850, maxLat: 40.9176, minLng: -73.9330, maxLng: -73.7650 },
+  { name: 'Staten Island', minLat: 40.4810, maxLat: 40.6510, minLng: -74.2557, maxLng: -74.0520 },
+  { name: 'Westchester County', minLat: 40.8940, maxLat: 41.3570, minLng: -74.0770, maxLng: -73.4810 },
+  { name: 'Hudson County', minLat: 40.6500, maxLat: 40.8770, minLng: -74.1200, maxLng: -74.0100 },
+  { name: 'Bergen County', minLat: 40.7900, maxLat: 41.1200, minLng: -74.2050, maxLng: -73.8640 },
+];
+
+const isWithinServiceZone = (coordinate: LatLng, zone: ServiceZoneBoundingBox): boolean => {
+  const { latitude, longitude } = coordinate;
+  return latitude >= zone.minLat && latitude <= zone.maxLat && longitude >= zone.minLng && longitude <= zone.maxLng;
+};
+
+const isWithinServiceArea = (coordinate: LatLng | undefined | null): boolean => {
+  if (!coordinate) {
+    return false;
+  }
+
+  return ALLOWED_SERVICE_ZONES.some(zone => isWithinServiceZone(coordinate, zone));
+};
+
 const formatCurrency = (value: number) => {
   const safeValue = Math.max(0, Math.round(value));
   return `$${safeValue.toLocaleString('en-US')}`;
+};
+
+const STREET_SUFFIX_KEYWORDS = new Set([
+  'street',
+  'st',
+  'avenue',
+  'ave',
+  'road',
+  'rd',
+  'drive',
+  'dr',
+  'lane',
+  'ln',
+  'way',
+  'wy',
+  'place',
+  'pl',
+  'court',
+  'ct',
+  'boulevard',
+  'blvd',
+  'circle',
+  'cir',
+  'parkway',
+  'pkwy',
+  'terrace',
+  'ter',
+  'trail',
+  'trl',
+  'highway',
+  'hwy',
+  'expressway',
+  'expy',
+  'freeway',
+  'fwy',
+  'loop',
+  'row',
+  'plaza',
+  'square',
+  'sq',
+  'causeway',
+  'cswy',
+  'crescent',
+  'cres',
+  'bridge',
+  'brg',
+  'pass',
+  'path',
+  'passage',
+  'view',
+  'vista',
+  'walk',
+  'run',
+  'landing',
+  'ldg',
+  'ridge',
+  'rdg',
+  'heights',
+  'hts',
+  'park',
+  'pk',
+  'manor',
+  'mnr',
+  'station',
+  'sta',
+]);
+
+const NON_ADDRESS_FOLLOWING_WORDS = new Set([
+  'bedroom',
+  'bedrooms',
+  'bathroom',
+  'bathrooms',
+  'box',
+  'boxes',
+  'item',
+  'items',
+  'piece',
+  'pieces',
+  'room',
+  'rooms',
+  'floor',
+  'floors',
+  'apt',
+  'apartment',
+  'apartments',
+  'unit',
+  'units',
+  'suite',
+  'ste',
+  'level',
+  'levels',
+  'story',
+  'stories',
+  'garage',
+  'garages',
+]);
+
+const containsStreetNumber = (value?: string | null): boolean => {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length === 0) {
+    return false;
+  }
+
+  const candidatePattern = /\b\d{1,6}[A-Za-z]?(?:[-\s]\d{1,6}[A-Za-z]?)?\s+(?:[A-Za-z0-9.'-]+\s*){1,4}/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = candidatePattern.exec(normalized)) !== null) {
+    const snippet = match[0].toLowerCase();
+    const words = snippet.split(/\s+/).filter(Boolean);
+
+    if (words.length < 2) {
+      continue;
+    }
+
+    const secondWord = words[1].replace(/[^a-z0-9]/g, '');
+    if (NON_ADDRESS_FOLLOWING_WORDS.has(secondWord)) {
+      continue;
+    }
+
+    const hasSuffix = words.some(word => STREET_SUFFIX_KEYWORDS.has(word.replace(/[^a-z]/g, '')));
+    if (hasSuffix) {
+      return true;
+    }
+
+    if (words.length >= 3) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 const decodePolyline = (encoded: string): LatLng[] => {
@@ -404,10 +570,12 @@ export default function Moving() {
   }, [params.editService]);
   const isEditing = Boolean(editServiceId && editingPayload);
 
-  const [isAuto, setIsAuto] = useState(true);
+  const [isAuto, setIsAuto] = useState(false);
   const [isPersonal, setIsPersonal] = useState(true);
   const slideAnimation = useRef(new Animated.Value(0)).current;
   const slideAnimation2 = useRef(new Animated.Value(0)).current;
+  const slideAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const slideAnimation2Ref = useRef<Animated.CompositeAnimation | null>(null);
   
   const voiceIconSvg = `
     <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -459,6 +627,13 @@ export default function Moving() {
   const [priceNote, setPriceNote] = useState<string | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
+
+  const resetPriceState = useCallback(() => {
+    setPriceQuote(null);
+    setPriceNote(null);
+    setPriceError(null);
+    setIsPriceLoading(false);
+  }, []);
   const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'photo' | 'video'; name: string }>>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -466,6 +641,14 @@ export default function Moving() {
   const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
+  const [showMovingAnalysisModal, setShowMovingAnalysisModal] = useState(false);
+  const [apartmentSize, setApartmentSize] = useState('');
+  const [packingStatus, setPackingStatus] = useState<'packed' | 'not-packed' | ''>('');
+  const [truckNeeded, setTruckNeeded] = useState<'yes' | 'no' | ''>('');
+  const [boxesNeeded, setBoxesNeeded] = useState<'yes' | 'no' | ''>('');
+  const [currentQuestionStep, setCurrentQuestionStep] = useState(0);
+  const [furnitureScope, setFurnitureScope] = useState('');
+  const [needsTruck, setNeedsTruck] = useState<'yes' | 'no' | ''>('');
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -633,49 +816,101 @@ export default function Moving() {
   }, [loadCurrentLocation]);
 
   // Restore service details after sign-in
+  // This runs whenever the screen focuses or user changes
   useEffect(() => {
-    if (user) {
-      const returnTo = getReturnTo();
-      if (returnTo && returnTo.path === '/moving' && returnTo.data) {
-        const data = returnTo.data;
-        
-        // Restore locations
-        if (data.startLocation) {
-          setStartLocation(data.startLocation);
-          setStartQuery(data.startLocation.description);
-        }
-        if (data.endLocation) {
-          setEndLocation(data.endLocation);
-          setEndQuery(data.endLocation.description);
-        }
-        
-        // Restore other fields
-        if (data.description) setDescription(data.description);
-        if (data.priceQuote) setPriceQuote(data.priceQuote);
-        if (data.attachments) setAttachments(data.attachments);
-        if (typeof data.isAuto === 'boolean') setIsAuto(data.isAuto);
-        if (typeof data.isPersonal === 'boolean') setIsPersonal(data.isPersonal);
-        
-        // Clear the saved data
-        clearReturnTo();
+    console.log('🔍 Moving screen mounted/updated. User:', user?.email || 'none');
+    
+    const returnTo = getReturnTo();
+    console.log('🔍 Moving screen: returnTo:', returnTo);
+    
+    // Only restore if user is signed in and we have return data
+    if (user && returnTo && returnTo.path === '/moving' && returnTo.data) {
+      const data = returnTo.data;
+      console.log('✅ Moving screen: restoring data:', data);
+      
+      // Restore locations
+      if (data.startLocation) {
+        setStartLocation(data.startLocation);
+        setStartQuery(data.startLocation.description);
       }
-    }
-  }, [user, getReturnTo, clearReturnTo]);
+      if (data.endLocation) {
+        setEndLocation(data.endLocation);
+        setEndQuery(data.endLocation.description);
+      }
+      
+      // Restore other fields
+      if (data.description) setDescription(data.description);
+      if (data.priceQuote) setPriceQuote(data.priceQuote);
+      if (data.attachments) setAttachments(data.attachments);
+      if (typeof data.isAuto === 'boolean') setIsAuto(data.isAuto);
+      if (typeof data.isPersonal === 'boolean') setIsPersonal(data.isPersonal);
+      
+      clearReturnTo();
 
-  const applyLocation = useCallback((target: 'start' | 'end', location: SelectedLocation) => {
-    if (target === 'start') {
-      setStartQuery(location.description);
-      setStartLocation(location);
-      setStartSuggestions([]);
-      setStartSessionToken(createSessionToken());
-      setStartLoading(false);
-    } else {
-      setEndQuery(location.description);
-      setEndLocation(location);
-      setEndSuggestions([]);
-      setEndSessionToken(createSessionToken());
-      setEndLoading(false);
+      // Small delay to ensure UI is ready
+      setTimeout(() => {
+        showModal({
+          title: 'Sign in successful',
+          message: 'Please tap "Schedule Helpr" to continue.',
+        });
+      }, 100);
     }
+  }, [user, getReturnTo, clearReturnTo, showModal]);
+
+  const applyLocation = useCallback(
+    (
+      target: 'start' | 'end',
+      location: SelectedLocation,
+      options: { showStreetNumberWarning?: boolean } = {},
+    ) => {
+      if (!isWithinServiceArea(location.coordinate)) {
+        showModal({
+          title: 'Outside of Service Area',
+          message: "Helpr currently serves NYC's five boroughs, Westchester County, and Hudson & Bergen counties in NJ. Please pick an address in these areas if you wish to continue.",
+        });
+        return;
+      }
+
+      resetPriceState();
+
+      const shouldWarn = options.showStreetNumberWarning ?? true;
+      const hasStreetNumber = containsStreetNumber(location.description);
+
+      if (target === 'start') {
+        setStartQuery(location.description);
+        setStartLocation(location);
+        setStartSuggestions([]);
+        setStartSessionToken(createSessionToken());
+        setStartLoading(false);
+      } else {
+        setEndQuery(location.description);
+        setEndLocation(location);
+        setEndSuggestions([]);
+        setEndSessionToken(createSessionToken());
+        setEndLoading(false);
+      }
+
+      if (shouldWarn && !hasStreetNumber) {
+        const isStart = target === 'start';
+        showModal({
+          title: isStart ? 'Add street number to start location' : 'Add street number to end location',
+          message: isStart
+            ? 'Update your start location to include the street number.'
+            : 'Update your end location to include the street number.',
+        });
+      }
+    },
+    [resetPriceState, showModal],
+  );
+
+  const resetMovingAnalysisFlow = useCallback(() => {
+    setShowMovingAnalysisModal(false);
+    setCurrentQuestionStep(0);
+    setApartmentSize('');
+    setFurnitureScope('');
+    setPackingStatus('');
+    setNeedsTruck('');
+    setBoxesNeeded('');
   }, []);
 
   const handleUseCurrentLocation = useCallback(
@@ -763,7 +998,11 @@ export default function Moving() {
 
   useEffect(() => {
     return () => {
+      // Stop all animations on unmount
       voicePulseAnimationRef.current?.stop();
+      slideAnimationRef.current?.stop();
+      slideAnimation2Ref.current?.stop();
+      
       const currentRecording = recordingRef.current;
       if (currentRecording) {
         currentRecording.stopAndUnloadAsync().catch(() => undefined);
@@ -824,8 +1063,8 @@ export default function Moving() {
     const nextIsAuto = (editingPayload.autofill_type ?? 'AutoFill').toLowerCase() !== 'custom';
     const nextIsPersonal = (editingPayload.payment_method_type ?? 'Personal').toLowerCase() !== 'business';
 
-    setIsAuto(nextIsAuto);
-    slideAnimation.setValue(nextIsAuto ? 0 : 1);
+  setIsAuto(nextIsAuto);
+  slideAnimation.setValue(nextIsAuto ? 1 : 0);
 
     setIsPersonal(nextIsPersonal);
     slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
@@ -859,7 +1098,7 @@ export default function Moving() {
         }
 
         if (startResolved) {
-          applyLocation('start', startResolved);
+          applyLocation('start', startResolved, { showStreetNumberWarning: false });
         } else {
           setStartQuery(startAddress);
           setStartLocation(null);
@@ -876,7 +1115,7 @@ export default function Moving() {
         }
 
         if (endResolved) {
-          applyLocation('end', endResolved);
+          applyLocation('end', endResolved, { showStreetNumberWarning: false });
         } else {
           setEndQuery(endAddress);
           setEndLocation(null);
@@ -896,10 +1135,8 @@ export default function Moving() {
 
   const handleDescriptionChange = useCallback((text: string) => {
     setDescription(text);
-    setPriceQuote(null);
-    setPriceNote(null);
-    setPriceError(null);
-  }, []);
+    resetPriceState();
+  }, [resetPriceState]);
 
   const fetchPriceEstimate = useCallback(
     async (
@@ -940,7 +1177,7 @@ export default function Moving() {
               {
                 role: 'system',
                 content:
-                  'You are a pricing assistant for home services. Respond with a JSON object containing min_price, max_price, and summary fields. Keep prices in USD, realistic, and constrain min_price between 30 and 1500 and max_price between min_price and 2500. summary should be at most 120 characters. Provide optimistic, budget-friendly estimates and, when in doubt, lean toward the lower end of the acceptable price range.',
+                  'You are a pricing assistant for home services. Respond with a JSON object containing min_price, max_price, and summary fields. Keep prices in USD, realistic, and constrain min_price between 50 and 1500 and max_price between min_price and 1800. ensure that any moving services going from one place to another are at least $200 w/o truck and at least $350 if truck is needed. Start around these two priced for studio/1BR jobs in close proximity to each other and increase this accordingly for larger places. make sure a 2BR for the same job should be significantly more than a 1BR ). Provide optimistic, budget-friendly estimates and, when in doubt, lean toward the lower end of the acceptable price range. Take the distance between start and end locations into account when estimating prices. Make sure that there is a significant difference between jobs requiring a moving truck and those not requiring it. Take the size of the apartment and whether the customer requires help packing into consideration. make extra sure all of these criteria are met.',
               },
               {
                 role: 'user',
@@ -1022,6 +1259,221 @@ export default function Moving() {
     Keyboard.dismiss();
     fetchPriceEstimate(trimmed, { start: startLocation, end: endLocation });
   }, [description, endLocation, fetchPriceEstimate, isPriceLoading, isTranscribing, showModal, startLocation]);
+
+  const analyzeMovingDescription = useCallback((text: string) => {
+    const lowerText = text.toLowerCase();
+
+    const spelledOutBedroomPattern = /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/;
+
+    const hasApartmentSize = /\b(\d+)\s*(bedroom|br|room|apt|apartment)\b/i.test(lowerText) ||
+      /\b(studio|1br|2br|3br|4br|5br)\b/i.test(lowerText) ||
+      spelledOutBedroomPattern.test(lowerText);
+
+    const hasPackingStatus = /\b(pack|packed|packing|unpack|unpacked|unpacking)\b/i.test(lowerText);
+
+    const hasTruckInfo = /\b(truck|moving truck|rental truck|vehicle|car|van)\b/i.test(lowerText);
+
+    const hasBoxInfo = /\b(box|boxes|packing supplies|supplies)\b/i.test(lowerText);
+
+    const hasFurnitureScope = /\b(everything|entire|whole|all|complete)\b/i.test(lowerText) ||
+      /\b(furniture|bedroom|living room|kitchen|dining room|office)\b/i.test(lowerText) ||
+      /\b(specific pieces|pieces|items|only)\b/i.test(lowerText) ||
+      /\b(moving scope|scope)\b/i.test(lowerText);
+
+    const descriptionHasStreetNumber = containsStreetNumber(text);
+
+    const startAddressCandidates = [startQuery, startLocation?.description];
+    const endAddressCandidates = [endQuery, endLocation?.description];
+
+    const hasStartStreetNumber = startAddressCandidates.some(candidate => containsStreetNumber(candidate));
+    const hasEndStreetNumber = endAddressCandidates.some(candidate => containsStreetNumber(candidate));
+
+    const hasStartInput = startAddressCandidates.some(candidate => typeof candidate === 'string' && candidate.trim().length > 0);
+    const hasEndInput = endAddressCandidates.some(candidate => typeof candidate === 'string' && candidate.trim().length > 0);
+
+    const missingStreetNumberTargets: Array<'start' | 'end'> = [];
+    if (hasStartInput && !hasStartStreetNumber) {
+      missingStreetNumberTargets.push('start');
+    }
+    if (hasEndInput && !hasEndStreetNumber) {
+      missingStreetNumberTargets.push('end');
+    }
+
+    const hasStreetNumber = missingStreetNumberTargets.length === 0 && (!hasStartInput || hasStartStreetNumber) && (!hasEndInput || hasEndStreetNumber);
+
+    return {
+      hasApartmentSize,
+      hasPackingStatus,
+      hasTruckInfo,
+      hasBoxInfo,
+      hasFurnitureScope,
+      hasStreetNumber: hasStreetNumber || (!hasStartInput && !hasEndInput && descriptionHasStreetNumber),
+      hasStartStreetNumber,
+      hasEndStreetNumber,
+      missingStreetNumberTargets,
+      isPacked: hasPackingStatus && /\b(packed|packing)\b/i.test(lowerText),
+    };
+  }, [endLocation?.description, endQuery, startLocation?.description, startQuery]);
+
+  const movingAnalysis = useMemo(() => {
+    const analysis = analyzeMovingDescription(description);
+
+    const shouldAskPacking = !analysis.hasPackingStatus;
+    const shouldAskBoxes = (analysis.hasPackingStatus && !analysis.isPacked && !analysis.hasBoxInfo) || (!analysis.hasPackingStatus && packingStatus === 'not-packed');
+
+    const missingInfo: string[] = [];
+
+    if (analysis.missingStreetNumberTargets.includes('start')) missingInfo.push('start street number');
+    if (analysis.missingStreetNumberTargets.includes('end')) missingInfo.push('end street number');
+    if (!analysis.hasApartmentSize) missingInfo.push('apartment size');
+    if (shouldAskPacking) missingInfo.push('packing status');
+    if (!analysis.hasTruckInfo) missingInfo.push('truck');
+    if (shouldAskBoxes) missingInfo.push('boxes');
+
+    // Determine which questions to show
+    const questionsToShow: Array<{ id: string; title: string; message: string; placeholder: string; multiline?: boolean; options?: string[] }> = [];
+
+    if (shouldAskPacking) {
+      questionsToShow.push({
+        id: 'packingStatus',
+        title: 'Do you need help packing?',
+        message: 'Let your helpr know if you need your things packed into boxes.',
+        placeholder: 'Select yes or no',
+        options: ['packed', 'not-packed'],
+      });
+    }
+
+    if (!analysis.hasTruckInfo) {
+      questionsToShow.push({
+        id: 'needsTruck',
+        title: 'Do you need a moving truck?',
+        message: 'This helps us determine the right equipment and pricing.',
+        placeholder: 'Select yes or no',
+        options: ['yes', 'no']
+      });
+    }
+
+    if (shouldAskBoxes) {
+      questionsToShow.push({
+        id: 'boxesNeeded',
+        title: 'Do you need boxes?',
+        message: 'Let your helpr know if they should bring moving boxes.',
+        placeholder: 'Select yes or no',
+        options: ['yes', 'no'],
+      });
+    }
+    
+    if (!analysis.hasApartmentSize) {
+      questionsToShow.push({
+        id: 'apartmentSize',
+        title: 'How big is your apartment?',
+        message: 'This will help us determine the best price for your service.',
+        placeholder: 'e.g., 1BR, 2BR, 3BR, Studio'
+      });
+    }
+    
+    if (!analysis.hasFurnitureScope) {
+      questionsToShow.push({
+        id: 'furnitureScope',
+        title: 'How much furniture do you need moved?',
+        message: 'Describe what furniture and items you need moved.',
+        placeholder: 'e.g., everything, bedroom furniture only, living room and kitchen',
+        multiline: true
+      });
+    }
+    
+    return {
+      ...analysis,
+      shouldAskPacking,
+      shouldAskBoxes,
+      missingInfo,
+      questionsToShow,
+    };
+  }, [analyzeMovingDescription, description, packingStatus]);
+
+  const handleMovingAnalysisSubmit = useCallback(() => {
+    const analysis = analyzeMovingDescription(description);
+
+    if (!analysis.hasStreetNumber) {
+      const needsBoth = analysis.missingStreetNumberTargets.length === 2;
+      const target = analysis.missingStreetNumberTargets[0] ?? 'start';
+
+      showModal({
+        title: needsBoth ? 'Add street numbers' : target === 'start' ? 'add an exact street number for your starting location' : 'add an exact street number for your ending location',
+        message: needsBoth
+          ? 'Update both pickup and drop-off locations to include street numbers so your helpr can find you.'
+          : target === 'start'
+            ? 'Update your pickup location to include the street number so your helpr can find you.'
+            : 'Update your drop-off location to include the street number so your helpr can finish the move.',
+      });
+      return;
+    }
+    
+    const needsBoxesQuestion = (analysis.hasPackingStatus && !analysis.isPacked && !analysis.hasBoxInfo) || (!analysis.hasPackingStatus && packingStatus === 'not-packed');
+    
+    // Check if we need to show the modal
+  const needsModal = !analysis.hasPackingStatus || !analysis.hasTruckInfo || needsBoxesQuestion || !analysis.hasApartmentSize || !analysis.hasFurnitureScope;
+    
+    if (needsModal) {
+      setCurrentQuestionStep(0); // Start with first question
+      setShowMovingAnalysisModal(true);
+      return;
+    }
+    
+    // If everything is covered, proceed with price estimation
+    handleDescriptionSubmit();
+  }, [analyzeMovingDescription, description, handleDescriptionSubmit, packingStatus, showModal]);
+
+  const handleAnalysisModalSubmit = useCallback(() => {
+    const currentQuestion = movingAnalysis.questionsToShow[currentQuestionStep];
+    
+    if (currentQuestionStep < movingAnalysis.questionsToShow.length - 1) {
+      // Move to next question
+      setCurrentQuestionStep(currentQuestionStep + 1);
+    } else {
+      // All questions answered, update description and close modal
+      let updatedDescription = description;
+      
+      if (needsTruck) {
+        updatedDescription += `\n\nNeeds truck: ${needsTruck === 'yes' ? 'Yes' : 'No'}`;
+      }
+
+      if (packingStatus) {
+        const packingSummary = packingStatus === 'packed' ? 'Everything is already packed' : 'Needs help packing';
+        updatedDescription += `\n\nPacking status: ${packingSummary}`;
+      }
+
+      if (boxesNeeded) {
+        const boxesSummary = boxesNeeded === 'yes' ? 'Please bring moving boxes' : 'Customer already has boxes';
+        updatedDescription += `\n\nBoxes: ${boxesSummary}`;
+      }
+      
+      if (apartmentSize.trim()) {
+        updatedDescription += `\n\nApartment size: ${apartmentSize.trim()}`;
+      }
+      
+      if (furnitureScope.trim()) {
+        updatedDescription += `\n\nFurniture scope: ${furnitureScope.trim()}`;
+      }
+      
+      setDescription(updatedDescription);
+      resetMovingAnalysisFlow();
+      
+      // Now proceed with price estimation
+      setTimeout(() => {
+        handleDescriptionSubmit();
+      }, 100);
+    }
+  }, [apartmentSize, boxesNeeded, currentQuestionStep, description, furnitureScope, handleDescriptionSubmit, movingAnalysis.questionsToShow, needsTruck, packingStatus, resetMovingAnalysisFlow]);
+
+  const handleAnalysisModalBack = useCallback(() => {
+    if (currentQuestionStep === 0) {
+      resetMovingAnalysisFlow();
+      return;
+    }
+
+    setCurrentQuestionStep(prev => Math.max(0, prev - 1));
+  }, [currentQuestionStep, resetMovingAnalysisFlow]);
 
   const resolveCustomerId = useCallback(async () => {
     if (customerId) {
@@ -1162,6 +1614,38 @@ export default function Moving() {
       showModal({
         title: 'Add locations',
         message: 'Please provide both start and end locations before scheduling.',
+      });
+      return;
+    }
+
+    if (!isWithinServiceArea(startLocation.coordinate) || !isWithinServiceArea(endLocation.coordinate)) {
+      showModal({
+        title: 'We\'re not in your area yet.',
+        message: "Helpr currently operates in NYC's five boroughs, Westchester County, and Hudson & Bergen counties in NJ. Please pick addresses within this area to continue.",
+      });
+      return;
+    }
+
+    const missingStreetTargets: Array<'start' | 'end'> = [];
+    if (!containsStreetNumber(startLocation.description)) {
+      missingStreetTargets.push('start');
+    }
+    if (!containsStreetNumber(endLocation.description)) {
+      missingStreetTargets.push('end');
+    }
+
+    if (missingStreetTargets.length > 0) {
+      const needsBoth = missingStreetTargets.length === 2;
+      const title = needsBoth ? 'Add street numbers' : missingStreetTargets[0] === 'start' ? 'Add pickup street number' : 'Add drop-off street number';
+      const message = needsBoth
+        ? 'Update both pickup and drop-off locations to include street numbers before scheduling.'
+        : missingStreetTargets[0] === 'start'
+          ? 'Update your pickup location to include the street number.'
+          : 'Update your drop-off location to include the street number.';
+
+      showModal({
+        title,
+        message,
       });
       return;
     }
@@ -1376,19 +1860,17 @@ export default function Moving() {
     try {
       const transcript = await transcribeAudioAsync(uri);
       if (transcript) {
+        resetPriceState();
         setDescription(prev => {
           const trimmedPrev = prev.trim();
           const combined = trimmedPrev.length > 0 ? `${trimmedPrev} ${transcript}` : transcript;
           return combined.trim();
         });
-        setPriceQuote(null);
-        setPriceNote(null);
-        setPriceError(null);
       }
     } finally {
       setIsTranscribing(false);
     }
-  }, [transcribeAudioAsync]);
+  }, [resetPriceState, transcribeAudioAsync]);
 
   const handleVoiceModePress = useCallback(async () => {
     if (isTranscribing) {
@@ -1530,6 +2012,7 @@ export default function Moving() {
     (text: string) => {
       setStartQuery(text);
       setStartLocation(null);
+      resetPriceState();
 
       if (startDebounceRef.current) {
         clearTimeout(startDebounceRef.current);
@@ -1545,13 +2028,14 @@ export default function Moving() {
         fetchPredictions(trimmed, startSessionToken, setStartSuggestions, setStartLoading);
       }, 350);
     },
-    [fetchPredictions, startSessionToken],
+    [fetchPredictions, resetPriceState, startSessionToken],
   );
 
   const handleEndChange = useCallback(
     (text: string) => {
       setEndQuery(text);
       setEndLocation(null);
+      resetPriceState();
 
       if (endDebounceRef.current) {
         clearTimeout(endDebounceRef.current);
@@ -1567,7 +2051,7 @@ export default function Moving() {
         fetchPredictions(trimmed, endSessionToken, setEndSuggestions, setEndLoading);
       }, 350);
     },
-    [fetchPredictions, endSessionToken],
+    [endSessionToken, fetchPredictions, resetPriceState],
   );
 
   const handleStartSelect = useCallback(
@@ -1617,14 +2101,16 @@ export default function Moving() {
     setStartSuggestions([]);
     setStartLocation(null);
     setStartSessionToken(createSessionToken());
-  }, []);
+    resetPriceState();
+  }, [resetPriceState]);
 
   const handleEndClear = useCallback(() => {
     setEndQuery('');
     setEndSuggestions([]);
     setEndLocation(null);
     setEndSessionToken(createSessionToken());
-  }, []);
+    resetPriceState();
+  }, [resetPriceState]);
 
   const currentLocationSecondaryText = useMemo(() => {
     if (currentLocation) {
@@ -1916,7 +2402,7 @@ export default function Moving() {
                 placeholderTextColor="#333333ab"
                 value={description}
                 onChangeText={handleDescriptionChange}
-                onSubmitEditing={handleDescriptionSubmit}
+                onSubmitEditing={handleMovingAnalysisSubmit}
                 blurOnSubmit
                 returnKeyType="done"
                 editable={!isTranscribing}
@@ -1964,24 +2450,31 @@ export default function Moving() {
               <Animated.View style={styles.binarySlider}>
                 <View style={styles.binarySliderIcons}>
                   <Image 
-                    source={require('../assets/icons/AutoFillIcon.png')} 
-                    style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 9 }]} 
+                    source={require('../assets/icons/ChooseHelprIcon.png')} 
+                    style={[styles.binarySliderIcon, { opacity: isAuto ? 0.5 : 1, marginLeft: 7 }]} 
                   />
                   <Image 
-                    source={require('../assets/icons/ChooseHelprIcon.png')} 
-                    style={[styles.binarySliderIcon, { opacity: !isAuto ? 1 : 0.5 }]} 
+                    source={require('../assets/icons/AutoFillIcon.png')} 
+                    style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 12 }]} 
                   />
                 </View>
                 <Pressable
                   style={StyleSheet.absoluteFill}
                   onPress={() => {
-                    setIsAuto(prev => !prev);
-                    Animated.spring(slideAnimation, {
-                      toValue: isAuto ? 1 : 0,
-                      useNativeDriver: false,
-                      friction: 8,
-                      tension: 50
-                    }).start();
+                    setIsAuto(prev => {
+                      const next = !prev;
+                      // Cancel any in-progress animation
+                      slideAnimationRef.current?.stop();
+                      // Start new animation
+                      slideAnimationRef.current = Animated.spring(slideAnimation, {
+                        toValue: next ? 1 : 0,
+                        useNativeDriver: false,
+                        friction: 8,
+                        tension: 50,
+                      });
+                      slideAnimationRef.current.start();
+                      return next;
+                    });
                   }}
                 >
                   <Animated.View
@@ -1991,10 +2484,10 @@ export default function Moving() {
                         transform: [{
                           translateX: slideAnimation.interpolate({
                             inputRange: [0, 1],
-                            outputRange: [0, 28]
-                          })
-                        }]
-                      }
+                            outputRange: [0, 28],
+                          }),
+                        }],
+                      },
                     ]}
                   />
                 </Pressable>
@@ -2005,7 +2498,7 @@ export default function Moving() {
                 </Text>
                 {'\n'}
                 <Text style={[styles.binarySliderLabel, styles.isAutoSliderSubtitle]}>
-                  {isAuto ? 'Match me with the first available helpr' : 'Choose a helpr based on your preferences'}
+                  {isAuto ? 'Confirm the first available helpr at this price' : 'Choose from available pros'}
                 </Text>
               </Text>
             </View>
@@ -2025,13 +2518,20 @@ export default function Moving() {
                   <Pressable
                     style={StyleSheet.absoluteFill}
                     onPress={() => {
-                      setIsPersonal(prev => !prev);
-                      Animated.spring(slideAnimation2, {
-                        toValue: isPersonal ? 1 : 0,
-                        useNativeDriver: false,
-                        friction: 8,
-                        tension: 50
-                      }).start();
+                      setIsPersonal(prev => {
+                        const next = !prev;
+                        // Cancel any in-progress animation
+                        slideAnimation2Ref.current?.stop();
+                        // Start new animation
+                        slideAnimation2Ref.current = Animated.spring(slideAnimation2, {
+                          toValue: next ? 0 : 1,
+                          useNativeDriver: false,
+                          friction: 8,
+                          tension: 50
+                        });
+                        slideAnimation2Ref.current.start();
+                        return next;
+                      });
                     }}
                   >
                     <Animated.View
@@ -2100,6 +2600,15 @@ export default function Moving() {
               <Pressable 
                 style={styles.signInButton} 
                 onPress={() => {
+                  setReturnTo('/moving', {
+                    startLocation,
+                    endLocation,
+                    description,
+                    isAuto,
+                    isPersonal,
+                    priceQuote,
+                    attachments,
+                  });
                   setShowSignInModal(false);
                   router.push('/login');
                 }}
@@ -2109,6 +2618,15 @@ export default function Moving() {
               <Pressable 
                 style={styles.signUpButton} 
                 onPress={() => {
+                  setReturnTo('/moving', {
+                    startLocation,
+                    endLocation,
+                    description,
+                    isAuto,
+                    isPersonal,
+                    priceQuote,
+                    attachments,
+                  });
                   setShowSignInModal(false);
                   router.push('/signup');
                 }}
@@ -2122,6 +2640,138 @@ export default function Moving() {
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Moving Analysis Modal */}
+      <Modal
+        visible={showMovingAnalysisModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={resetMovingAnalysisFlow}
+      >
+        <View style={styles.movingAnalysisOverlayBackground}>
+          <View style={styles.movingAnalysisModal}>
+            {movingAnalysis.questionsToShow.length > 0 && (
+              <>
+                <Text style={styles.movingAnalysisTitle}>
+                  {movingAnalysis.questionsToShow[currentQuestionStep]?.title}
+                </Text>
+                <Text style={styles.movingAnalysisMessage}>
+                  {movingAnalysis.questionsToShow[currentQuestionStep]?.message}
+                </Text>
+
+                {movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && (
+                  <View style={styles.movingAnalysisOptionsContainer}>
+                    <Pressable
+                      style={[styles.movingAnalysisOption, needsTruck === 'yes' && styles.movingAnalysisOptionSelected]}
+                      onPress={() => setNeedsTruck('yes')}
+                    >
+                      <Text style={[styles.movingAnalysisOptionText, needsTruck === 'yes' && styles.movingAnalysisOptionTextSelected]}>
+                        Yes, I need a truck
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.movingAnalysisOption, needsTruck === 'no' && styles.movingAnalysisOptionSelected]}
+                      onPress={() => setNeedsTruck('no')}
+                    >
+                      <Text style={[styles.movingAnalysisOptionText, needsTruck === 'no' && styles.movingAnalysisOptionTextSelected]}>
+                        No, I don't need a truck
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && (
+                  <View style={styles.movingAnalysisOptionsContainer}>
+                    <Pressable
+                      style={[styles.movingAnalysisOption, packingStatus === 'not-packed' && styles.movingAnalysisOptionSelected]}
+                      onPress={() => setPackingStatus('not-packed')}
+                    >
+                      <Text style={[styles.movingAnalysisOptionText, packingStatus === 'not-packed' && styles.movingAnalysisOptionTextSelected]}>
+                        Yes, I need help packing
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.movingAnalysisOption, packingStatus === 'packed' && styles.movingAnalysisOptionSelected]}
+                      onPress={() => setPackingStatus('packed')}
+                    >
+                      <Text style={[styles.movingAnalysisOptionText, packingStatus === 'packed' && styles.movingAnalysisOptionTextSelected]}>
+                        No, everything is already packed
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && (
+                  <View style={styles.movingAnalysisOptionsContainer}>
+                    <Pressable
+                      style={[styles.movingAnalysisOption, boxesNeeded === 'yes' && styles.movingAnalysisOptionSelected]}
+                      onPress={() => setBoxesNeeded('yes')}
+                    >
+                      <Text style={[styles.movingAnalysisOptionText, boxesNeeded === 'yes' && styles.movingAnalysisOptionTextSelected]}>
+                        Yes, please bring boxes
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.movingAnalysisOption, boxesNeeded === 'no' && styles.movingAnalysisOptionSelected]}
+                      onPress={() => setBoxesNeeded('no')}
+                    >
+                      <Text style={[styles.movingAnalysisOptionText, boxesNeeded === 'no' && styles.movingAnalysisOptionTextSelected]}>
+                        No, I have boxes
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && (
+                  <TextInput
+                    style={styles.movingAnalysisInput}
+                    placeholder={movingAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
+                    value={apartmentSize}
+                    onChangeText={setApartmentSize}
+                    autoFocus
+                  />
+                )}
+
+                {movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && (
+                  <TextInput
+                    style={styles.movingAnalysisInput}
+                    placeholder={movingAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
+                    value={furnitureScope}
+                    onChangeText={setFurnitureScope}
+                    autoFocus
+                    multiline
+                    numberOfLines={3}
+                  />
+                )}
+
+                <View style={styles.movingAnalysisButtonsRow}>
+                  <Pressable 
+                    style={styles.movingAnalysisCancelButton}
+                    onPress={handleAnalysisModalBack}
+                  >
+                    <Text style={styles.movingAnalysisCancelButtonText}>Back</Text>
+                  </Pressable>
+                  <Pressable 
+                    style={styles.movingAnalysisButton}
+                    onPress={handleAnalysisModalSubmit}
+                    disabled={
+                      (movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && !packingStatus) ||
+                      (movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && !needsTruck) ||
+                      (movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && !boxesNeeded) ||
+                      (movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && !apartmentSize.trim()) ||
+                      (movingAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && !furnitureScope.trim())
+                    }
+                  >
+                    <Text style={styles.movingAnalysisButtonText}>
+                      {currentQuestionStep < movingAnalysis.questionsToShow.length - 1 ? 'Next' : 'Continue'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -2851,8 +3501,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0c4309',
     borderRadius: 30,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -2870,7 +3520,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5DCC9',
     borderRadius: 30,
     paddingVertical: 8,
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
     borderWidth: 2,
     borderColor: '#0c4309',
     shadowColor: '#000',
@@ -2895,4 +3545,157 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
+  // Moving Analysis Modal Styles
+  movingAnalysisOverlayBackground: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  movingAnalysisModal: {
+    width: '85%',
+    backgroundColor: '#FFF8E8',
+    borderRadius: 30,
+    paddingTop: 20,
+    paddingBottom: 20,
+    paddingHorizontal: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  movingAnalysisTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#0c4309',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  movingAnalysisMessage: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#0c4309',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  movingAnalysisInput: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333333',
+    borderWidth: 1,
+    borderColor: '#E5DCC9',
+    marginBottom: 15,
+    textAlignVertical: 'top',
+  },
+  movingAnalysisRadioGroup: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  movingAnalysisRadioOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  movingAnalysisRadioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#0c4309',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  movingAnalysisRadioSelected: {
+    backgroundColor: '#0c4309',
+  },
+  movingAnalysisRadioText: {
+    fontSize: 16,
+    color: '#0c4309',
+    fontWeight: '500',
+  },
+  movingAnalysisButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 12,
+  },
+  movingAnalysisButton: {
+    flex: 1,
+    backgroundColor: '#0c4309',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  movingAnalysisButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  movingAnalysisCancelButton: {
+    flex: 1,
+    backgroundColor: '#E5DCC9',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderWidth: 2,
+    borderColor: '#0c4309',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  movingAnalysisCancelButtonText: {
+    color: '#0c4309',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  movingAnalysisOptionsContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  movingAnalysisOption: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 10,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+    borderWidth: 2,
+    borderColor: '#E5DCC9',
+  },
+  movingAnalysisOptionSelected: {
+    backgroundColor: '#0c4309',
+    borderColor: '#0c4309',
+  },
+  movingAnalysisOptionText: {
+    fontSize: 16,
+    color: '#0c4309',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  movingAnalysisOptionTextSelected: {
+    color: '#FFFFFF',
+  },
 });
+
+
