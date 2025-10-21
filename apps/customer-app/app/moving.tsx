@@ -1,4 +1,7 @@
+import { Audio } from 'expo-av';
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -6,9 +9,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
-import * as ImagePicker from 'expo-image-picker';
-import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
 import { supabase } from '../src/lib/supabase';
@@ -58,6 +58,33 @@ type LocationAutocompleteInputProps = {
   loading: boolean;
   currentLocationOption?: CurrentLocationOption;
   onSuggestionsVisibilityChange?: (visible: boolean) => void;
+};
+
+type AttachmentAsset = { uri: string; type: 'photo' | 'video'; name: string };
+
+type MovingFormState = {
+  startQuery: string;
+  endQuery: string;
+  startLocation: SelectedLocation | null;
+  endLocation: SelectedLocation | null;
+  description: string;
+  isAuto: boolean;
+  isPersonal: boolean;
+  priceQuote: string | null;
+  priceNote: string | null;
+  priceError: string | null;
+  attachments: AttachmentAsset[];
+  apartmentSize: string;
+  packingStatus: '' | 'packed' | 'not-packed';
+  needsTruck: '' | 'yes' | 'no';
+  boxesNeeded: '' | 'yes' | 'no';
+  furnitureScope: string;
+};
+
+type MovingReturnData = {
+  formState: MovingFormState;
+  action?: 'schedule-moving';
+  timestamp?: number;
 };
 
 const createUuid = () => {
@@ -407,6 +434,23 @@ const ensureRouteEndpoints = (path: LatLng[], start: LatLng, end: LatLng): LatLn
   return adjusted;
 };
 
+const cloneSelectedLocation = (location: SelectedLocation | null): SelectedLocation | null => {
+  if (!location) {
+    return null;
+  }
+
+  return {
+    description: location.description,
+    coordinate: {
+      latitude: location.coordinate.latitude,
+      longitude: location.coordinate.longitude,
+    },
+  };
+};
+
+const cloneAttachments = (items: AttachmentAsset[]): AttachmentAsset[] =>
+  items.map(item => ({ ...item }));
+
 const LocationAutocompleteInput = React.memo<LocationAutocompleteInputProps>(
   ({
     value,
@@ -634,13 +678,14 @@ export default function Moving() {
     setPriceError(null);
     setIsPriceLoading(false);
   }, []);
-  const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'photo' | 'video'; name: string }>>([]);
+  const [attachments, setAttachments] = useState<AttachmentAsset[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
+  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-moving'>(null);
   const [showMovingAnalysisModal, setShowMovingAnalysisModal] = useState(false);
   const [apartmentSize, setApartmentSize] = useState('');
   const [packingStatus, setPackingStatus] = useState<'packed' | 'not-packed' | ''>('');
@@ -652,6 +697,81 @@ export default function Moving() {
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
+
+  const collectFormState = useCallback((): MovingFormState => {
+    return {
+      startQuery,
+      endQuery,
+      startLocation: cloneSelectedLocation(startLocation),
+      endLocation: cloneSelectedLocation(endLocation),
+      description,
+      isAuto,
+      isPersonal,
+      priceQuote,
+      priceNote,
+      priceError,
+      attachments: cloneAttachments(attachments),
+      apartmentSize,
+      packingStatus,
+      needsTruck,
+      boxesNeeded,
+      furnitureScope,
+    };
+  }, [
+    apartmentSize,
+    attachments,
+    boxesNeeded,
+    description,
+    endLocation,
+    endQuery,
+    furnitureScope,
+    isAuto,
+    isPersonal,
+    needsTruck,
+    packingStatus,
+    priceError,
+    priceNote,
+    priceQuote,
+    startLocation,
+    startQuery,
+  ]);
+
+  const restoreFormState = useCallback(
+    (formState: MovingFormState) => {
+      setStartQuery(formState.startQuery ?? '');
+      setEndQuery(formState.endQuery ?? '');
+      setStartLocation(cloneSelectedLocation(formState.startLocation ?? null));
+      setEndLocation(cloneSelectedLocation(formState.endLocation ?? null));
+  setDescription(formState.description ?? '');
+
+  const nextIsAuto = Boolean(formState.isAuto);
+  setIsAuto(nextIsAuto);
+  slideAnimation.setValue(nextIsAuto ? 1 : 0);
+
+  const nextIsPersonal = Boolean(formState.isPersonal);
+  setIsPersonal(nextIsPersonal);
+  slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
+      setPriceQuote(formState.priceQuote ?? null);
+      setPriceNote(formState.priceNote ?? null);
+      setPriceError(formState.priceError ?? null);
+      setAttachments(cloneAttachments(formState.attachments ?? []));
+      setApartmentSize(formState.apartmentSize ?? '');
+      setPackingStatus(formState.packingStatus ?? '');
+      setNeedsTruck(formState.needsTruck ?? '');
+      setBoxesNeeded(formState.boxesNeeded ?? '');
+      setFurnitureScope(formState.furnitureScope ?? '');
+    },
+    [slideAnimation, slideAnimation2],
+  );
+
+  const preserveFormForAuth = useCallback(() => {
+    const formState = collectFormState();
+    setReturnTo('/moving', {
+      formState,
+      action: 'schedule-moving',
+      timestamp: Date.now(),
+    });
+  }, [collectFormState, setReturnTo]);
 
   const mapEdgePadding = useMemo(
     () => ({ top: 60, right: 36, bottom: 220, left: 36 }),
@@ -816,46 +936,31 @@ export default function Moving() {
   }, [loadCurrentLocation]);
 
   // Restore service details after sign-in
-  // This runs whenever the screen focuses or user changes
   useEffect(() => {
-    console.log('🔍 Moving screen mounted/updated. User:', user?.email || 'none');
-    
-    const returnTo = getReturnTo();
-    console.log('🔍 Moving screen: returnTo:', returnTo);
-    
-    // Only restore if user is signed in and we have return data
-    if (user && returnTo && returnTo.path === '/moving' && returnTo.data) {
-      const data = returnTo.data;
-      console.log('✅ Moving screen: restoring data:', data);
-      
-      // Restore locations
-      if (data.startLocation) {
-        setStartLocation(data.startLocation);
-        setStartQuery(data.startLocation.description);
-      }
-      if (data.endLocation) {
-        setEndLocation(data.endLocation);
-        setEndQuery(data.endLocation.description);
-      }
-      
-      // Restore other fields
-      if (data.description) setDescription(data.description);
-      if (data.priceQuote) setPriceQuote(data.priceQuote);
-      if (data.attachments) setAttachments(data.attachments);
-      if (typeof data.isAuto === 'boolean') setIsAuto(data.isAuto);
-      if (typeof data.isPersonal === 'boolean') setIsPersonal(data.isPersonal);
-      
-      clearReturnTo();
-
-      // Small delay to ensure UI is ready
-      setTimeout(() => {
-        showModal({
-          title: 'Sign in successful',
-          message: 'Please tap "Schedule Helpr" to continue.',
-        });
-      }, 100);
+    if (!user) {
+      return;
     }
-  }, [user, getReturnTo, clearReturnTo, showModal]);
+
+    const returnTo = getReturnTo();
+    if (!returnTo || returnTo.path !== '/moving' || !returnTo.data) {
+      return;
+    }
+
+    const payload = returnTo.data as MovingReturnData;
+
+    if (!payload?.formState) {
+      clearReturnTo();
+      return;
+    }
+
+    restoreFormState(payload.formState);
+    clearReturnTo();
+
+    if (payload.action === 'schedule-moving') {
+      setPendingResumeAction('schedule-moving');
+    }
+  }, [user, getReturnTo, clearReturnTo, restoreFormState]);
+
 
   const applyLocation = useCallback(
     (
@@ -1573,16 +1678,7 @@ export default function Moving() {
     }
 
     if (!user) {
-      // Save current page and data for return after sign-in
-      setReturnTo('/moving', {
-        startLocation,
-        endLocation,
-        description,
-        isAuto,
-        isPersonal,
-        priceQuote,
-        attachments,
-      });
+      preserveFormForAuth();
       setShowSignInModal(true);
       return;
     }
@@ -1775,14 +1871,29 @@ export default function Moving() {
     isPersonal,
     isSubmitting,
     priceQuote,
+    preserveFormForAuth,
     resolveCustomerId,
     router,
-    setReturnTo,
     snapshotLocations,
     restoreLocations,
     startLocation,
     user,
   ]);
+
+  useEffect(() => {
+    if (!user || pendingResumeAction !== 'schedule-moving' || isSubmitting) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setPendingResumeAction(null);
+      handleScheduleHelpr();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [handleScheduleHelpr, isSubmitting, pendingResumeAction, user]);
 
   const transcribeAudioAsync = useCallback(
     async (uri: string) => {
@@ -2600,15 +2711,7 @@ export default function Moving() {
               <Pressable 
                 style={styles.signInButton} 
                 onPress={() => {
-                  setReturnTo('/moving', {
-                    startLocation,
-                    endLocation,
-                    description,
-                    isAuto,
-                    isPersonal,
-                    priceQuote,
-                    attachments,
-                  });
+                  preserveFormForAuth();
                   setShowSignInModal(false);
                   router.push('/login');
                 }}
@@ -2618,15 +2721,7 @@ export default function Moving() {
               <Pressable 
                 style={styles.signUpButton} 
                 onPress={() => {
-                  setReturnTo('/moving', {
-                    startLocation,
-                    endLocation,
-                    description,
-                    isAuto,
-                    isPersonal,
-                    priceQuote,
-                    attachments,
-                  });
+                  preserveFormForAuth();
                   setShowSignInModal(false);
                   router.push('/signup');
                 }}
