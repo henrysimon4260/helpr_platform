@@ -1,15 +1,15 @@
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
-import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
+import { supabase } from '../src/lib/supabase';
 
 export default function Signup() {
   console.log('Signup screen rendered');
 
   const { getReturnTo, clearReturnTo } = useAuth();
-  const { showModal } = useModal();
+  const { showModal, hideModal } = useModal();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -25,6 +25,27 @@ export default function Signup() {
   useEffect(() => {
     console.log('Signup screen loaded - creating beautiful user experience');
   }, []);
+
+  const redirectAfterAuth = useCallback(() => {
+    const returnTo = getReturnTo();
+
+    if (returnTo?.path && returnTo.data) {
+      const data = returnTo.data as { params?: Record<string, string> };
+      const params = data?.params;
+      const hasParams = params && Object.keys(params).length > 0;
+      const normalizedPath = returnTo.path.startsWith('/') ? returnTo.path.slice(1) : returnTo.path;
+
+      if (hasParams) {
+        router.replace({ pathname: normalizedPath as any, params });
+      } else {
+        router.replace(returnTo.path as any);
+      }
+      return;
+    }
+
+    clearReturnTo();
+    router.replace('/landing');
+  }, [clearReturnTo, getReturnTo]);
 
   const validateSignupInputs = () => {
     if (!firstName.trim()) {
@@ -80,17 +101,59 @@ export default function Signup() {
 
     try {
       // Create auth account with email/password
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      const payload = {
         email: email.trim(),
         password: password.trim(),
-      });
+      } as const;
+
+      const { data: authData, error: authError } = await supabase.auth.signUp(payload);
 
       if (authError) {
         console.error('❌ Auth signup error:', authError);
-        showModal({
-          title: 'Signup Failed',
-          message: authError.message,
-        });
+
+        const errorFragments = [
+          authError.message,
+          (authError as any)?.error_description,
+          (authError as any)?.code,
+          (authError as any)?.error,
+        ]
+          .filter((value): value is string => typeof value === 'string')
+          .map(fragment => fragment.toLowerCase());
+
+        const combinedError = errorFragments.join(' ');
+        const isDuplicateAccount =
+          combinedError.includes('already registered') ||
+          combinedError.includes('already exist') ||
+          combinedError.includes('already in use') ||
+          combinedError.includes('user_already_exists');
+
+  const duplicateViaAuthData = Boolean(authData?.user) && Boolean((authData.user as any)?.identities?.length);
+  const duplicateViaMfa = authData?.session === null && authData?.user === null;
+
+        if (isDuplicateAccount || duplicateViaAuthData || duplicateViaMfa) {
+          showModal({
+            title: 'Account Already Exists',
+            message: 'Looks like that email is already registered. Try signing in instead.',
+            buttons: [
+              {
+                text: 'Go to Sign In',
+                onPress: () => router.replace('/login'),
+                style: 'default',
+              },
+              {
+                text: 'Use a different email',
+                style: 'cancel',
+              },
+            ],
+            allowBackdropDismiss: false,
+          });
+        } else {
+          showModal({
+            title: 'Signup Failed',
+            message: authError.message,
+          });
+        }
+
         setAuthLoading(false);
         return;
       }
@@ -105,10 +168,33 @@ export default function Signup() {
         return;
       }
 
+      const identityCount = Array.isArray(authData.user.identities) ? authData.user.identities.length : 0;
+      if (identityCount === 0) {
+        console.warn('⚠️ Signup attempted for existing account:', email.trim());
+        showModal({
+          title: 'Account Already Exists',
+          message: 'Looks like that email is already registered. Try signing in instead.',
+          buttons: [
+            {
+              text: 'Go to Sign In',
+              onPress: () => router.replace('/login'),
+              style: 'default',
+            },
+            {
+              text: 'Use a different email',
+              style: 'cancel',
+            },
+          ],
+          allowBackdropDismiss: false,
+        });
+        setAuthLoading(false);
+        return;
+      }
+
       console.log('✅ Auth account created, user ID:', authData.user.id);
 
       // Create customer record in database
-      const { data: customerData, error: customerError } = await supabase
+      const insertionResult = await supabase
         .from('customer')
         .insert({
           first_name: firstName.trim(),
@@ -119,7 +205,11 @@ export default function Signup() {
         .select()
         .single();
 
-      if (customerError) {
+      const customerData = insertionResult.data;
+      const customerError = insertionResult.error;
+      const requestStatus = (insertionResult as any)?.status ?? (insertionResult as any)?.statusText ?? null;
+
+      if (customerError && requestStatus !== 409) {
         console.error('❌ Customer record creation error:', customerError);
         showModal({
           title: 'Signup Failed',
@@ -129,10 +219,15 @@ export default function Signup() {
         return;
       }
 
-      console.log('✅ Customer record created successfully, customer ID:', customerData?.customer_id);
+      if (customerError && requestStatus === 409) {
+        console.warn('⚠️ Customer profile already exists, continuing signup flow');
+      } else {
+        console.log('✅ Customer record created successfully, customer ID:', customerData?.customer_id);
+      }
 
       // Show OTP verification modal - Supabase should have sent confirmation email
       setShowOTPVerification(true);
+      hideModal();
       showModal({
         title: 'Account Created!',
         message: 'Check your email for a 6-digit verification code to complete signup!',
@@ -165,19 +260,10 @@ export default function Signup() {
         message: error.message,
       });
     } else {
-      console.log('✅ Email verified successfully');
-      setShowOTPVerification(false);
-      const returnTo = getReturnTo();
-      if (returnTo && returnTo.path && returnTo.data) {
-        // Only redirect to returnTo if we have both a path AND data (indicating we saved form state)
-        console.log('🔄 Redirecting to:', returnTo.path, 'with data:', returnTo.data);
-        router.replace(returnTo.path as any);
-        // Note: Don't clear returnTo here - let the destination screen clear it after reading
-      } else {
-        // No valid returnTo data, clear it and go to landing
-        clearReturnTo();
-        router.replace('/landing');
-      }
+    console.log('✅ Email verified successfully');
+    setShowOTPVerification(false);
+    hideModal();
+    redirectAfterAuth();
     }
 
     setAuthLoading(false);
@@ -356,7 +442,12 @@ export default function Signup() {
 
             <TouchableOpacity
               style={styles.cancelButton}
-              onPress={() => setShowOTPVerification(false)}
+              onPress={() => {
+                hideModal();
+                setShowOTPVerification(false);
+                setOtpCode('');
+                setAuthLoading(false);
+              }}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>

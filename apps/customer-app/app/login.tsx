@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
@@ -44,6 +44,27 @@ export default function Login() {
     console.log('Login screen loaded - dev menu should be hidden via app.json');
   }, []);
 
+  const redirectAfterAuth = useCallback(() => {
+    const returnTo = getReturnTo();
+
+    if (returnTo?.path && returnTo.data) {
+      const data = returnTo.data as { params?: Record<string, string> };
+      const params = data?.params;
+      const hasParams = params && Object.keys(params).length > 0;
+      const normalizedPath = returnTo.path.startsWith('/') ? returnTo.path.slice(1) : returnTo.path;
+
+      if (hasParams) {
+        router.replace({ pathname: normalizedPath as any, params });
+      } else {
+        router.replace(returnTo.path as any);
+      }
+      return;
+    }
+
+    clearReturnTo();
+    router.replace('/landing');
+  }, [clearReturnTo, getReturnTo]);
+
   const signInWithEmail = async () => {
     // Validate inputs
     if (!email.trim()) {
@@ -83,20 +104,12 @@ export default function Login() {
       });
     } else {
       console.log('✅ Password sign in successful, user:', passwordData.user?.email);
-      const returnTo = getReturnTo();
-      if (returnTo && returnTo.path && returnTo.data) {
-        // Only redirect to returnTo if we have both a path AND data (indicating we saved form state)
-        console.log('🔄 Redirecting to:', returnTo.path, 'with data:', returnTo.data);
-        router.replace(returnTo.path as any);
-        // Note: Don't clear returnTo here - let the destination screen clear it after reading
-      } else {
-        // No valid returnTo data, clear it and go to landing
-        clearReturnTo();
-        router.replace('/landing');
-      }
+      redirectAfterAuth();
     }
     setAuthLoading(false);
-  };  const signUpWithEmail = async () => {
+  };
+
+  const signUpWithEmail = async () => {
     // Navigate to dedicated signup page
     router.replace('/signup' as any);
   };
@@ -120,18 +133,7 @@ export default function Login() {
     } else {
       console.log('✅ OTP verification successful');
       setShowOTPVerification(false);
-      // Navigate to landing page after successful verification
-      const returnTo = getReturnTo();
-      if (returnTo && returnTo.path && returnTo.data) {
-        // Only redirect to returnTo if we have both a path AND data (indicating we saved form state)
-        console.log('🔄 Redirecting to:', returnTo.path, 'with data:', returnTo.data);
-        router.replace(returnTo.path as any);
-        // Note: Don't clear returnTo here - let the destination screen clear it after reading
-      } else {
-        // No valid returnTo data, clear it and go to landing
-        clearReturnTo();
-        router.replace('/landing');
-      }
+      redirectAfterAuth();
     }
 
     setAuthLoading(false);

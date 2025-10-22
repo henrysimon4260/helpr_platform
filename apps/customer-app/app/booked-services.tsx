@@ -1,14 +1,14 @@
-import { View, Text, Modal, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator, GestureResponderEvent } from 'react-native';
-import { SvgXml } from 'react-native-svg';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams, router } from 'expo-router';
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { supabase } from '../src/lib/supabase';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../src/lib/selectProModalTracker';
-import { hasViewedCompletedService, clearViewedCompletedServices } from '../src/lib/viewedCompletedServices';
+import { supabase } from '../src/lib/supabase';
+import { clearViewedCompletedServices, hasViewedCompletedService } from '../src/lib/viewedCompletedServices';
 
 type ServiceRow = {
   service_id: string;
@@ -73,7 +73,7 @@ export default function BookedServices() {
   const isFocused = useIsFocused();
 
   // Parse temporary service data
-  const temporaryService = useMemo(() => {
+  const initialTemporaryService = useMemo(() => {
     if (!temporaryServiceParam) {
       return null;
     }
@@ -85,6 +85,16 @@ export default function BookedServices() {
       return null;
     }
   }, [temporaryServiceParam]);
+
+  const [draftService, setDraftService] = useState<ServiceRow | null>(initialTemporaryService);
+  const overlayInitializedRef = useRef(false);
+
+  useEffect(() => {
+    if (initialTemporaryService) {
+      setDraftService(initialTemporaryService);
+      overlayInitializedRef.current = false;
+    }
+  }, [initialTemporaryService]);
 
   // Custom date picker state
   const [isPickerVisible, setPickerVisible] = useState(false);
@@ -102,10 +112,15 @@ export default function BookedServices() {
   const previousServiceStatusesRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    if (showOverlay || temporaryService) {
-      setPickerVisible(true);
+    if (overlayInitializedRef.current) {
+      return;
     }
-  }, [showOverlay, temporaryService]);
+
+    if (showOverlay || draftService) {
+      setPickerVisible(true);
+      overlayInitializedRef.current = true;
+    }
+  }, [showOverlay, draftService]);
 
   useEffect(() => {
     if (showConfirmedModal) {
@@ -565,8 +580,8 @@ export default function BookedServices() {
     }
 
     // If we have a temporary service, select it
-    if (temporaryService) {
-      setSelectedService(temporaryService);
+    if (draftService) {
+      setSelectedService(draftService);
       return;
     }
 
@@ -579,7 +594,7 @@ export default function BookedServices() {
       }
       return confirmedServices[0];
     });
-  }, [confirmedServices, serviceId, temporaryService]);
+  }, [confirmedServices, serviceId, draftService]);
 
   const renderServiceCard = (service: ServiceRow) => {
     const isSelected = selectedService?.service_id === service.service_id;
@@ -864,7 +879,7 @@ export default function BookedServices() {
   };
 
   const handleScheduleAsap = useCallback(async () => {
-    const targetService = selectedService || temporaryService;
+  const targetService = selectedService || draftService;
     
     if (!targetService) {
       showModal({
@@ -874,9 +889,11 @@ export default function BookedServices() {
       return;
     }
 
+    const serviceIdForRouting = targetService.service_id;
+
     // If this is a temporary service, create it in the database first
-    if (temporaryService && targetService.service_id === temporaryService.service_id) {
-      const { error } = await supabase.from('service').insert(temporaryService);
+    if (draftService && targetService.service_id === draftService.service_id) {
+      const { error } = await supabase.from('service').insert(draftService);
       if (error) {
         console.error('Failed to create service:', error);
         showModal({
@@ -894,14 +911,20 @@ export default function BookedServices() {
 
     if (success) {
       await fetchServices();
+      setDraftService(null);
+      overlayInitializedRef.current = true;
       setPickerVisible(false);
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
+      router.replace({
+        pathname: 'booked-services' as any,
+        params: { serviceId: serviceIdForRouting },
+      });
     }
-  }, [fetchServices, selectedService, showModal, temporaryService, updateServiceRow]);
+  }, [draftService, fetchServices, selectedService, showModal, updateServiceRow]);
 
   const handleConfirm = useCallback(async () => {
-    const targetService = selectedService || temporaryService;
+  const targetService = selectedService || draftService;
     
     if (!targetService) {
       showModal({
@@ -910,6 +933,8 @@ export default function BookedServices() {
       });
       return;
     }
+
+    const serviceIdForRouting = targetService.service_id;
 
     const finalDateTime = new Date(selectedDate);
     
@@ -938,8 +963,8 @@ export default function BookedServices() {
     }
 
     // If this is a temporary service, create it in the database first
-    if (temporaryService && targetService.service_id === temporaryService.service_id) {
-      const { error } = await supabase.from('service').insert(temporaryService);
+    if (draftService && targetService.service_id === draftService.service_id) {
+      const { error } = await supabase.from('service').insert(draftService);
       if (error) {
         console.error('Failed to create service:', error);
         showModal({
@@ -957,11 +982,17 @@ export default function BookedServices() {
 
     if (success) {
       await fetchServices();
+      setDraftService(null);
+      overlayInitializedRef.current = true;
       setPickerVisible(false);
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
+      router.replace({
+        pathname: 'booked-services' as any,
+        params: { serviceId: serviceIdForRouting },
+      });
     }
-  }, [fetchServices, selectedDate, selectedTimeSlot, selectedService, showModal, temporaryService, updateServiceRow]);
+  }, [draftService, fetchServices, selectedDate, selectedTimeSlot, selectedService, showModal, updateServiceRow]);
 
   return (
     <View style={styles.container}>

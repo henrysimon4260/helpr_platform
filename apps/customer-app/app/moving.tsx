@@ -85,7 +85,10 @@ type MovingReturnData = {
   formState: MovingFormState;
   action?: 'schedule-moving';
   timestamp?: number;
+  params?: Record<string, string>;
 };
+
+const MOVING_RETURN_PATH = 'moving';
 
 const createUuid = () => {
   try {
@@ -766,12 +769,37 @@ export default function Moving() {
 
   const preserveFormForAuth = useCallback(() => {
     const formState = collectFormState();
-    setReturnTo('/moving', {
+    const sanitizedEntries: Array<[string, string]> = [];
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) {
+          sanitizedEntries.push([key, trimmed]);
+        }
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        const candidate = value.find(item => typeof item === 'string' && item.trim().length > 0);
+        if (typeof candidate === 'string') {
+          sanitizedEntries.push([key, candidate.trim()]);
+        }
+      }
+    });
+
+    const payload: MovingReturnData = {
       formState,
       action: 'schedule-moving',
       timestamp: Date.now(),
-    });
-  }, [collectFormState, setReturnTo]);
+    };
+
+    if (sanitizedEntries.length > 0) {
+      payload.params = Object.fromEntries(sanitizedEntries);
+    }
+
+    setReturnTo(MOVING_RETURN_PATH, payload);
+  }, [collectFormState, params, setReturnTo]);
 
   const mapEdgePadding = useMemo(
     () => ({ top: 60, right: 36, bottom: 220, left: 36 }),
@@ -942,7 +970,7 @@ export default function Moving() {
     }
 
     const returnTo = getReturnTo();
-    if (!returnTo || returnTo.path !== '/moving' || !returnTo.data) {
+    if (!returnTo || returnTo.path !== MOVING_RETURN_PATH || !returnTo.data) {
       return;
     }
 
@@ -960,6 +988,12 @@ export default function Moving() {
       setPendingResumeAction('schedule-moving');
     }
   }, [user, getReturnTo, clearReturnTo, restoreFormState]);
+
+  useEffect(() => {
+    if (user) {
+      setShowSignInModal(false);
+    }
+  }, [user]);
 
 
   const applyLocation = useCallback(
@@ -1677,31 +1711,14 @@ export default function Moving() {
       return;
     }
 
-    if (!user) {
-      preserveFormForAuth();
-      setShowSignInModal(true);
-      return;
-    }
-
     const trimmedDescription = description.trim();
+
     if (trimmedDescription.length === 0) {
       snapshotLocations();
       showModal({
         title: 'Add a description',
         message: 'Please describe what you need help with before scheduling your moving service.',
         onDismiss: restoreLocations,
-      });
-      return;
-    }
-
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
-
-    if (sanitizedPrice === null) {
-      showModal({
-        title: 'Description Missing',
-        message: 'Please enter a description before scheduling your moving service.',
       });
       return;
     }
@@ -1718,6 +1735,18 @@ export default function Moving() {
       showModal({
         title: 'We\'re not in your area yet.',
         message: "Helpr currently operates in NYC's five boroughs, Westchester County, and Hudson & Bergen counties in NJ. Please pick addresses within this area to continue.",
+      });
+      return;
+    }
+
+    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
+    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
+    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
+
+    if (sanitizedPrice === null) {
+      showModal({
+        title: 'Estimate needed',
+        message: 'Request a quick price estimate before scheduling your moving service.',
       });
       return;
     }
@@ -1743,6 +1772,12 @@ export default function Moving() {
         title,
         message,
       });
+      return;
+    }
+
+    if (!user) {
+      preserveFormForAuth();
+      setShowSignInModal(true);
       return;
     }
 
