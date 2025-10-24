@@ -7,10 +7,7 @@ run npx expo run:ios (may need to rerun if there are port conflicts)
 
 # Open Issues
 
-
-- demand login when scheduling if user not logged in 
 - add functionality for all job types after moving is complete
-- ask to reschedule if no helpr found within 3 hrs of job and again when job time hits
 - ratings flow
 - add ratings to request card
 - cancellation flow at all stages including warnings
@@ -18,17 +15,12 @@ run npx expo run:ios (may need to rerun if there are port conflicts)
 - estimated start and finish time flow (add to service details)
 - change default popups to stylized and make new popups where needed (check each step in job flow to see if popup is needed)
 - menuButton redo for serviceprovider-app replace booked services with 'in progress'
+- change border for containers to match dropdown border 
 - are you sure you want to cancel button and are you sure you want to cancel request button
-- add service date and time to service details
 - switch cancel button and select a pro / add cancel to edit request text after job has been confirmed
 - finish past services page
 - filters for landing page in serviceprovider app 
 - delete account functionality for both apps
-- messaging between customer and service provider flow
-- build customer support chatbot with openAI integration
-- payment method / direct deposit flow
-- determine pricing strategy for services vs competitors
-- background check / auth flow for serviceprovider app
 - safe area / tap to close on all keyboard inputs
 - fix glitchy text (try on device first to see if this is a simulator-only issue)
 - change verification to phone instead of email and add autofill
@@ -39,6 +31,11 @@ run npx expo run:ios (may need to rerun if there are port conflicts)
 - banner/home screen/ etc notification flow 
 - make sure supabase can handle requests
 - reviews flow for app store
+- messaging between customer and service provider flow
+- build customer support chatbot with openAI integration
+- payment method / direct deposit flow
+- determine pricing strategy for services vs competitors
+- background check / auth flow for serviceprovider app200 gre
 
 production checklist
 

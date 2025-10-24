@@ -33,6 +33,7 @@ type ProviderRequestDisplay = {
   rating: number | null;
   jobsCompleted: number | null;
   proposedDateTimeLabel: string | null;
+  proposedDateTimeBanner: string | null;
 };
 
 const parseBid = (rawBid: string | null): number => {
@@ -81,6 +82,45 @@ const formatProposedDateTime = (value: string | null): string | null => {
     });
   } catch (error) {
     console.warn('Unable to format proposed date time:', error);
+    return null;
+  }
+};
+
+const formatProposedDateTimeForBanner = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const parsedDate = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+
+    let dateString: string;
+    if (parsedDate.getTime() === today.getTime()) {
+      dateString = 'Today';
+    } else if (parsedDate.getTime() === tomorrow.getTime()) {
+      dateString = 'Tomorrow';
+    } else {
+      dateString = parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    const timeString = parsed.toLocaleTimeString(undefined, { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    });
+
+    return `${dateString} at ${timeString}`;
+  } catch (error) {
+    console.warn('Unable to format proposed date time for banner:', error);
     return null;
   }
 };
@@ -184,6 +224,7 @@ const SelectHelpr = () => {
           const initials = `${firstName.charAt(0) ?? ''}${lastName.charAt(0) ?? ''}`.toUpperCase() || 'H';
           const bid = parseBid(row.bid);
           const proposedDateTimeLabel = formatProposedDateTime(row.proposed_date_time ?? null);
+          const proposedDateTimeBanner = formatProposedDateTimeForBanner(row.proposed_date_time ?? null);
           const profileImageUrl = provider?.profile_picture_url ?? null;
           const rating =
             typeof provider?.rating === 'number' && !Number.isNaN(provider.rating) && provider.rating > 0
@@ -206,6 +247,7 @@ const SelectHelpr = () => {
             rating,
             jobsCompleted,
             proposedDateTimeLabel,
+            proposedDateTimeBanner,
           };
         })
         .sort((a, b) => a.bid - b.bid);
@@ -233,13 +275,38 @@ const SelectHelpr = () => {
       try {
         setSelectingProviderId(request.service_provider_id);
 
+        // Get the proposed_date_time from the service_fill_request
+        const { data: fillRequestData, error: fetchError } = await supabase
+          .from('service_fill_request')
+          .select('proposed_date_time')
+          .eq('service_id', serviceId)
+          .eq('service_provider_id', request.service_provider_id)
+          .single();
+
+        if (fetchError) {
+          console.error('Failed to fetch fill request:', fetchError);
+        }
+
+        // Prepare update object
+        const updateData: {
+          service_provider_id: string;
+          status: string;
+          price: number;
+          scheduled_date_time?: string;
+        } = {
+          service_provider_id: request.service_provider_id,
+          status: 'confirmed',
+          price: request.bid,
+        };
+
+        // If there's a proposed_date_time, update the scheduled_date_time
+        if (fillRequestData?.proposed_date_time) {
+          updateData.scheduled_date_time = fillRequestData.proposed_date_time;
+        }
+
         const { error: updateError } = await supabase
           .from('service')
-          .update({
-            service_provider_id: request.service_provider_id,
-            status: 'confirmed',
-            price: request.bid,
-          })
+          .update(updateData)
           .eq('service_id', serviceId);
 
         if (updateError) {
@@ -324,59 +391,136 @@ const SelectHelpr = () => {
         style={styles.requestList}
         contentContainerStyle={styles.requestListContent}
         showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="never"
       >
-        {requests.map(request => {
-          const isSelecting = selectingProviderId === request.service_provider_id;
+        {(() => {
+          const availableAtRequestedTime = requests.filter(r => !r.proposedDateTimeLabel || isAsapService);
+          const alternativeTimeProviders = requests.filter(r => r.proposedDateTimeLabel && !isAsapService);
+
           return (
-            <View key={request.service_provider_id} style={styles.requestCard}>
-              <View style={styles.requestCardLeft}>
-                <View style={styles.profileCircle}>
-                  {request.profileImageUrl ? (
-                    <Image source={{ uri: request.profileImageUrl }} style={styles.profileImage} />
-                  ) : (
-                    <Text style={styles.profileInitials}>{request.initials}</Text>
-                  )}
+            <>
+              {availableAtRequestedTime.length === 0 && alternativeTimeProviders.length > 0 && (
+                <View style={styles.emptyRequestedTimeSection}>
+                  <Text style={styles.emptyRequestedTimeText}>No Helprs at your requested time yet</Text>
                 </View>
-                <View style={styles.providerDetails}>
-                  <Text style={styles.providerName} numberOfLines={1}>
-                    {request.firstName}
-                  </Text>
-                  <View style={styles.providerMetaRow}>
-                    <View style={request.rating ? styles.ratingPill : styles.newBadge}>
-                      <Text style={request.rating ? styles.ratingPillText : styles.newBadgeText}>
-                        {request.rating ? `⭐️ ${request.rating.toFixed(1)}` : 'New to Helpr'}
-                      </Text>
+              )}
+              
+              {availableAtRequestedTime.map(request => {
+                const isSelecting = selectingProviderId === request.service_provider_id;
+                return (
+                  <View key={request.service_provider_id} style={styles.requestCard}>
+                    <View style={styles.requestCardLeft}>
+                      <View style={styles.profileCircle}>
+                        {request.profileImageUrl ? (
+                          <Image source={{ uri: request.profileImageUrl }} style={styles.profileImage} />
+                        ) : (
+                          <Text style={styles.profileInitials}>{request.initials}</Text>
+                        )}
+                      </View>
+                      <View style={styles.providerDetails}>
+                        <Text style={styles.providerName} numberOfLines={1}>
+                          {request.firstName}
+                        </Text>
+                        <View style={styles.providerMetaRow}>
+                          <View style={request.rating ? styles.ratingPill : styles.newBadge}>
+                            <Text style={request.rating ? styles.ratingPillText : styles.newBadgeText}>
+                              {request.rating ? `⭐️ ${request.rating.toFixed(1)}` : 'New to Helpr'}
+                            </Text>
+                          </View>
+                          {typeof request.jobsCompleted === 'number' && request.jobsCompleted > 0 && (
+                            <Text style={styles.providerSecondary}>
+                              {`${request.jobsCompleted} job${request.jobsCompleted === 1 ? '' : 's'}`}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
                     </View>
-                    {typeof request.jobsCompleted === 'number' && request.jobsCompleted > 0 && (
-                      <Text style={styles.providerSecondary}>
-                        {`${request.jobsCompleted} job${request.jobsCompleted === 1 ? '' : 's'}`}
-                      </Text>
-                    )}
+                    <View style={styles.requestCardRight}>
+                      <Text style={styles.bidValue}>{request.bidLabel}</Text>
+                      {isAsapService && request.proposedDateTimeLabel ? (
+                        <View style={styles.requestedTimeContainer}>
+                          <Text style={styles.requestedTimeLabel}>Requested time</Text>
+                          <Text style={styles.requestedTimeValue}>{request.proposedDateTimeLabel}</Text>
+                        </View>
+                      ) : null}
+                      <Pressable
+                        style={[styles.selectButton, isSelecting ? styles.selectButtonDisabled : null]}
+                        onPress={() => handleSelectProvider(request)}
+                        disabled={isSelecting}
+                        accessibilityRole="button"
+                        accessibilityLabel={isSelecting ? `Selecting ${request.firstName}` : `Select ${request.firstName}`}
+                        accessibilityHint="Confirms this Helpr for your service"
+                      >
+                        <Text style={styles.selectButtonText}>{isSelecting ? 'Selecting…' : 'Select'}</Text>
+                      </Pressable>
+                    </View>
                   </View>
-                </View>
-              </View>
-              <View style={styles.requestCardRight}>
-                <Text style={styles.bidValue}>{request.bidLabel}</Text>
-                {isAsapService && request.proposedDateTimeLabel ? (
-                  <View style={styles.requestedTimeContainer}>
-                    <Text style={styles.requestedTimeLabel}>Requested time</Text>
-                    <Text style={styles.requestedTimeValue}>{request.proposedDateTimeLabel}</Text>
+                );
+              })}
+              
+              {alternativeTimeProviders.length > 0 && (
+                <>
+                  <View style={styles.alternativeTimeDivider}>
+                    <Text style={styles.alternativeTimeDividerText}>Alternative Time(s) Proposed by Helprs</Text>
                   </View>
-                ) : null}
-                <Pressable
-                  style={[styles.selectButton, isSelecting ? styles.selectButtonDisabled : null]}
-                  onPress={() => handleSelectProvider(request)}
-                  disabled={isSelecting}
-                  accessibilityRole="button"
-                  accessibilityLabel={isSelecting ? `Selecting ${request.firstName}` : `Select ${request.firstName}`}
-                  accessibilityHint="Confirms this Helpr for your service"
-                >
-                  <Text style={styles.selectButtonText}>{isSelecting ? 'Selecting…' : 'Select'}</Text>
-                </Pressable>
-              </View>
-            </View>
+                  {alternativeTimeProviders.map(request => {
+                    const isSelecting = selectingProviderId === request.service_provider_id;
+                    return (
+                      <View key={request.service_provider_id} style={styles.requestCardContainer}>
+                        <View style={[styles.requestCard, styles.requestCardWithBanner]}>
+                          <View style={styles.alternativeTimeBanner}>
+                            <Text style={styles.alternativeTimeBannerText}>
+                              Available {request.proposedDateTimeBanner}
+                            </Text>
+                          </View>
+                          <View style={styles.requestCardLeft}>
+                            <View style={styles.profileCircle}>
+                              {request.profileImageUrl ? (
+                                <Image source={{ uri: request.profileImageUrl }} style={styles.profileImage} />
+                              ) : (
+                                <Text style={styles.profileInitials}>{request.initials}</Text>
+                              )}
+                            </View>
+                            <View style={styles.providerDetails}>
+                              <Text style={styles.providerName} numberOfLines={1}>
+                                {request.firstName}
+                              </Text>
+                              <View style={styles.providerMetaRow}>
+                                <View style={request.rating ? styles.ratingPill : styles.newBadge}>
+                                  <Text style={request.rating ? styles.ratingPillText : styles.newBadgeText}>
+                                    {request.rating ? `⭐️ ${request.rating.toFixed(1)}` : 'New to Helpr'}
+                                  </Text>
+                                </View>
+                                {typeof request.jobsCompleted === 'number' && request.jobsCompleted > 0 && (
+                                  <Text style={styles.providerSecondary}>
+                                    {`${request.jobsCompleted} job${request.jobsCompleted === 1 ? '' : 's'}`}
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
+                          </View>
+                          <View style={styles.requestCardRight}>
+                            <Text style={styles.bidValue}>{request.bidLabel}</Text>
+                            <Pressable
+                              style={[styles.selectButton, isSelecting ? styles.selectButtonDisabled : null]}
+                              onPress={() => handleSelectProvider(request)}
+                              disabled={isSelecting}
+                              accessibilityRole="button"
+                              accessibilityLabel={isSelecting ? `Selecting ${request.firstName}` : `Select ${request.firstName}`}
+                              accessibilityHint="Confirms this Helpr for your service"
+                            >
+                              <Text style={styles.selectButtonText}>{isSelecting ? 'Selecting…' : 'Select'}</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
+            </>
           );
-        })}
+        })()}
       </ScrollView>
     );
   };
@@ -436,7 +580,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    padding: 20,
   },
   loadingContainer: {
     flex: 1,
@@ -484,7 +627,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   requestListContent: {
+    paddingTop: 15,
     paddingBottom: 40,
+    paddingHorizontal: 20,
+  },
+  requestCardContainer: {
+    marginBottom: 14,
   },
   requestCard: {
     backgroundColor: '#F5E7D0',
@@ -500,6 +648,58 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 3,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  alternativeTimeBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#0c4309',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    zIndex: 1,
+  },
+  alternativeTimeBannerText: {
+    color: '#FFF8E8',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: 0.5,
+  },
+  requestCardWithBanner: {
+    paddingTop: 36,
+    marginBottom: 0,
+  },
+  emptyRequestedTimeSection: {
+    paddingVertical: 60,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    marginTop: 60,
+    alignItems: 'center',
+  },
+  emptyRequestedTimeText: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  alternativeTimeDivider: {
+    backgroundColor: '#0c4309',
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 6,
+    marginLeft: -20,
+    marginRight: -20,
+  },
+  alternativeTimeDividerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
   requestCardLeft: {
     flexDirection: 'row',

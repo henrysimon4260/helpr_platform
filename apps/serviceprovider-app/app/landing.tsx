@@ -538,7 +538,7 @@ export default function Landing() {
       }
 
       const schedulingTypeNormalized = (service.scheduling_type ?? '').toLowerCase();
-      const shouldProposeDateTime = schedulingTypeNormalized === 'asap';
+      const shouldProposeDateTime = schedulingTypeNormalized === 'asap' || options.proposedDateTime;
       const proposedDateTime = shouldProposeDateTime
         ? options.proposedDateTime?.trim() || null
         : null;
@@ -979,17 +979,29 @@ export default function Landing() {
     const isConfirmed = normalizedStatus === 'confirmed' || normalizedStatus === 'helpr_otw' || normalizedStatus === 'in_progress';
     const statusLabel = normalizedStatus === 'helpr_otw' ? 'On the Way' : normalizedStatus === 'in_progress' ? 'In Progress' : 'Confirmed';
     const isAutoFill = (service.autofill_type ?? '').toString().toLowerCase() === 'autofill';
+    
+    // Check if scheduled job is within 24 hours
+    const isWithin24Hours = schedulingType !== 'asap' && service.scheduled_date_time && !isConfirmed && (() => {
+      try {
+        const scheduledTime = new Date(service.scheduled_date_time);
+        const now = new Date();
+        const hoursDiff = (scheduledTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+        return hoursDiff > 0 && hoursDiff <= 24;
+      } catch {
+        return false;
+      }
+    })();
 
     return (
-      <Pressable
-        key={service.service_id}
-        style={[
-          styles.serviceCard,
-          isSelected ? styles.serviceCardSelected : null,
-        ]}
-        onPress={() => setSelectedService(service)}
-      >
-        <View style={styles.cardContentRow}>
+      <View key={service.service_id} style={styles.serviceCardWrapper}>
+        <Pressable
+          style={[
+            styles.serviceCard,
+            isSelected ? styles.serviceCardSelected : null,
+          ]}
+          onPress={() => setSelectedService(service)}
+        >
+          <View style={styles.cardContentRow}>
           <View style={styles.cardInfoColumn}>
             <View style={styles.pillRow}>
               <View style={styles.serviceTypePill}>
@@ -1077,7 +1089,33 @@ export default function Landing() {
             </View>
           )}
         </View>
-      </Pressable>
+        </Pressable>
+        {isWithin24Hours ? (
+          <Pressable
+            style={styles.suggestTimeBottomBanner}
+            onPress={() => {
+              setSuggestTimeModalService(service);
+              // Set minimum time to 30 minutes after scheduled time
+              if (service.scheduled_date_time) {
+                try {
+                  const scheduledTime = new Date(service.scheduled_date_time);
+                  const minTime = new Date(scheduledTime.getTime() + 30 * 60 * 1000); // Add 30 minutes
+                  setSuggestedTimeDraft(minTime);
+                  setSuggestedTimeSelection(minTime);
+                } catch {
+                  const now = new Date();
+                  setSuggestedTimeDraft(now);
+                  setSuggestedTimeSelection(now);
+                }
+              }
+              setSuggestTimeError(null);
+              setSuggestTimeModalVisible(true);
+            }}
+          >
+            <Text style={styles.suggestTimeBottomBannerText}>Suggest A Different Time</Text>
+          </Pressable>
+        ) : null}
+      </View>
     );
   };
 
@@ -1181,7 +1219,9 @@ export default function Landing() {
           <View style={styles.suggestTimeContent}>
             <Text style={styles.suggestTimeTitle}>Suggest A Time</Text>
             <Text style={styles.suggestTimeSubtitle}>
-              Let the customer know when you can arrive for this ASAP job.
+              {suggestTimeModalService && (suggestTimeModalService.scheduling_type ?? '').toLowerCase() === 'asap' 
+                ? 'Let the customer know when you can arrive for this ASAP job.'
+                : 'Let the customer know an alternative time that works better for you.'}
             </Text>
             <View style={styles.suggestTimeSummaryBox}>
               <Text style={styles.suggestTimeSummaryLabel}>Arrival time</Text>
@@ -1530,17 +1570,21 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     flexGrow: 1,
   },
+  serviceCardWrapper: {
+    marginBottom: 14,
+    position: 'relative',
+  },
   serviceCard: {
     backgroundColor: '#F5E7D0',
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 3,
+    zIndex: 2,
   },
   serviceCardSelected: {
     backgroundColor: '#F5E7D0',
@@ -1742,6 +1786,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#0c4309',
+  },
+  suggestTimeBottomBanner: {
+    backgroundColor: '#0c4309',
+    paddingTop: 25,
+    paddingBottom: 5,
+    paddingHorizontal: 16,
+    marginTop: -20,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+    zIndex: 1,
+  },
+  suggestTimeBottomBannerText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFF8E8',
+    letterSpacing: 0.3,
   },
   suggestTimeOverlay: {
     flex: 1,

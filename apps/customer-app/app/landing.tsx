@@ -487,7 +487,6 @@ export default function Landing() {
     { id: '3', title: 'Wall Mounting', image: require('../assets/images/wall-mounting.png'), route: 'wall-mounting' },
     { id: '4', title: 'Furniture Assembly', image: require('../assets/images/furniture-assembly.png'), route: 'furniture-assembly' },
     { id: '5', title: 'Home Improvement', image: require('../assets/images/home-improvement.png'), route: 'home-improvement' },
-    { id: '6', title: 'Running Errands', image: require('../assets/images/running-errands.png'), route: 'running-errands' },
   ];
 
   const renderService = ({ item }: { item: { id: string; title: string; image: ImageSourcePropType; route: keyof RouteParams } }) => (
@@ -534,7 +533,7 @@ export default function Landing() {
           <View style={styles.jobDescriptionContainer}>
             <TextInput
               style={styles.jobDescriptionText}
-              placeholder="Describe exactly what you need...                   (For Example: I need my dogs picked up from doggy daycare.)"
+              placeholder="Describe exactly what you need...                   (For Example: I need to find someone to sit my pets for a month.)"
               multiline
               numberOfLines={4}
               placeholderTextColor="#666666"
@@ -725,7 +724,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#0c4309',
-    marginBottom: 10,
+    marginBottom: 20,
     marginTop: 10,
     textAlign: 'center',
   },
@@ -745,7 +744,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   row: {
-    justifyContent: 'space-evenly',
+    justifyContent: 'center',
     gap: 10,
   },
   serviceItem: {
@@ -792,6 +791,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingTop: 5,
     paddingBottom: 15,
+    marginTop: 10,
   },
   jobDescriptionContainer: {
     flexDirection: 'column',

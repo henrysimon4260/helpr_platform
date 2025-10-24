@@ -133,6 +133,7 @@ export default function ServiceDetails() {
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingError, setRatingError] = useState<string | null>(null);
   const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSaving, setCommentSaving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -143,6 +144,7 @@ export default function ServiceDetails() {
   const [animationLoaded, setAnimationLoaded] = useState(false);
   const latestRequestRef = useRef(0);
   const pendingAnimationRef = useRef<{ frame: number; status: string } | null>(null);
+  const [hasShowReviewedModal, setHasShowReviewedModal] = useState(false);
 
   const helprDisplayName = useMemo(() => {
     const trimmedFirst = helprFirstName?.trim();
@@ -675,7 +677,7 @@ export default function ServiceDetails() {
     },
     [service?.service_id, service?.customer_id, service?.service_provider_id, submittingRating, rating, ratingRecordId, ratingComment],
   );
-
+  
   const handleOpenCommentModal = () => {
     if (commentSaving) {
       return;
@@ -1102,7 +1104,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#FFF8E8',
-    paddingTop: Platform.OS === 'ios' ? 90 : 40,
+    paddingTop: Platform.OS === 'ios' ? 70 : 40,
     paddingBottom: 15,
     paddingHorizontal: 20,
   },

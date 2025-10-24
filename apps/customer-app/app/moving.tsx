@@ -1316,7 +1316,7 @@ export default function Moving() {
               {
                 role: 'system',
                 content:
-                  'You are a pricing assistant for home services. Respond with a JSON object containing min_price, max_price, and summary fields. Keep prices in USD, realistic, and constrain min_price between 50 and 1500 and max_price between min_price and 1800. ensure that any moving services going from one place to another are at least $200 w/o truck and at least $350 if truck is needed. Start around these two priced for studio/1BR jobs in close proximity to each other and increase this accordingly for larger places. make sure a 2BR for the same job should be significantly more than a 1BR ). Provide optimistic, budget-friendly estimates and, when in doubt, lean toward the lower end of the acceptable price range. Take the distance between start and end locations into account when estimating prices. Make sure that there is a significant difference between jobs requiring a moving truck and those not requiring it. Take the size of the apartment and whether the customer requires help packing into consideration. make extra sure all of these criteria are met.',
+                  'You are a pricing assistant for moving services. Respond with a JSON object containing a price field. Keep prices in USD, realistic, and constrain price between 200 and 1800 for jobs requiring transportation between locations. Ensure that any moving services going from one place to another are at least $200 without truck and at least $350 if truck is needed. Start around these two prices for studio/1BR jobs in close proximity to each other and increase accordingly for larger places. Make sure a 2BR for the same job should be significantly more than a 1BR. Provide optimistic, budget-friendly estimates and, when in doubt, lean toward the lower end of the acceptable price range. Take the distance between start and end locations into account when estimating prices. Make sure that there is a significant difference between jobs requiring a moving truck and those not requiring it. Take the size of the apartment and whether the customer requires help packing into consideration. Make extra sure all of these criteria are met.',
               },
               {
                 role: 'user',
@@ -1349,20 +1349,15 @@ export default function Moving() {
           throw new Error('Unable to parse price estimate');
         }
 
-        const minPrice = Number(parsed.min_price ?? parsed.minPrice);
-        const maxPrice = Number(parsed.max_price ?? parsed.maxPrice);
-        const summary = typeof parsed.summary === 'string' ? parsed.summary : parsed.notes;
+        const price = Number(parsed.price);
 
-        if (!Number.isFinite(minPrice) || !Number.isFinite(maxPrice)) {
-          throw new Error('Invalid price values');
+        if (!Number.isFinite(price)) {
+          throw new Error('Invalid price value');
         }
 
-        const sanitizedMin = Math.max(0, Math.round(minPrice));
-        const sanitizedMax = Math.max(sanitizedMin, Math.round(maxPrice));
-        const averagePrice = Math.round((sanitizedMin + sanitizedMax) / 2);
+        const sanitizedPrice = Math.max(0, Math.round(price));
 
-        setPriceQuote(formatCurrency(averagePrice));
-        setPriceNote(typeof summary === 'string' ? summary : null);
+        setPriceQuote(formatCurrency(sanitizedPrice));
       } catch (error) {
         console.warn('Failed to fetch price estimate', error);
         setPriceError('Unable to estimate price right now.');
@@ -1502,7 +1497,8 @@ export default function Moving() {
       });
     }
     
-    if (!analysis.hasApartmentSize) {
+    // Check both description and state for apartment size
+    if (!analysis.hasApartmentSize && !apartmentSize.trim()) {
       questionsToShow.push({
         id: 'apartmentSize',
         title: 'How big is your apartment?',
@@ -1511,7 +1507,8 @@ export default function Moving() {
       });
     }
     
-    if (!analysis.hasFurnitureScope) {
+    // Check both description and state for furniture scope
+    if (!analysis.hasFurnitureScope && !furnitureScope.trim()) {
       questionsToShow.push({
         id: 'furnitureScope',
         title: 'How much furniture do you need moved?',
@@ -1528,7 +1525,7 @@ export default function Moving() {
       missingInfo,
       questionsToShow,
     };
-  }, [analyzeMovingDescription, description, packingStatus]);
+  }, [analyzeMovingDescription, description, packingStatus, apartmentSize, furnitureScope]);
 
   const handleMovingAnalysisSubmit = useCallback(() => {
     const analysis = analyzeMovingDescription(description);
@@ -1550,8 +1547,8 @@ export default function Moving() {
     
     const needsBoxesQuestion = (analysis.hasPackingStatus && !analysis.isPacked && !analysis.hasBoxInfo) || (!analysis.hasPackingStatus && packingStatus === 'not-packed');
     
-    // Check if we need to show the modal
-  const needsModal = !analysis.hasPackingStatus || !analysis.hasTruckInfo || needsBoxesQuestion || !analysis.hasApartmentSize || !analysis.hasFurnitureScope;
+    // Check if we need to show the modal - also check state variables
+    const needsModal = !analysis.hasPackingStatus || !analysis.hasTruckInfo || needsBoxesQuestion || (!analysis.hasApartmentSize && !apartmentSize.trim()) || (!analysis.hasFurnitureScope && !furnitureScope.trim());
     
     if (needsModal) {
       setCurrentQuestionStep(0); // Start with first question
@@ -1561,7 +1558,7 @@ export default function Moving() {
     
     // If everything is covered, proceed with price estimation
     handleDescriptionSubmit();
-  }, [analyzeMovingDescription, description, handleDescriptionSubmit, packingStatus, showModal]);
+  }, [analyzeMovingDescription, description, handleDescriptionSubmit, packingStatus, showModal, apartmentSize, furnitureScope]);
 
   const handleAnalysisModalSubmit = useCallback(() => {
     const currentQuestion = movingAnalysis.questionsToShow[currentQuestionStep];

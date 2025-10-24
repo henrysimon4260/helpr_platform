@@ -793,11 +793,27 @@ export default function BookedServices() {
     }
 
     try {
+      const serviceType = (service.service_type ?? '').toLowerCase().trim();
+      
+      // Map service type to route path
+      const routeMap: Record<string, string> = {
+        'moving': 'moving',
+        'cleaning': 'cleaning',
+        'furniture assembly': 'furniture-assembly',
+        'home improvement': 'home-improvement',
+        'running errands': 'running-errands',
+        'wall mounting': 'wall-mounting',
+        'custom': 'customService',
+      };
+
+      const routePath = routeMap[serviceType] || 'customService';
+
       const payload = {
         service_id: service.service_id,
         service_type: service.service_type,
         start_location: service.start_location,
         end_location: service.end_location,
+        location: service.location,
         price: service.price,
         payment_method_type: service.payment_method_type,
         autofill_type: service.autofill_type,
@@ -807,7 +823,7 @@ export default function BookedServices() {
       };
 
       router.push({
-        pathname: 'moving' as any,
+        pathname: routePath as any,
         params: {
           editServiceId: service.service_id,
           editService: encodeURIComponent(JSON.stringify(payload)),
