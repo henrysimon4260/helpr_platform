@@ -1371,7 +1371,7 @@ export default function homeImprovement() {
             {
               role: 'system',
               content:
-                'You are a pricing assistant for home improvement services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) type of home improvement work (repair/installation/renovation), 2) specific areas or rooms requiring work, 3) scope and complexity of the project. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (40-500 range). IMPORTANT: Scale prices based on project type and scope - Small repair (patch hole, fix door): $40-80 (repair) / $80-150 (renovation), Medium project (install fixture, paint room): $80-150 (repair) / $150-250 (renovation), Large project (install shelving, multiple repairs): $120-200 (repair) / $200-350 (renovation), Major work (bathroom upgrade, kitchen improvement): $200-300 (repair) / $300-500 (renovation). Always increase price proportionally with project size and complexity. Provide competitive, budget-friendly estimates.',
+                'You are a pricing assistant for home improvement services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) type of home improvement work (repair/installation/renovation), 2) specific areas or rooms requiring work, 3) scope and complexity of the project. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on scope and complexity of the project - Studio: $20-40 (repair) / $40-80 (renovation), 1-bed: $30-50 (repair) / $60-100 (renovation), 2-bed: $45-70 (repair) / $90-130 (renovation), 3-bed: $60-90 (repair) / $120-170 (renovation), 4+ bed or house: $80-130 (repair) / $150-250 (renovation). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.',
             },
             {
               role: 'user',
@@ -2710,7 +2710,7 @@ export default function homeImprovement() {
             <Text style={styles.signInTitle}>Select Project Type</Text>
             <View style={styles.signInDivider} />
             <Text style={styles.signInMessage}>
-              Please select the type of home improvement work you need:
+              Please select the type of cleaning you need:
             </Text>
             <View style={styles.projectTypeOptionsContainer}>
               <Pressable 
@@ -2718,10 +2718,10 @@ export default function homeImprovement() {
                 onPress={() => handleProjectTypeSelect('repair')}
               >
                 <Text style={[styles.projectTypeOptionText, projectType === 'repair' && styles.projectTypeOptionTextSelected]}>
-                  Basic Repair
+                  Basic Cleaning
                 </Text>
                 <Text style={styles.projectTypeOptionDescription}>
-                  Minor fixes like patching holes, fixing doors, installing fixtures, or small repairs
+                  General tidying, dusting, vacuuming, and surface cleaning
                 </Text>
               </Pressable>
               <Pressable 
@@ -2729,10 +2729,10 @@ export default function homeImprovement() {
                 onPress={() => handleProjectTypeSelect('renovation')}
               >
                 <Text style={[styles.projectTypeOptionText, projectType === 'renovation' && styles.projectTypeOptionTextSelected]}>
-                  Major Renovation
+                  Deep Cleaning
                 </Text>
                 <Text style={styles.projectTypeOptionDescription}>
-                  Larger projects like room remodeling, extensive installations, or multi-area improvements
+                  Comprehensive cleaning including baseboards, inside appliances, and hard-to-reach areas
                 </Text>
               </Pressable>
             </View>

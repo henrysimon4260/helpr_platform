@@ -1462,13 +1462,32 @@ export default function cleaning() {
     // Check for room count (bedroom, bathroom, etc.)
     const hasRoomCount = /\b\d+[\s-]*(bedroom|bed|br|bathroom|bath|ba|room)\b/i.test(lowerText);
     
+    // Check for spelled-out bedroom numbers (one bedroom, two bedroom, etc.)
+    const spelledOutBedroomPattern = /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/;
+    const hasSpelledOutRoomCount = spelledOutBedroomPattern.test(lowerText);
+    
     // Check for property descriptors
     const hasPropertyDesc = /\b(studio|apartment|condo|house|office|townhouse|loft)\b/i.test(lowerText);
     
     // Check for size descriptors
     const hasSizeDesc = /\b(small|medium|large|tiny|huge|spacious|compact)\s*(apartment|house|office|space|property|home|room)\b/i.test(lowerText);
     
-    return hasSqFt || hasRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
+    return hasSqFt || hasRoomCount || hasSpelledOutRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
+  }, []);
+
+  const checkForCleaningType = useCallback((text: string) => {
+    const lowerText = text.toLowerCase();
+    
+    // Check for "deep cleaning", "deep clean", "deep cleaned"
+    const hasDeepCleaning = /\b(deep\s*clean(ing|ed)?)\b/i.test(lowerText);
+    
+    // Check for "basic cleaning", "basic clean", "basic cleaned"
+    const hasBasicCleaning = /\b(basic\s*clean(ing|ed)?)\b/i.test(lowerText);
+    
+    // Check for "standard cleaning" (often means basic)
+    const hasStandardCleaning = /\b(standard\s*clean(ing|ed)?)\b/i.test(lowerText);
+    
+    return hasDeepCleaning || hasBasicCleaning || hasStandardCleaning;
   }, []);
 
   const handleDescriptionSubmit = useCallback(() => {
@@ -1495,8 +1514,8 @@ export default function cleaning() {
 
     Keyboard.dismiss();
     
-    // Check if cleaning type is already set
-    if (cleaningType) {
+    // Check if cleaning type is already set (in state or in description)
+    if (cleaningType || checkForCleaningType(description)) {
       // Skip to next step based on what's already filled
       if (checkForPropertySize(description) || apartmentSize) {
         // Property size is set, check supplies
@@ -1543,7 +1562,7 @@ export default function cleaning() {
       // Show cleaning type modal first
       setShowCleaningTypeModal(true);
     }
-  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkForCleaningType, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
 
   const analyzecleaningDescription = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
