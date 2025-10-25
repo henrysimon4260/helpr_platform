@@ -15,8 +15,8 @@ export default function SplashComponent() {
 
     if (loading) return; // Wait for auth check
 
-  const HOLD_DURATION = 800;
-  const DISSOLVE_DURATION = 1400;
+    const HOLD_DURATION = 800;
+    const DISSOLVE_DURATION = 1400;
     const easingCurve = Easing.bezier(0.22, 1, 0.36, 1); // smooth, ease-out style curve
 
     let dissolveAnimation: Animated.CompositeAnimation | null = null;

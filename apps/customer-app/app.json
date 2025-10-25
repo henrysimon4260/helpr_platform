@@ -8,7 +8,6 @@
     "scheme": "customerapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "appDir": "+/",
     "ios": {
       "bundleIdentifier": "com.helpr.customer-app",
       "devMenu": false
