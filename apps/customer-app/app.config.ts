@@ -26,6 +26,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ...config,
     ...baseConfig,
     extra,
+    plugins: [
+      ...(baseConfig.plugins || []),
+      'expo-web-browser',
+    ],
   } as ExpoConfig;
 
   return merged;

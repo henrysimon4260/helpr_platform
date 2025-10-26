@@ -9,12 +9,10 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "com.helpr.customer-app",
-      "devMenu": false
+      "bundleIdentifier": "com.helpr.customer-app"
     },
     "android": {
       "package": "com.helpr.customer_app",
-      "devMenu": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#0C4309"
