@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import StyledModal, { StyledModalButton } from '../components/StyledModal';
+import StyledModal, { StyledModalButton } from '../shared/components/StyledModal';
 
 export type ModalButtonStyle = 'default' | 'cancel' | 'destructive';
 

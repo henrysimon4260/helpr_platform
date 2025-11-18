@@ -3,8 +3,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { supabase } from '../src/lib/supabase';
-import { useAuth } from '../src/contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 
 type ServiceRow = {
   service_id: string;
@@ -127,7 +127,7 @@ export default function PastServices() {
     <View style={styles.container}>
       <StatusBar style="dark" />
       <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
-        <Image source={require('../assets/icons/backButton.png')} style={styles.backButtonIcon} />
+        <Image source={require('../../assets/icons/backButton.png')} style={styles.backButtonIcon} />
       </Pressable>
       <View style={styles.header}>
         <Text style={styles.title}>Past Services</Text>
@@ -163,7 +163,7 @@ export default function PastServices() {
                     <View style={styles.cardActionRow}>
                       <View style={styles.locationGroup}>
                         <Image
-                          source={require('../assets/icons/ConfirmLocationIcon.png')}
+                          source={require('../../assets/icons/ConfirmLocationIcon.png')}
                           style={styles.locationIcon}
                         />
                         <Text style={styles.locationText} numberOfLines={1}>

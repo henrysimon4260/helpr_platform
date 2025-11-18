@@ -4,11 +4,11 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
-import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../src/lib/selectProModalTracker';
-import { supabase } from '../src/lib/supabase';
-import { clearViewedCompletedServices, hasViewedCompletedService } from '../src/lib/viewedCompletedServices';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
+import { supabase } from '../../lib/supabase';
+import { clearViewedCompletedServices, hasViewedCompletedService } from '../../lib/viewedCompletedServices';
 
 type ServiceRow = {
   service_id: string;
@@ -693,7 +693,7 @@ export default function BookedServices() {
               </Pressable>
               <View style={styles.locationGroup}>
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={styles.locationIcon}
                 />
                 <Text style={styles.locationText} numberOfLines={1}>
@@ -1016,7 +1016,7 @@ export default function BookedServices() {
       {/* Back Button */}
       <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
         <Image 
-          source={require('../assets/icons/backButton.png')} 
+          source={require('../../assets/icons/backButton.png')} 
           style={styles.backButtonIcon} 
         />
       </Pressable>

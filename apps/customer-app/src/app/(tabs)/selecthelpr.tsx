@@ -2,8 +2,8 @@ import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { supabase } from '../src/lib/supabase';
-import { useModal } from '../src/contexts/ModalContext';
+import { supabase } from '../../lib/supabase';
+import { useModal } from '../../context/ModalContext';
 
 type ServiceFillRequestRow = {
   service_provider_id: string;
@@ -530,7 +530,7 @@ const SelectHelpr = () => {
       <StatusBar style="dark" backgroundColor="#0c4309" />
       <Pressable style={styles.backButton} onPress={() => router.push('/booked-services')}>
         <Image
-          source={require('../assets/icons/backButton.png')}
+          source={require('../../assets/icons/backButton.png')}
           style={styles.backButtonIcon}
         />
       </Pressable>

@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { supabase } from '../src/lib/supabase';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
+import { useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Easing, Image, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 export default function Login() {
   console.log('Login screen rendered');
@@ -16,6 +17,12 @@ export default function Login() {
   const [showOTPVerification, setShowOTPVerification] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  const searchParams = useLocalSearchParams();
+  const showSplash = searchParams.splash === 'true';
+
+  const splashFadeAnim = useRef(new Animated.Value(1)).current;
+  const splashScaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     // Listen for auth state changes to handle deleted accounts
@@ -43,6 +50,26 @@ export default function Login() {
     // Attempt to minimize dev menu visibility
     console.log('Login screen loaded - dev menu should be hidden via app.json');
   }, []);
+
+  useEffect(() => {
+    if (showSplash) {
+      const dissolveAnimation = Animated.parallel([
+        Animated.timing(splashFadeAnim, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.bezier(0.22, 1, 0.36, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(splashScaleAnim, {
+          toValue: 0.95,
+          duration: 1400,
+          easing: Easing.bezier(0.22, 1, 0.36, 1),
+          useNativeDriver: true,
+        }),
+      ]);
+      dissolveAnimation.start();
+    }
+  }, [splashFadeAnim, splashScaleAnim, showSplash]);
 
   const redirectAfterAuth = useCallback(() => {
     const returnTo = getReturnTo();
@@ -368,6 +395,22 @@ export default function Login() {
           </View>
         </View>
       </Modal>
+      
+      {showSplash && (
+        <Animated.View style={[
+          styles.splashOverlay,
+          { 
+            opacity: splashFadeAnim,
+            transform: [{ scale: splashScaleAnim }]
+          }
+        ]}>
+          <Image 
+            source={require('../../assets/images/splash.png')}
+            style={styles.splashImage}
+            resizeMode="cover"
+          />
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -637,5 +680,18 @@ const styles = StyleSheet.create({
     right: 0,
     height: 50, // Covers the typical dev menu button area
     backgroundColor: 'transparent',
+  },
+  splashOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+  splashImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
 });

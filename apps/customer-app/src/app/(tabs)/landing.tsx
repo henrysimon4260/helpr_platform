@@ -1,18 +1,18 @@
-import { View, Text, TextInput, Pressable, Image, FlatList, StyleSheet, ImageSourcePropType, Platform, InteractionManager, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Animated, Easing, ActivityIndicator } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
-import { SvgXml } from 'react-native-svg';
-import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { useIsFocused } from '@react-navigation/native';
-import Constants from 'expo-constants';
-import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
+import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
-import { RouteParams } from '../constants/routes';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
-import { supabase } from '../src/lib/supabase';
-import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../src/lib/selectProModalTracker';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, FlatList, Image, ImageSourcePropType, InteractionManager, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
+import { SvgXml } from 'react-native-svg';
+import { RouteParams } from '../../constants/routes';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
+import { supabase } from '../../lib/supabase';
 // @ts-ignore - Only for native platforms
 import LottieView from 'lottie-react-native';
 
@@ -39,6 +39,8 @@ const resolveOpenAIApiKey = () => {
 export default function Landing() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const searchParams = useLocalSearchParams();
+  const showSplash = searchParams.splash === 'true';
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -60,6 +62,9 @@ export default function Landing() {
   const statusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previousServiceStatusesRef = useRef<Record<string, string>>({});
 
+  const splashFadeAnim = useRef(new Animated.Value(1)).current;
+  const splashScaleAnim = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
       setCanRenderLottie(false);
@@ -73,31 +78,57 @@ export default function Landing() {
   }, []);
 
   useEffect(() => {
-  fadeAnim.setValue(0);
-  landingScaleAnim.setValue(0.9);
-    const fadeInAnimation = Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1700,
-        delay: 150,
-        easing: Easing.bezier(0.16, 1, 0.3, 1),
-        useNativeDriver: true,
-      }),
-      Animated.timing(landingScaleAnim, {
-        toValue: 1,
-        duration: 1700,
-        delay: 150,
-        easing: Easing.bezier(0.16, 1, 0.3, 1),
-        useNativeDriver: true,
-      }),
-    ]);
-
-    fadeInAnimation.start();
+    if (showSplash) {
+      // Animate splash away
+      const dissolveAnimation = Animated.parallel([
+        Animated.timing(splashFadeAnim, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.bezier(0.22, 1, 0.36, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(splashScaleAnim, {
+          toValue: 0.95,
+          duration: 1400,
+          easing: Easing.bezier(0.22, 1, 0.36, 1),
+          useNativeDriver: true,
+        }),
+      ]);
+      dissolveAnimation.start();
+      // Set landing to visible immediately
+      fadeAnim.setValue(1);
+      landingScaleAnim.setValue(1);
+    } else {
+      // Normal fade in
+      fadeAnim.setValue(0);
+      landingScaleAnim.setValue(0.9);
+      const fadeInAnimation = Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 1700,
+          delay: 150,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(landingScaleAnim, {
+          toValue: 1,
+          duration: 1700,
+          delay: 150,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+          useNativeDriver: true,
+        }),
+      ]);
+      fadeInAnimation.start();
+    }
 
     return () => {
-      fadeInAnimation.stop();
+      if (showSplash) {
+        // Stop splash animation
+      } else {
+        // Stop fade in
+      }
     };
-  }, [fadeAnim, landingScaleAnim]);
+  }, [fadeAnim, landingScaleAnim, splashFadeAnim, splashScaleAnim, showSplash]);
 
   useEffect(() => {
     if (isRecording) {
@@ -482,11 +513,11 @@ export default function Landing() {
   `;
   
   const services: { id: string; title: string; image: ImageSourcePropType; route: keyof RouteParams }[] = [
-    { id: '1', title: 'Moving', image: require('../assets/images/moving.png'), route: 'moving' },
-    { id: '2', title: 'Cleaning', image: require('../assets/images/cleaning.png'), route: 'cleaning' },
-    { id: '3', title: 'Wall Mounting', image: require('../assets/images/wall-mounting.png'), route: 'wall-mounting' },
-    { id: '4', title: 'Furniture Assembly', image: require('../assets/images/furniture-assembly.png'), route: 'furniture-assembly' },
-    { id: '5', title: 'Home Improvement', image: require('../assets/images/home-improvement.png'), route: 'home-improvement' },
+    { id: '1', title: 'Moving', image: require('../../assets/images/moving.png'), route: 'moving' },
+    { id: '2', title: 'Cleaning', image: require('../../assets/images/cleaning.png'), route: 'cleaning' },
+    { id: '3', title: 'Wall Mounting', image: require('../../assets/images/wall-mounting.png'), route: 'wall-mounting' },
+    { id: '4', title: 'Furniture Assembly', image: require('../../assets/images/furniture-assembly.png'), route: 'furniture-assembly' },
+    { id: '5', title: 'Home Improvement', image: require('../../assets/images/home-improvement.png'), route: 'home-improvement' },
   ];
 
   const renderService = ({ item }: { item: { id: string; title: string; image: ImageSourcePropType; route: keyof RouteParams } }) => (
@@ -530,36 +561,6 @@ export default function Landing() {
           </View>
 
           <Text style={styles.makeYourCustomServiceText}>Make A Custom Service</Text>
-          <View style={styles.jobDescriptionContainer}>
-            <TextInput
-              style={styles.jobDescriptionText}
-              placeholder="Describe exactly what you need...                   (For Example: I need to find someone to sit my pets for a month.)"
-              multiline
-              numberOfLines={4}
-              placeholderTextColor="#666666"
-              value={jobDescription}
-              onChangeText={handleDescriptionChange}
-            />
-            <View style={styles.inputButtonsContainer}>
-              <Pressable style={styles.cameraButton} onPress={handleMediaUpload}>
-                <SvgXml xml={cameraIconSvg} width="20" height="20" />
-              </Pressable>
-              {attachments.length > 0 ? (
-                <Text style={styles.attachmentCountText}>
-                  {attachments.length} file{attachments.length > 1 ? 's' : ''}
-                </Text>
-              ) : null}
-              <Pressable
-                style={styles.continueButtonInline}
-                onPress={handleCustomServiceContinue}
-              >
-                <View style={styles.continueButtonContent}>
-                  <Text style={styles.continueButtonLabel}>Go</Text>
-                  <SvgXml xml={arrowRightSvg} width="20" height="20" />
-                </View>
-              </Pressable>
-            </View>
-          </View>
         </View>
       </View>
 
@@ -572,7 +573,7 @@ export default function Landing() {
           ) : (
             <LottieView
               ref={lottieRef}
-              source={require('../assets/animations/menuButtonAnimation.json')}
+              source={require('../../assets/animations/menuButtonAnimation.json')}
               autoPlay={false}
               loop={false}
               style={styles.lottieAnimationLarge}
@@ -592,7 +593,7 @@ export default function Landing() {
           ) : (
             <LottieView
               ref={helpLottieRef}
-              source={require('../assets/animations/helpButtonAnimation.json')}
+              source={require('../../assets/animations/helpButtonAnimation.json')}
               autoPlay={false}
               loop={false}
               style={styles.lottieAnimationLarge}
@@ -691,6 +692,22 @@ export default function Landing() {
         </View>
       </KeyboardAvoidingView>
       </Animated.View>
+
+      {showSplash && (
+        <Animated.View style={[
+          styles.splashOverlay,
+          { 
+            opacity: splashFadeAnim,
+            transform: [{ scale: splashScaleAnim }]
+          }
+        ]}>
+          <Image 
+            source={require('../../assets/images/splash.png')}
+            style={styles.splashImage}
+            resizeMode="cover"
+          />
+        </Animated.View>
+      )}
     </TouchableWithoutFeedback>
   );  
 }
@@ -1005,6 +1022,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     flex: 1,
+  },
+  splashOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+  splashImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
 });
 
