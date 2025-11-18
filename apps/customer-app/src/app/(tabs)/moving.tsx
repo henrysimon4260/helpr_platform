@@ -9,9 +9,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
-import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 type PlaceSuggestion = {
   id: string;
@@ -2399,7 +2399,7 @@ export default function Moving() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={styles.mapMarkerStartIcon}
                 />
               </Marker>
@@ -2414,7 +2414,7 @@ export default function Moving() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/finish-flag.png')}
+                  source={require('../../assets/icons/finish-flag.png')}
                   style={styles.mapMarkerEndIcon}
                 />
               </Marker>
@@ -2431,7 +2431,7 @@ export default function Moving() {
         <View style={styles.contentArea}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
             <Image 
-              source={require('../assets/icons/backButton.png')} 
+              source={require('../../assets/icons/backButton.png')} 
               style={styles.backButtonIcon} 
             />
           </Pressable>
@@ -2443,7 +2443,7 @@ export default function Moving() {
             <View style={[styles.locationSection, styles.locationSectionStart]}>  
               <View style={styles.locationLabelRow}>
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={[styles.confirmLocationIcon, { width: 24, height: 24, resizeMode: 'contain' }]}
                 />
                 <LocationAutocompleteInput
@@ -2470,7 +2470,7 @@ export default function Moving() {
             >
               <View style={styles.locationLabelRow}>
                 <Image
-                  source={require('../assets/icons/finish-flag.png')}
+                  source={require('../../assets/icons/finish-flag.png')}
                   style={[styles.confirmLocationIcon2, { width: 18, height: 18, resizeMode: 'contain' }]}
                 />
                 <LocationAutocompleteInput
@@ -2593,11 +2593,11 @@ export default function Moving() {
               <Animated.View style={styles.binarySlider}>
                 <View style={styles.binarySliderIcons}>
                   <Image 
-                    source={require('../assets/icons/ChooseHelprIcon.png')} 
+                    source={require('../../assets/icons/ChooseHelprIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 0.5 : 1, marginLeft: 7 }]} 
                   />
                   <Image 
-                    source={require('../assets/icons/AutoFillIcon.png')} 
+                    source={require('../../assets/icons/AutoFillIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 12 }]} 
                   />
                 </View>
@@ -2650,11 +2650,11 @@ export default function Moving() {
                 <Animated.View style={styles.binarySlider}>
                   <View style={styles.binarySliderIcons2}>
                     <Image 
-                      source={require('../assets/icons/PersonalPMIcon.png')} 
+                      source={require('../../assets/icons/PersonalPMIcon.png')} 
                       style={styles.binarySliderIcon2} 
                     />
                     <Image 
-                      source={require('../assets/icons/BusinessPMIcon.png')} 
+                      source={require('../../assets/icons/BusinessPMIcon.png')} 
                       style={styles.BusinessPMIcon} 
                     />
                   </View>
@@ -2704,11 +2704,11 @@ export default function Moving() {
               </View>
               <View style={styles.pmIconContainer}>
                 <Image 
-                  source={require('../assets/icons/PMIcon.png')} 
+                  source={require('../../assets/icons/PMIcon.png')} 
                   style={styles.pmIcon} 
                 />
                 <Image 
-                  source={require('../assets/icons/ArrowIcon.png')} 
+                  source={require('../../assets/icons/ArrowIcon.png')} 
                   style={[styles.arrowIcon, { resizeMode: 'contain' }]} 
                 />
               </View>

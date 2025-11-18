@@ -7,11 +7,11 @@ import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
-import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 type PlaceSuggestion = {
   id: string;
@@ -61,7 +61,7 @@ type LocationAutocompleteInputProps = {
 
 type AttachmentAsset = { uri: string; type: 'photo' | 'video'; name: string };
 
-type CleaningFormState = {
+type FurnitureAssemblyFormState = {
   locationQuery: string;
   location: SelectedLocation | null;
   description: string;
@@ -76,20 +76,20 @@ type CleaningFormState = {
   needsTruck: '' | 'yes' | 'no';
   boxesNeeded: '' | 'yes' | 'no';
   furnitureScope: string;
-  cleaningType: '' | 'basic' | 'deep';
+  assemblyComplexity: '' | 'simple' | 'complex';
   specialRequests: string;
   detailsPhotos: AttachmentAsset[];
-  suppliesNeeded: string;
+  toolsNeeded: string;
 };
 
-type CleaningReturnData = {
-  formState: CleaningFormState;
-  action?: 'schedule-cleaning';
+type FurnitureAssemblyReturnData = {
+  formState: FurnitureAssemblyFormState;
+  action?: 'schedule-furniture-assembly';
   timestamp?: number;
   params?: Record<string, string>;
 };
 
-const CLEANING_RETURN_PATH = 'cleaning';
+const FURNITURE_ASSEMBLY_RETURN_PATH = 'furniture-assembly';
 
 const createUuid = () => {
   try {
@@ -577,7 +577,7 @@ const LocationAutocompleteInput = React.memo<LocationAutocompleteInputProps>(
 
 LocationAutocompleteInput.displayName = 'LocationAutocompleteInput';
 
-export default function cleaning() {
+export default function furnitureAssembly() {
   const { user, setReturnTo, getReturnTo, clearReturnTo } = useAuth();
   const { showModal } = useModal();
   const params = useLocalSearchParams<{ editServiceId?: string | string[]; editService?: string | string[] }>();
@@ -679,8 +679,8 @@ export default function cleaning() {
   const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
-  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-cleaning'>(null);
-  const [showcleaningAnalysisModal, setShowcleaningAnalysisModal] = useState(false);
+  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-furniture-assembly'>(null);
+  const [showFurnitureAssemblyAnalysisModal, setShowFurnitureAssemblyAnalysisModal] = useState(false);
   const [apartmentSize, setApartmentSize] = useState('');
   const [packingStatus, setPackingStatus] = useState<'packed' | 'not-packed' | ''>('');
   const [truckNeeded, setTruckNeeded] = useState<'yes' | 'no' | ''>('');
@@ -688,20 +688,20 @@ export default function cleaning() {
   const [currentQuestionStep, setCurrentQuestionStep] = useState(0);
   const [furnitureScope, setFurnitureScope] = useState('');
   const [needsTruck, setNeedsTruck] = useState<'yes' | 'no' | ''>('');
-  const [cleaningType, setCleaningType] = useState<'basic' | 'deep' | ''>('');
+  const [assemblyComplexity, setAssemblyComplexity] = useState<'simple' | 'complex' | ''>('');
   const [specialRequests, setSpecialRequests] = useState('');
   const [detailsPhotos, setDetailsPhotos] = useState<AttachmentAsset[]>([]);
-  const [showCleaningTypeModal, setShowCleaningTypeModal] = useState(false);
+  const [showAssemblyComplexityModal, setShowAssemblyComplexityModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showApartmentSizeModal, setShowApartmentSizeModal] = useState(false);
-  const [showSuppliesModal, setShowSuppliesModal] = useState(false);
-  const [suppliesNeeded, setSuppliesNeeded] = useState('');
+  const [showToolsModal, setShowToolsModal] = useState(false);
+  const [toolsNeeded, setToolsNeeded] = useState('');
   const lastEnhancedDescriptionRef = useRef<string | null>(null);
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
 
-  const collectFormState = useCallback((): CleaningFormState => {
+  const collectFormState = useCallback((): FurnitureAssemblyFormState => {
     return {
       locationQuery,
       location: cloneSelectedLocation(location),
@@ -717,10 +717,10 @@ export default function cleaning() {
       needsTruck,
       boxesNeeded,
       furnitureScope,
-      cleaningType,
+      assemblyComplexity,
       specialRequests,
       detailsPhotos: cloneAttachments(detailsPhotos),
-      suppliesNeeded,
+      toolsNeeded,
     };
   }, [
     apartmentSize,
@@ -737,14 +737,14 @@ export default function cleaning() {
     priceError,
     priceNote,
     priceQuote,
-    cleaningType,
+    assemblyComplexity,
     specialRequests,
     detailsPhotos,
-    suppliesNeeded,
+    toolsNeeded,
   ]);
 
   const restoreFormState = useCallback(
-    (formState: CleaningFormState) => {
+    (formState: FurnitureAssemblyFormState) => {
       setLocationQuery(formState.locationQuery ?? '');
       setLocation(cloneSelectedLocation(formState.location ?? null));
       setDescription(formState.description ?? '');
@@ -765,10 +765,10 @@ export default function cleaning() {
       setNeedsTruck(formState.needsTruck ?? '');
       setBoxesNeeded(formState.boxesNeeded ?? '');
       setFurnitureScope(formState.furnitureScope ?? '');
-      setCleaningType(formState.cleaningType ?? '');
+      setAssemblyComplexity(formState.assemblyComplexity ?? '');
       setSpecialRequests(formState.specialRequests ?? '');
       setDetailsPhotos(cloneAttachments(formState.detailsPhotos ?? []));
-      setSuppliesNeeded(formState.suppliesNeeded ?? '');
+      setToolsNeeded(formState.toolsNeeded ?? '');
     },
     [slideAnimation, slideAnimation2],
   );
@@ -794,9 +794,9 @@ export default function cleaning() {
       }
     });
 
-    const payload: CleaningReturnData = {
+    const payload: FurnitureAssemblyReturnData = {
       formState,
-      action: 'schedule-cleaning',
+      action: 'schedule-furniture-assembly',
       timestamp: Date.now(),
     };
 
@@ -804,7 +804,7 @@ export default function cleaning() {
       payload.params = Object.fromEntries(sanitizedEntries);
     }
 
-    setReturnTo(CLEANING_RETURN_PATH, payload);
+    setReturnTo(FURNITURE_ASSEMBLY_RETURN_PATH, payload);
   }, [collectFormState, params, setReturnTo]);
 
   const mapEdgePadding = useMemo(
@@ -970,11 +970,11 @@ export default function cleaning() {
     }
 
     const returnTo = getReturnTo();
-    if (!returnTo || returnTo.path !== CLEANING_RETURN_PATH || !returnTo.data) {
+    if (!returnTo || returnTo.path !== FURNITURE_ASSEMBLY_RETURN_PATH || !returnTo.data) {
       return;
     }
 
-    const payload = returnTo.data as CleaningReturnData;
+    const payload = returnTo.data as FurnitureAssemblyReturnData;
 
     if (!payload?.formState) {
       clearReturnTo();
@@ -984,8 +984,8 @@ export default function cleaning() {
     restoreFormState(payload.formState);
     clearReturnTo();
 
-    if (payload.action === 'schedule-cleaning') {
-      setPendingResumeAction('schedule-cleaning');
+    if (payload.action === 'schedule-furniture-assembly') {
+      setPendingResumeAction('schedule-furniture-assembly');
     }
   }, [user, getReturnTo, clearReturnTo, restoreFormState]);
 
@@ -1030,8 +1030,8 @@ export default function cleaning() {
     [resetPriceState, showModal],
   );
 
-  const resetCleanignAnalysisFlow = useCallback(() => {
-    setShowcleaningAnalysisModal(false);
+  const resetFurnitureAssemblyAnalysisFlow = useCallback(() => {
+    setShowFurnitureAssemblyAnalysisModal(false);
     setCurrentQuestionStep(0);
     setApartmentSize('');
     setFurnitureScope('');
@@ -1230,11 +1230,11 @@ export default function cleaning() {
     const lowerText = text.toLowerCase();
     
     // Check if description already contains the modal information patterns
-    const hasTypeInfo = /\.\s*type:\s*(basic|deep)\s*cleaning/i.test(lowerText);
-    const hasSizeInfo = /\.\s*property size:/i.test(lowerText);
-    const hasSuppliesInfo = /\.\s*supplies to bring:/i.test(lowerText);
+    const hasTypeInfo = /\.\s*type:\s*(simple|complex)\s*cleaning/i.test(lowerText);
+    const hasSizeInfo = /\.\s*number and size of furniture pieces:/i.test(lowerText);
+    const hasToolsInfo = /\.\s*tools to bring:/i.test(lowerText);
     
-    return hasTypeInfo || hasSizeInfo || hasSuppliesInfo;
+    return hasTypeInfo || hasSizeInfo || hasToolsInfo;
   }, []);
 
   // Sync state variables when description is manually edited
@@ -1244,11 +1244,11 @@ export default function cleaning() {
     
     // If description is empty, only reset if we previously had an enhanced description
     if (!description) {
-      if (lastEnhancedDescriptionRef.current && (cleaningType || apartmentSize || suppliesNeeded || specialRequests)) {
+      if (lastEnhancedDescriptionRef.current && (assemblyComplexity || apartmentSize || toolsNeeded || specialRequests)) {
         console.log('📝 Description cleared after modal completion - resetting modal states');
-        setCleaningType('');
+        setAssemblyComplexity('');
         setApartmentSize('');
-        setSuppliesNeeded('');
+        setToolsNeeded('');
         setSpecialRequests('');
         lastEnhancedDescriptionRef.current = null;
       }
@@ -1264,11 +1264,11 @@ export default function cleaning() {
     // 1. We previously had an enhanced description (modals were completed)
     // 2. Current description doesn't have enhanced format (user removed it)
     // 3. We have modal states that need clearing
-    if (!hasEnhancedFormat && lastEnhancedDescriptionRef.current && (cleaningType || apartmentSize || suppliesNeeded || specialRequests)) {
+    if (!hasEnhancedFormat && lastEnhancedDescriptionRef.current && (assemblyComplexity || apartmentSize || toolsNeeded || specialRequests)) {
       console.log('📝 Enhanced format removed after modal completion - resetting modal states');
-      setCleaningType('');
+      setAssemblyComplexity('');
       setApartmentSize('');
-      setSuppliesNeeded('');
+      setToolsNeeded('');
       setSpecialRequests('');
       lastEnhancedDescriptionRef.current = null;
       return;
@@ -1280,25 +1280,25 @@ export default function cleaning() {
       return;
     }
 
-    // Extract cleaning type
+    // Extract assembly complexity
     const typeMatch = description.match(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/i);
     if (typeMatch) {
-      const type = typeMatch[1].toLowerCase() as 'basic' | 'deep';
-      if (cleaningType !== type) {
-        console.log('📝 Extracted cleaning type:', type);
-        setCleaningType(type);
+      const type = typeMatch[1].toLowerCase() as 'simple' | 'complex';
+      if (assemblyComplexity !== type) {
+        console.log('📝 Extracted assembly complexity:', type);
+        setAssemblyComplexity(type);
       }
-    } else if (cleaningType) {
+    } else if (assemblyComplexity) {
       // Type info was removed from description
-      setCleaningType('');
+      setAssemblyComplexity('');
     }
 
-    // Extract property size
+    // Extract number and size of furniture pieces
     const sizeMatch = description.match(/\.\s*Property size:\s*([^.]+)/i);
     if (sizeMatch) {
       const size = sizeMatch[1].trim();
       if (apartmentSize !== size) {
-        console.log('📝 Extracted property size:', size);
+        console.log('📝 Extracted number and size of furniture pieces:', size);
         setApartmentSize(size);
       }
     } else if (apartmentSize) {
@@ -1306,17 +1306,17 @@ export default function cleaning() {
       setApartmentSize('');
     }
 
-    // Extract supplies
-    const suppliesMatch = description.match(/\.\s*Supplies to bring:\s*([^.]+)/i);
-    if (suppliesMatch) {
-      const supplies = suppliesMatch[1].trim();
-      if (suppliesNeeded !== supplies) {
-        console.log('📝 Extracted supplies:', supplies);
-        setSuppliesNeeded(supplies);
+    // Extract tools
+    const toolsMatch = description.match(/\.\s*Tools to bring:\s*([^.]+)/i);
+    if (toolsMatch) {
+      const tools = toolsMatch[1].trim();
+      if (toolsNeeded !== tools) {
+        console.log('📝 Extracted tools:', tools);
+        setToolsNeeded(tools);
       }
-    } else if (suppliesNeeded) {
-      // Supplies info was removed from description
-      setSuppliesNeeded('');
+    } else if (toolsNeeded) {
+      // Tools info was removed from description
+      setToolsNeeded('');
     }
 
     // Extract special requests
@@ -1331,7 +1331,7 @@ export default function cleaning() {
       // Requests info was removed from description
       setSpecialRequests('');
     }
-  }, [description, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced]);
+  }, [description, assemblyComplexity, apartmentSize, toolsNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced]);
 
   const handleDescriptionChange = useCallback((text: string) => {
     setDescription(text);
@@ -1371,7 +1371,7 @@ export default function cleaning() {
             {
               role: 'system',
               content:
-                'You are a pricing assistant for cleaning services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) degree of cleaning needed (light/medium/deep), 2) which rooms or entire home, 3) property size. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on property size - Studio: $20-40 (basic) / $40-80 (deep), 1-bed: $30-50 (basic) / $60-100 (deep), 2-bed: $45-70 (basic) / $90-130 (deep), 3-bed: $60-90 (basic) / $120-170 (deep), 4+ bed or house: $80-130 (basic) / $150-250 (deep). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.',
+                'You are a pricing assistant for furniture assembly services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) complexity of assembly (simple/moderate/complex), number of furniture pieces, 2) types of furniture items to assemble, 3) number and size of furniture pieces. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (30-300 range). IMPORTANT: Scale prices based on item complexity and quantity - Small item (chair, small table): $30-60 (simple) / $60-100 (complex), Medium item (desk, bookshelf): $50-90 (simple) / $90-150 (complex), Large item (bed frame, wardrobe): $80-130 (simple) / $130-200 (complex), Multiple items or very large (entertainment center, sectional): $120-180 (simple) / $180-300 (complex). Always increase price proportionally with more items and complexity. Provide competitive, budget-friendly estimates.',
             },
             {
               role: 'user',
@@ -1427,8 +1427,8 @@ export default function cleaning() {
 
         // Check if clarification is needed
         if (parsed.needs_clarification === true && parsed.clarification_prompt) {
-          setShowCleaningTypeModal(true);
-          setPriceError('Please select a cleaning type.');
+          setShowAssemblyComplexityModal(true);
+          setPriceError('Please select a assembly complexity.');
           return;
         }
 
@@ -1462,32 +1462,13 @@ export default function cleaning() {
     // Check for room count (bedroom, bathroom, etc.)
     const hasRoomCount = /\b\d+[\s-]*(bedroom|bed|br|bathroom|bath|ba|room)\b/i.test(lowerText);
     
-    // Check for spelled-out bedroom numbers (one bedroom, two bedroom, etc.)
-    const spelledOutBedroomPattern = /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/;
-    const hasSpelledOutRoomCount = spelledOutBedroomPattern.test(lowerText);
-    
     // Check for property descriptors
     const hasPropertyDesc = /\b(studio|apartment|condo|house|office|townhouse|loft)\b/i.test(lowerText);
     
     // Check for size descriptors
     const hasSizeDesc = /\b(small|medium|large|tiny|huge|spacious|compact)\s*(apartment|house|office|space|property|home|room)\b/i.test(lowerText);
     
-    return hasSqFt || hasRoomCount || hasSpelledOutRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
-  }, []);
-
-  const checkForCleaningType = useCallback((text: string) => {
-    const lowerText = text.toLowerCase();
-    
-    // Check for "deep cleaning", "deep clean", "deep cleaned"
-    const hasDeepCleaning = /\b(deep\s*clean(ing|ed)?)\b/i.test(lowerText);
-    
-    // Check for "basic cleaning", "basic clean", "basic cleaned"
-    const hasBasicCleaning = /\b(basic\s*clean(ing|ed)?)\b/i.test(lowerText);
-    
-    // Check for "standard cleaning" (often means basic)
-    const hasStandardCleaning = /\b(standard\s*clean(ing|ed)?)\b/i.test(lowerText);
-    
-    return hasDeepCleaning || hasBasicCleaning || hasStandardCleaning;
+    return hasSqFt || hasRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
   }, []);
 
   const handleDescriptionSubmit = useCallback(() => {
@@ -1514,33 +1495,33 @@ export default function cleaning() {
 
     Keyboard.dismiss();
     
-    // Check if cleaning type is already set (in state or in description)
-    if (cleaningType || checkForCleaningType(description)) {
+    // Check if assembly complexity is already set
+    if (assemblyComplexity) {
       // Skip to next step based on what's already filled
       if (checkForPropertySize(description) || apartmentSize) {
-        // Property size is set, check supplies
-        if (suppliesNeeded) {
+        // Property size is set, check tools
+        if (toolsNeeded) {
           // All main fields set - rebuild description from state to ensure consistency
           const baseDesc = description
             .replace(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/gi, '')
             .replace(/\.\s*Property size:\s*[^.]+/gi, '')
-            .replace(/\.\s*Supplies to bring:\s*[^.]+/gi, '')
+            .replace(/\.\s*Tools to bring:\s*[^.]+/gi, '')
             .replace(/\.\s*Special requests:\s*[^.]+/gi, '')
             .trim();
           
-          const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
+          const assemblyComplexityText = assemblyComplexity === 'simple' ? 'Simple assembly' : assemblyComplexity === 'complex' ? 'Complex assembly' : '';
           const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-          const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
+          const toolsInfo = toolsNeeded ? `. Tools to bring: ${toolsNeeded}` : '';
           const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
           
-          const rebuiltDescription = `${baseDesc}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+          const rebuiltDescription = `${baseDesc}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
           
           console.log('🔄 Rebuilding description:');
           console.log('  Original:', description);
           console.log('  Base:', baseDesc);
-          console.log('  cleaningType:', cleaningType);
+          console.log('  assemblyComplexity:', assemblyComplexity);
           console.log('  apartmentSize:', apartmentSize);
-          console.log('  suppliesNeeded:', suppliesNeeded);
+          console.log('  toolsNeeded:', toolsNeeded);
           console.log('  specialRequests:', specialRequests);
           console.log('  Rebuilt:', rebuiltDescription);
           
@@ -1551,20 +1532,20 @@ export default function cleaning() {
           
           fetchPriceEstimate(rebuiltDescription, { start: location, end: location });
         } else {
-          // Show supplies modal
-          setShowSuppliesModal(true);
+          // Show tools modal
+          setShowToolsModal(true);
         }
       } else {
         // Show apartment size modal
         setShowApartmentSizeModal(true);
       }
     } else {
-      // Show cleaning type modal first
-      setShowCleaningTypeModal(true);
+      // Show assembly complexity modal first
+      setShowAssemblyComplexityModal(true);
     }
-  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkForCleaningType, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+  }, [description, location, isPriceLoading, isTranscribing, showModal, assemblyComplexity, apartmentSize, toolsNeeded, specialRequests, checkForPropertySize, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
 
-  const analyzecleaningDescription = useCallback((text: string) => {
+  const analyzeFurnitureAssemblyDescription = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
 
     const spelledOutBedroomPattern = /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/;
@@ -1577,7 +1558,7 @@ export default function cleaning() {
 
     const hasTruckInfo = /\b(truck|cleaning truck|rental truck|vehicle|car|van)\b/i.test(lowerText);
 
-    const hasBoxInfo = /\b(box|boxes|packing supplies|supplies)\b/i.test(lowerText);
+    const hasBoxInfo = /\b(box|boxes|packing tools|tools)\b/i.test(lowerText);
 
     const hasFurnitureScope = /\b(everything|entire|whole|all|complete)\b/i.test(lowerText) ||
       /\b(furniture|bedroom|living room|kitchen|dining room|office)\b/i.test(lowerText) ||
@@ -1606,14 +1587,14 @@ export default function cleaning() {
     };
   }, [location?.description, locationQuery]);
 
-  const cleaningAnalysis = useMemo(() => {
-    const analysis = analyzecleaningDescription(description);
+  const furnitureAssemblyAnalysis = useMemo(() => {
+    const analysis = analyzeFurnitureAssemblyDescription(description);
 
     const missingInfo: string[] = [];
 
     if (analysis.missingStreetNumber) missingInfo.push('street number');
 
-    // Determine which questions to show - no moving-related questions for cleaning service
+    // Determine which questions to show - no moving-related questions for furniture assembly service
     const questionsToShow: Array<{ id: string; title: string; message: string; placeholder: string; multiline?: boolean; options?: string[] }> = [];
     
     return {
@@ -1621,10 +1602,10 @@ export default function cleaning() {
       missingInfo,
       questionsToShow,
     };
-  }, [analyzecleaningDescription, description]);
+  }, [analyzeFurnitureAssemblyDescription, description]);
 
-  const handlecleaningAnalysisSubmit = useCallback(() => {
-    const analysis = analyzecleaningDescription(description);
+  const handleFurnitureAssemblyAnalysisSubmit = useCallback(() => {
+    const analysis = analyzeFurnitureAssemblyDescription(description);
 
     if (!analysis.hasStreetNumber) {
       showModal({
@@ -1634,24 +1615,24 @@ export default function cleaning() {
       return;
     }
     
-    // For cleaning service, no additional questions needed - proceed directly
+    // For furniture assembly service, no additional questions needed - proceed directly
     handleDescriptionSubmit();
-  }, [analyzecleaningDescription, description, handleDescriptionSubmit, showModal]);
+  }, [analyzeFurnitureAssemblyDescription, description, handleDescriptionSubmit, showModal]);
 
   const handleAnalysisModalSubmit = useCallback(() => {
-    // For cleaning service, no modal questions - this should not be called
-    resetCleanignAnalysisFlow();
+    // For furniture assembly service, no modal questions - this should not be called
+    resetFurnitureAssemblyAnalysisFlow();
     handleDescriptionSubmit();
-  }, [handleDescriptionSubmit, resetCleanignAnalysisFlow]);
+  }, [handleDescriptionSubmit, resetFurnitureAssemblyAnalysisFlow]);
 
   const handleAnalysisModalBack = useCallback(() => {
     if (currentQuestionStep === 0) {
-      resetCleanignAnalysisFlow();
+      resetFurnitureAssemblyAnalysisFlow();
       return;
     }
 
     setCurrentQuestionStep(prev => Math.max(0, prev - 1));
-  }, [currentQuestionStep, resetCleanignAnalysisFlow]);
+  }, [currentQuestionStep, resetFurnitureAssemblyAnalysisFlow]);
 
   const resolveCustomerId = useCallback(async () => {
     if (customerId) {
@@ -1758,24 +1739,24 @@ export default function cleaning() {
     }
   }, [showModal]);
 
-  const handleCleaningTypeSelect = useCallback((type: 'basic' | 'deep') => {
-    setCleaningType(type);
-    setShowCleaningTypeModal(false);
+  const handleAssemblyComplexitySelect = useCallback((type: 'simple' | 'complex') => {
+    setAssemblyComplexity(type);
+    setShowAssemblyComplexityModal(false);
     
-    // Check if property size is already in description
+    // Check if number and size of furniture pieces is already in description
     if (checkForPropertySize(description)) {
-      // Skip apartment size modal, go directly to supplies
-      setShowSuppliesModal(true);
+      // Skip apartment size modal, go directly to tools
+      setShowToolsModal(true);
     } else {
-      // Show apartment size modal after selecting cleaning type
+      // Show apartment size modal after selecting assembly complexity
       setShowApartmentSizeModal(true);
     }
   }, [description, checkForPropertySize]);
 
   const handleApartmentSizeBack = useCallback(() => {
     setShowApartmentSizeModal(false);
-    // Go back to cleaning type modal
-    setShowCleaningTypeModal(true);
+    // Go back to assembly complexity modal
+    setShowAssemblyComplexityModal(true);
   }, []);
 
   const handleApartmentSizeSubmit = useCallback(() => {
@@ -1783,32 +1764,32 @@ export default function cleaning() {
       return;
     }
     setShowApartmentSizeModal(false);
-    // Show supplies modal after apartment size
-    setShowSuppliesModal(true);
+    // Show tools modal after apartment size
+    setShowToolsModal(true);
   }, [apartmentSize]);
 
-  const handleSuppliesBack = useCallback(() => {
-    setShowSuppliesModal(false);
-    // Check if we came from apartment size modal or directly from cleaning type
+  const handleToolsBack = useCallback(() => {
+    setShowToolsModal(false);
+    // Check if we came from apartment size modal or directly from assembly complexity
     if (checkForPropertySize(description)) {
-      // If property size was already in description, go back to cleaning type
-      setShowCleaningTypeModal(true);
+      // If number and size of furniture pieces was already in description, go back to assembly complexity
+      setShowAssemblyComplexityModal(true);
     } else {
       // Otherwise go back to apartment size modal
       setShowApartmentSizeModal(true);
     }
   }, [description, checkForPropertySize]);
 
-  const handleSuppliesSubmit = useCallback(() => {
-    setShowSuppliesModal(false);
-    // Show details modal after supplies
+  const handleToolsSubmit = useCallback(() => {
+    setShowToolsModal(false);
+    // Show details modal after tools
     setShowDetailsModal(true);
   }, []);
 
   const handleDetailsBack = useCallback(() => {
     setShowDetailsModal(false);
-    // Go back to supplies modal
-    setShowSuppliesModal(true);
+    // Go back to tools modal
+    setShowToolsModal(true);
   }, []);
 
   const handleDetailsSubmit = useCallback(() => {
@@ -1821,12 +1802,12 @@ export default function cleaning() {
         fetchPriceEstimate(description, { start: location, end: location });
       } else {
         // Build enhanced description for the first time
-        const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
+        const assemblyComplexityText = assemblyComplexity === 'simple' ? 'Simple assembly' : assemblyComplexity === 'complex' ? 'Complex assembly' : '';
         const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-        const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
+        const toolsInfo = toolsNeeded ? `. Tools to bring: ${toolsNeeded}` : '';
         const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
         
-        const enhancedDescription = `${description}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+        const enhancedDescription = `${description}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
         
         // Update the description state with the enhanced description
         setDescription(enhancedDescription);
@@ -1834,7 +1815,7 @@ export default function cleaning() {
         fetchPriceEstimate(enhancedDescription, { start: location, end: location });
       }
     }
-  }, [description, location, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+  }, [description, location, assemblyComplexity, apartmentSize, toolsNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
 
   const snapshotLocations = useCallback(() => {
     locationSnapshotRef.current = {
@@ -1864,7 +1845,7 @@ export default function cleaning() {
       snapshotLocations();
       showModal({
         title: 'Add a description',
-        message: 'Please describe what you need help with before scheduling your cleaning service.',
+        message: 'Please describe what you need help with before scheduling your furniture assembly service.',
         onDismiss: restoreLocations,
       });
       return;
@@ -1893,7 +1874,7 @@ export default function cleaning() {
     if (sanitizedPrice === null) {
       showModal({
         title: 'Estimate needed',
-        message: 'Request a quick price estimate before scheduling your cleaning service.',
+        message: 'Request a quick price estimate before scheduling your furniture assembly service.',
       });
       return;
     }
@@ -1941,12 +1922,12 @@ export default function cleaning() {
     }
 
     // Build enhanced description with all collected information
-    const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
+    const assemblyComplexityText = assemblyComplexity === 'simple' ? 'Simple assembly' : assemblyComplexity === 'complex' ? 'Complex assembly' : '';
     const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-    const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
+    const toolsInfo = toolsNeeded ? `. Tools to bring: ${toolsNeeded}` : '';
     const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
     
-    const normalizedDescription = `${trimmedDescription}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+    const normalizedDescription = `${trimmedDescription}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
@@ -1969,10 +1950,10 @@ export default function cleaning() {
           .eq('service_id', editServiceId);
 
         if (error) {
-          console.error('Failed to update cleaning service:', error);
+          console.error('Failed to update furniture assembly service:', error);
           showModal({
             title: 'Update failed',
-            message: 'Unable to save changes to your cleaning request. Please try again.',
+            message: 'Unable to save changes to your furniture assembly request. Please try again.',
           });
           return;
         }
@@ -1996,7 +1977,7 @@ export default function cleaning() {
         service_id: targetServiceId,
         customer_id: resolvedCustomerIdValue,
         date_of_creation: new Date().toISOString(),
-        service_type: 'cleaning',
+        service_type: 'furniture-assembly',
         status: 'finding_pros',
         scheduling_type: null,
         location: location.description,
@@ -2046,14 +2027,14 @@ export default function cleaning() {
     snapshotLocations,
     restoreLocations,
     user,
-    cleaningType,
+    assemblyComplexity,
     apartmentSize,
-    suppliesNeeded,
+    toolsNeeded,
     specialRequests,
   ]);
 
   useEffect(() => {
-    if (!user || pendingResumeAction !== 'schedule-cleaning' || isSubmitting) {
+    if (!user || pendingResumeAction !== 'schedule-furniture-assembly' || isSubmitting) {
       return;
     }
 
@@ -2394,7 +2375,7 @@ export default function cleaning() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={styles.LocationIcon}
                 />
               </Marker>
@@ -2404,12 +2385,12 @@ export default function cleaning() {
         <View style={styles.contentArea}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
             <Image 
-              source={require('../assets/icons/backButton.png')} 
+              source={require('../../assets/icons/backButton.png')} 
               style={styles.backButtonIcon} 
             />
           </Pressable>
           <View style={styles.panel}>
-            <Text style={styles.title}>Cleaning Details</Text>
+            <Text style={styles.title}>Furniture Assembly Details</Text>
             <View style={styles.DividerContainer1}>
                 <View style={styles.DividerLine1} />
             </View>
@@ -2420,7 +2401,7 @@ export default function cleaning() {
             ]}>  
               <View style={styles.locationLabelRow}>
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={[styles.confirmLocationIcon, { width: 24, height: 24, resizeMode: 'contain' }]}
                 />
                 <LocationAutocompleteInput
@@ -2485,13 +2466,13 @@ export default function cleaning() {
             <View style={styles.jobDescriptionContainer}>
               <TextInput
                 style={styles.jobDescriptionText}
-                placeholder="Describe your task...                                         (e.g.  'I need my one bedroom apartment deep cleaned.')"
+                placeholder="Describe your task...                                         (e.g.  'I need my one bedroom apartment complex cleaned.')"
                 multiline
                 numberOfLines={4}
                 placeholderTextColor="#333333ab"
                 value={description}
                 onChangeText={handleDescriptionChange}
-                onSubmitEditing={handlecleaningAnalysisSubmit}
+                onSubmitEditing={handleFurnitureAssemblyAnalysisSubmit}
                 blurOnSubmit
                 returnKeyType="done"
                 editable={!isTranscribing}
@@ -2539,11 +2520,11 @@ export default function cleaning() {
               <Animated.View style={styles.binarySlider}>
                 <View style={styles.binarySliderIcons}>
                   <Image 
-                    source={require('../assets/icons/ChooseHelprIcon.png')} 
+                    source={require('../../assets/icons/ChooseHelprIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 0.5 : 1, marginLeft: 7 }]} 
                   />
                   <Image 
-                    source={require('../assets/icons/AutoFillIcon.png')} 
+                    source={require('../../assets/icons/AutoFillIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 12 }]} 
                   />
                 </View>
@@ -2596,11 +2577,11 @@ export default function cleaning() {
                 <Animated.View style={styles.binarySlider}>
                   <View style={styles.binarySliderIcons2}>
                     <Image 
-                      source={require('../assets/icons/PersonalPMIcon.png')} 
+                      source={require('../../assets/icons/PersonalPMIcon.png')} 
                       style={styles.binarySliderIcon2} 
                     />
                     <Image 
-                      source={require('../assets/icons/BusinessPMIcon.png')} 
+                      source={require('../../assets/icons/BusinessPMIcon.png')} 
                       style={styles.BusinessPMIcon} 
                     />
                   </View>
@@ -2650,11 +2631,11 @@ export default function cleaning() {
               </View>
               <View style={styles.pmIconContainer}>
                 <Image 
-                  source={require('../assets/icons/PMIcon.png')} 
+                  source={require('../../assets/icons/PMIcon.png')} 
                   style={styles.pmIcon} 
                 />
                 <Image 
-                  source={require('../assets/icons/ArrowIcon.png')} 
+                  source={require('../../assets/icons/ArrowIcon.png')} 
                   style={[styles.arrowIcon, { resizeMode: 'contain' }]} 
                 />
               </View>
@@ -2683,7 +2664,7 @@ export default function cleaning() {
             <Text style={styles.signInTitle}>Sign In Required</Text>
             <View style={styles.signInDivider} />
             <Text style={styles.signInMessage}>
-              Please sign in or sign up to schedule a cleaning service.
+              Please sign in or sign up to schedule a furniture assembly service.
             </Text>
             <View style={styles.signInButtonsRow}>
               <Pressable 
@@ -2717,49 +2698,49 @@ export default function cleaning() {
         </View>
       </Modal>
 
-      {/* Cleaning Type Selection Modal */}
+      {/* Assembly Complexity Selection Modal */}
       <Modal
-        visible={showCleaningTypeModal}
+        visible={showAssemblyComplexityModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowCleaningTypeModal(false)}
+        onRequestClose={() => setShowAssemblyComplexityModal(false)}
       >
         <View style={styles.signInOverlayBackground}>
           <View style={styles.signInModal}>
-            <Text style={styles.signInTitle}>Select Cleaning Type</Text>
+            <Text style={styles.signInTitle}>Select Assembly Complexity</Text>
             <View style={styles.signInDivider} />
             <Text style={styles.signInMessage}>
-              Please select the type of cleaning you need:
+              Please select the complexity of your furniture assembly:
             </Text>
-            <View style={styles.cleaningTypeOptionsContainer}>
+            <View style={styles.assemblyComplexityOptionsContainer}>
               <Pressable 
-                style={[styles.cleaningTypeOption, cleaningType === 'basic' && styles.cleaningTypeOptionSelected]}
-                onPress={() => handleCleaningTypeSelect('basic')}
+                style={[styles.assemblyComplexityOption, assemblyComplexity === 'simple' && styles.assemblyComplexityOptionSelected]}
+                onPress={() => handleAssemblyComplexitySelect('simple')}
               >
-                <Text style={[styles.cleaningTypeOptionText, cleaningType === 'basic' && styles.cleaningTypeOptionTextSelected]}>
-                  Basic Cleaning
+                <Text style={[styles.assemblyComplexityOptionText, assemblyComplexity === 'simple' && styles.assemblyComplexityOptionTextSelected]}>
+                  Simple Assembly
                 </Text>
-                <Text style={styles.cleaningTypeOptionDescription}>
-                  General tidying, dusting, vacuuming, and surface cleaning
+                <Text style={styles.assemblyComplexityOptionDescription}>
+                  Basic furniture items like chairs, small tables, or simple shelves
                 </Text>
               </Pressable>
               <Pressable 
-                style={[styles.cleaningTypeOption, cleaningType === 'deep' && styles.cleaningTypeOptionSelected]}
-                onPress={() => handleCleaningTypeSelect('deep')}
+                style={[styles.assemblyComplexityOption, assemblyComplexity === 'complex' && styles.assemblyComplexityOptionSelected]}
+                onPress={() => handleAssemblyComplexitySelect('complex')}
               >
-                <Text style={[styles.cleaningTypeOptionText, cleaningType === 'deep' && styles.cleaningTypeOptionTextSelected]}>
-                  Deep Cleaning
+                <Text style={[styles.assemblyComplexityOptionText, assemblyComplexity === 'complex' && styles.assemblyComplexityOptionTextSelected]}>
+                  Complex Assembly
                 </Text>
-                <Text style={styles.cleaningTypeOptionDescription}>
-                  Comprehensive cleaning including baseboards, inside appliances, and hard-to-reach areas
+                <Text style={styles.assemblyComplexityOptionDescription}>
+                  Large or intricate items like bed frames, wardrobes, entertainment centers, or multiple pieces
                 </Text>
               </Pressable>
             </View>
             <Pressable
-              style={styles.cleaningTypeModalCancelButton}
-              onPress={() => setShowCleaningTypeModal(false)}
+              style={styles.assemblyComplexityModalCancelButton}
+              onPress={() => setShowAssemblyComplexityModal(false)}
             >
-              <Text style={styles.cleaningTypeModalCancelButtonText}>Cancel</Text>
+              <Text style={styles.assemblyComplexityModalCancelButtonText}>Cancel</Text>
             </Pressable>
           </View>
         </View>
@@ -2781,7 +2762,7 @@ export default function cleaning() {
             </Text>
             
             <TextInput
-              style={styles.cleaningAnalysisInput}
+              style={styles.furnitureAssemblyAnalysisInput}
               placeholder="e.g., 2-bedroom apartment, 1500 sq ft house, 3-room office..."
               placeholderTextColor="#7C7160"
               value={apartmentSize}
@@ -2808,45 +2789,45 @@ export default function cleaning() {
         </View>
       </Modal>
 
-      {/* Supplies Needed Modal */}
+      {/* Tools Needed Modal */}
       <Modal
-        visible={showSuppliesModal}
+        visible={showToolsModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowSuppliesModal(false)}
+        onRequestClose={() => setShowToolsModal(false)}
       >
         <View style={styles.signInOverlayBackground}>
-          <View style={styles.suppliesModal}>
-            <Text style={styles.suppliesModalTitle}>Cleaning Supplies</Text>
-            <View style={styles.suppliesModalDivider} />
-            <Text style={styles.suppliesModalMessage}>
-              What cleaning supplies or equipment should your Helpr bring?
+          <View style={styles.toolsModal}>
+            <Text style={styles.toolsModalTitle}>Cleaning Tools</Text>
+            <View style={styles.toolsModalDivider} />
+            <Text style={styles.toolsModalMessage}>
+              What cleaning tools or equipment should your Helpr bring?
             </Text>
             
             <TextInput
-              style={styles.cleaningAnalysisInput}
-              placeholder="e.g., All cleaning supplies, vacuum, mop, eco-friendly products..."
+              style={styles.furnitureAssemblyAnalysisInput}
+              placeholder="e.g., All cleaning tools, vacuum, mop, eco-friendly products..."
               placeholderTextColor="#7C7160"
-              value={suppliesNeeded}
-              onChangeText={setSuppliesNeeded}
+              value={toolsNeeded}
+              onChangeText={setToolsNeeded}
               multiline
               numberOfLines={3}
               autoFocus
             />
 
-            <View style={styles.suppliesModalButtonsRow}>
+            <View style={styles.toolsModalButtonsRow}>
               <Pressable
-                style={styles.suppliesModalBackButton}
-                onPress={handleSuppliesBack}
+                style={styles.toolsModalBackButton}
+                onPress={handleToolsBack}
               >
-                <Text style={styles.suppliesModalBackButtonText}>Back</Text>
+                <Text style={styles.toolsModalBackButtonText}>Back</Text>
               </Pressable>
               <Pressable 
-                style={[styles.suppliesModalContinueButton, !suppliesNeeded.trim() && { opacity: 0.5 }]}
-                onPress={handleSuppliesSubmit}
-                disabled={!suppliesNeeded.trim()}
+                style={[styles.toolsModalContinueButton, !toolsNeeded.trim() && { opacity: 0.5 }]}
+                onPress={handleToolsSubmit}
+                disabled={!toolsNeeded.trim()}
               >
-                <Text style={styles.suppliesModalContinueButtonText}>Continue</Text>
+                <Text style={styles.toolsModalContinueButtonText}>Continue</Text>
               </Pressable>
             </View>
           </View>
@@ -2914,99 +2895,99 @@ export default function cleaning() {
 
       {/* cleaning Analysis Modal */}
       <Modal
-        visible={showcleaningAnalysisModal}
+        visible={showFurnitureAssemblyAnalysisModal}
         transparent={true}
         animationType="fade"
-        onRequestClose={resetCleanignAnalysisFlow}
+        onRequestClose={resetFurnitureAssemblyAnalysisFlow}
       >
-        <View style={styles.cleaningAnalysisOverlayBackground}>
-          <View style={styles.cleaningAnalysisModal}>
-            {cleaningAnalysis.questionsToShow.length > 0 && (
+        <View style={styles.furnitureAssemblyAnalysisOverlayBackground}>
+          <View style={styles.furnitureAssemblyAnalysisModal}>
+            {furnitureAssemblyAnalysis.questionsToShow.length > 0 && (
               <>
-                <Text style={styles.cleaningAnalysisTitle}>
-                  {cleaningAnalysis.questionsToShow[currentQuestionStep]?.title}
+                <Text style={styles.furnitureAssemblyAnalysisTitle}>
+                  {furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.title}
                 </Text>
-                <Text style={styles.cleaningAnalysisMessage}>
-                  {cleaningAnalysis.questionsToShow[currentQuestionStep]?.message}
+                <Text style={styles.furnitureAssemblyAnalysisMessage}>
+                  {furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.message}
                 </Text>
 
-                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && (
-                  <View style={styles.cleaningAnalysisOptionsContainer}>
+                {furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && (
+                  <View style={styles.furnitureAssemblyAnalysisOptionsContainer}>
                     <Pressable
-                      style={[styles.cleaningAnalysisOption, needsTruck === 'yes' && styles.cleaningAnalysisOptionSelected]}
+                      style={[styles.furnitureAssemblyAnalysisOption, needsTruck === 'yes' && styles.furnitureAssemblyAnalysisOptionSelected]}
                       onPress={() => setNeedsTruck('yes')}
                     >
-                      <Text style={[styles.cleaningAnalysisOptionText, needsTruck === 'yes' && styles.cleaningAnalysisOptionTextSelected]}>
+                      <Text style={[styles.furnitureAssemblyAnalysisOptionText, needsTruck === 'yes' && styles.furnitureAssemblyAnalysisOptionTextSelected]}>
                         Yes, I need a truck
                       </Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.cleaningAnalysisOption, needsTruck === 'no' && styles.cleaningAnalysisOptionSelected]}
+                      style={[styles.furnitureAssemblyAnalysisOption, needsTruck === 'no' && styles.furnitureAssemblyAnalysisOptionSelected]}
                       onPress={() => setNeedsTruck('no')}
                     >
-                      <Text style={[styles.cleaningAnalysisOptionText, needsTruck === 'no' && styles.cleaningAnalysisOptionTextSelected]}>
+                      <Text style={[styles.furnitureAssemblyAnalysisOptionText, needsTruck === 'no' && styles.furnitureAssemblyAnalysisOptionTextSelected]}>
                         No, I don't need a truck
                       </Text>
                     </Pressable>
                   </View>
                 )}
 
-                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && (
-                  <View style={styles.cleaningAnalysisOptionsContainer}>
+                {furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && (
+                  <View style={styles.furnitureAssemblyAnalysisOptionsContainer}>
                     <Pressable
-                      style={[styles.cleaningAnalysisOption, packingStatus === 'not-packed' && styles.cleaningAnalysisOptionSelected]}
+                      style={[styles.furnitureAssemblyAnalysisOption, packingStatus === 'not-packed' && styles.furnitureAssemblyAnalysisOptionSelected]}
                       onPress={() => setPackingStatus('not-packed')}
                     >
-                      <Text style={[styles.cleaningAnalysisOptionText, packingStatus === 'not-packed' && styles.cleaningAnalysisOptionTextSelected]}>
+                      <Text style={[styles.furnitureAssemblyAnalysisOptionText, packingStatus === 'not-packed' && styles.furnitureAssemblyAnalysisOptionTextSelected]}>
                         Yes, I need help packing
                       </Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.cleaningAnalysisOption, packingStatus === 'packed' && styles.cleaningAnalysisOptionSelected]}
+                      style={[styles.furnitureAssemblyAnalysisOption, packingStatus === 'packed' && styles.furnitureAssemblyAnalysisOptionSelected]}
                       onPress={() => setPackingStatus('packed')}
                     >
-                      <Text style={[styles.cleaningAnalysisOptionText, packingStatus === 'packed' && styles.cleaningAnalysisOptionTextSelected]}>
+                      <Text style={[styles.furnitureAssemblyAnalysisOptionText, packingStatus === 'packed' && styles.furnitureAssemblyAnalysisOptionTextSelected]}>
                         No, everything is already packed
                       </Text>
                     </Pressable>
                   </View>
                 )}
 
-                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && (
-                  <View style={styles.cleaningAnalysisOptionsContainer}>
+                {furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && (
+                  <View style={styles.furnitureAssemblyAnalysisOptionsContainer}>
                     <Pressable
-                      style={[styles.cleaningAnalysisOption, boxesNeeded === 'yes' && styles.cleaningAnalysisOptionSelected]}
+                      style={[styles.furnitureAssemblyAnalysisOption, boxesNeeded === 'yes' && styles.furnitureAssemblyAnalysisOptionSelected]}
                       onPress={() => setBoxesNeeded('yes')}
                     >
-                      <Text style={[styles.cleaningAnalysisOptionText, boxesNeeded === 'yes' && styles.cleaningAnalysisOptionTextSelected]}>
+                      <Text style={[styles.furnitureAssemblyAnalysisOptionText, boxesNeeded === 'yes' && styles.furnitureAssemblyAnalysisOptionTextSelected]}>
                         Yes, please bring boxes
                       </Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.cleaningAnalysisOption, boxesNeeded === 'no' && styles.cleaningAnalysisOptionSelected]}
+                      style={[styles.furnitureAssemblyAnalysisOption, boxesNeeded === 'no' && styles.furnitureAssemblyAnalysisOptionSelected]}
                       onPress={() => setBoxesNeeded('no')}
                     >
-                      <Text style={[styles.cleaningAnalysisOptionText, boxesNeeded === 'no' && styles.cleaningAnalysisOptionTextSelected]}>
+                      <Text style={[styles.furnitureAssemblyAnalysisOptionText, boxesNeeded === 'no' && styles.furnitureAssemblyAnalysisOptionTextSelected]}>
                         No, I have boxes
                       </Text>
                     </Pressable>
                   </View>
                 )}
 
-                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && (
+                {furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && (
                   <TextInput
-                    style={styles.cleaningAnalysisInput}
-                    placeholder={cleaningAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
+                    style={styles.furnitureAssemblyAnalysisInput}
+                    placeholder={furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
                     value={apartmentSize}
                     onChangeText={setApartmentSize}
                     autoFocus
                   />
                 )}
 
-                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && (
+                {furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && (
                   <TextInput
-                    style={styles.cleaningAnalysisInput}
-                    placeholder={cleaningAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
+                    style={styles.furnitureAssemblyAnalysisInput}
+                    placeholder={furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
                     value={furnitureScope}
                     onChangeText={setFurnitureScope}
                     autoFocus
@@ -3015,26 +2996,26 @@ export default function cleaning() {
                   />
                 )}
 
-                <View style={styles.cleaningAnalysisButtonsRow}>
+                <View style={styles.furnitureAssemblyAnalysisButtonsRow}>
                   <Pressable 
-                    style={styles.cleaningAnalysisCancelButton}
+                    style={styles.furnitureAssemblyAnalysisCancelButton}
                     onPress={handleAnalysisModalBack}
                   >
-                    <Text style={styles.cleaningAnalysisCancelButtonText}>Back</Text>
+                    <Text style={styles.furnitureAssemblyAnalysisCancelButtonText}>Back</Text>
                   </Pressable>
                   <Pressable 
-                    style={styles.cleaningAnalysisButton}
+                    style={styles.furnitureAssemblyAnalysisButton}
                     onPress={handleAnalysisModalSubmit}
                     disabled={
-                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && !packingStatus) ||
-                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && !needsTruck) ||
-                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && !boxesNeeded) ||
-                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && !apartmentSize.trim()) ||
-                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && !furnitureScope.trim())
+                      (furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && !packingStatus) ||
+                      (furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && !needsTruck) ||
+                      (furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && !boxesNeeded) ||
+                      (furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && !apartmentSize.trim()) ||
+                      (furnitureAssemblyAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && !furnitureScope.trim())
                     }
                   >
-                    <Text style={styles.cleaningAnalysisButtonText}>
-                      {currentQuestionStep < cleaningAnalysis.questionsToShow.length - 1 ? 'Next' : 'Continue'}
+                    <Text style={styles.furnitureAssemblyAnalysisButtonText}>
+                      {currentQuestionStep < furnitureAssemblyAnalysis.questionsToShow.length - 1 ? 'Next' : 'Continue'}
                     </Text>
                   </Pressable>
                 </View>
@@ -3801,13 +3782,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   // cleaning Analysis Modal Styles
-  cleaningAnalysisOverlayBackground: {
+  furnitureAssemblyAnalysisOverlayBackground: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cleaningAnalysisModal: {
+  furnitureAssemblyAnalysisModal: {
     width: '85%',
     backgroundColor: '#FFF8E8',
     borderRadius: 30,
@@ -3822,14 +3803,14 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 10,
   },
-  cleaningAnalysisTitle: {
+  furnitureAssemblyAnalysisTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#0c4309',
     textAlign: 'center',
     marginBottom: 15,
   },
-  cleaningAnalysisMessage: {
+  furnitureAssemblyAnalysisMessage: {
     fontSize: 14,
     fontWeight: '500',
     color: '#0c4309',
@@ -3837,7 +3818,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 20,
   },
-  cleaningAnalysisInput: {
+  furnitureAssemblyAnalysisInput: {
     width: '100%',
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
@@ -3850,16 +3831,16 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     textAlignVertical: 'top',
   },
-  cleaningAnalysisRadioGroup: {
+  furnitureAssemblyAnalysisRadioGroup: {
     width: '100%',
     marginBottom: 20,
   },
-  cleaningAnalysisRadioOption: {
+  furnitureAssemblyAnalysisRadioOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
   },
-  cleaningAnalysisRadioButton: {
+  furnitureAssemblyAnalysisRadioButton: {
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -3869,21 +3850,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cleaningAnalysisRadioSelected: {
+  furnitureAssemblyAnalysisRadioSelected: {
     backgroundColor: '#0c4309',
   },
-  cleaningAnalysisRadioText: {
+  furnitureAssemblyAnalysisRadioText: {
     fontSize: 16,
     color: '#0c4309',
     fontWeight: '500',
   },
-  cleaningAnalysisButtonsRow: {
+  furnitureAssemblyAnalysisButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
     gap: 12,
   },
-  cleaningAnalysisButton: {
+  furnitureAssemblyAnalysisButton: {
     flex: 1,
     backgroundColor: '#0c4309',
     borderRadius: 25,
@@ -3897,13 +3878,13 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  cleaningAnalysisButtonText: {
+  furnitureAssemblyAnalysisButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
-  cleaningAnalysisCancelButton: {
+  furnitureAssemblyAnalysisCancelButton: {
     flex: 1,
     backgroundColor: '#E5DCC9',
     borderRadius: 25,
@@ -3919,17 +3900,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  cleaningAnalysisCancelButtonText: {
+  furnitureAssemblyAnalysisCancelButtonText: {
     color: '#0c4309',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
-  cleaningAnalysisOptionsContainer: {
+  furnitureAssemblyAnalysisOptionsContainer: {
     width: '100%',
     marginBottom: 20,
   },
-  cleaningAnalysisOption: {
+  furnitureAssemblyAnalysisOption: {
     backgroundColor: '#E5DCC9',
     borderRadius: 10,
     paddingVertical: 15,
@@ -3938,24 +3919,24 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#E5DCC9',
   },
-  cleaningAnalysisOptionSelected: {
+  furnitureAssemblyAnalysisOptionSelected: {
     backgroundColor: '#0c4309',
     borderColor: '#0c4309',
   },
-  cleaningAnalysisOptionText: {
+  furnitureAssemblyAnalysisOptionText: {
     fontSize: 16,
     color: '#0c4309',
     fontWeight: '500',
     textAlign: 'center',
   },
-  cleaningAnalysisOptionTextSelected: {
+  furnitureAssemblyAnalysisOptionTextSelected: {
     color: '#FFFFFF',
   },
-  cleaningTypeOptionsContainer: {
+  assemblyComplexityOptionsContainer: {
     width: '100%',
     marginVertical: 15,
   },
-  cleaningTypeOption: {
+  assemblyComplexityOption: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     paddingVertical: 15,
@@ -3964,20 +3945,20 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#E5DCC9',
   },
-  cleaningTypeOptionSelected: {
+  assemblyComplexityOptionSelected: {
     backgroundColor: '#0c4309',
     borderColor: '#0c4309',
   },
-  cleaningTypeOptionText: {
+  assemblyComplexityOptionText: {
     fontSize: 18,
     color: '#0c4309',
     fontWeight: '600',
     marginBottom: 5,
   },
-  cleaningTypeOptionTextSelected: {
+  assemblyComplexityOptionTextSelected: {
     color: '#FFFFFF',
   },
-  cleaningTypeOptionDescription: {
+  assemblyComplexityOptionDescription: {
     fontSize: 13,
     color: '#666666',
     lineHeight: 19,
@@ -4187,7 +4168,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  suppliesModal: {
+  toolsModal: {
     backgroundColor: '#FFF8E8',
     borderRadius: 20,
     padding: 25,
@@ -4199,32 +4180,32 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  suppliesModalTitle: {
+  toolsModalTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#0c4309',
     marginBottom: 12,
     textAlign: 'center',
   },
-  suppliesModalDivider: {
+  toolsModalDivider: {
     height: 1,
     backgroundColor: '#CAC4D0',
     marginBottom: 15,
   },
-  suppliesModalMessage: {
+  toolsModalMessage: {
     fontSize: 12,
     color: '#49454F',
     marginBottom: 20,
     lineHeight: 20,
     textAlign: 'center',
   },
-  suppliesModalButtonsRow: {
+  toolsModalButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
     gap: 10,
   },
-  suppliesModalBackButton: {
+  toolsModalBackButton: {
     backgroundColor: '#E5DCC9',
     borderRadius: 25,
     paddingVertical: 12,
@@ -4241,13 +4222,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  suppliesModalBackButtonText: {
+  toolsModalBackButtonText: {
     color: '#0c4309',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
-  suppliesModalContinueButton: {
+  toolsModalContinueButton: {
     backgroundColor: '#0c4309',
     borderRadius: 25,
     paddingVertical: 12,
@@ -4262,13 +4243,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  suppliesModalContinueButtonText: {
+  toolsModalContinueButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
-  cleaningTypeModalCancelButton: {
+  assemblyComplexityModalCancelButton: {
     backgroundColor: '#E5DCC9',
     borderRadius: 25,
     paddingVertical: 12,
@@ -4283,7 +4264,7 @@ const styles = StyleSheet.create({
     elevation: 3,
     width: '100%',
   },
-  cleaningTypeModalCancelButtonText: {
+  assemblyComplexityModalCancelButtonText: {
     color: '#0c4309',
     fontSize: 16,
     fontWeight: '600',

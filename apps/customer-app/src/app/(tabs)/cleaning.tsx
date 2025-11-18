@@ -7,11 +7,11 @@ import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
-import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 type PlaceSuggestion = {
   id: string;
@@ -1462,13 +1462,32 @@ export default function cleaning() {
     // Check for room count (bedroom, bathroom, etc.)
     const hasRoomCount = /\b\d+[\s-]*(bedroom|bed|br|bathroom|bath|ba|room)\b/i.test(lowerText);
     
+    // Check for spelled-out bedroom numbers (one bedroom, two bedroom, etc.)
+    const spelledOutBedroomPattern = /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/;
+    const hasSpelledOutRoomCount = spelledOutBedroomPattern.test(lowerText);
+    
     // Check for property descriptors
     const hasPropertyDesc = /\b(studio|apartment|condo|house|office|townhouse|loft)\b/i.test(lowerText);
     
     // Check for size descriptors
     const hasSizeDesc = /\b(small|medium|large|tiny|huge|spacious|compact)\s*(apartment|house|office|space|property|home|room)\b/i.test(lowerText);
     
-    return hasSqFt || hasRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
+    return hasSqFt || hasRoomCount || hasSpelledOutRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
+  }, []);
+
+  const checkForCleaningType = useCallback((text: string) => {
+    const lowerText = text.toLowerCase();
+    
+    // Check for "deep cleaning", "deep clean", "deep cleaned"
+    const hasDeepCleaning = /\b(deep\s*clean(ing|ed)?)\b/i.test(lowerText);
+    
+    // Check for "basic cleaning", "basic clean", "basic cleaned"
+    const hasBasicCleaning = /\b(basic\s*clean(ing|ed)?)\b/i.test(lowerText);
+    
+    // Check for "standard cleaning" (often means basic)
+    const hasStandardCleaning = /\b(standard\s*clean(ing|ed)?)\b/i.test(lowerText);
+    
+    return hasDeepCleaning || hasBasicCleaning || hasStandardCleaning;
   }, []);
 
   const handleDescriptionSubmit = useCallback(() => {
@@ -1495,8 +1514,8 @@ export default function cleaning() {
 
     Keyboard.dismiss();
     
-    // Check if cleaning type is already set
-    if (cleaningType) {
+    // Check if cleaning type is already set (in state or in description)
+    if (cleaningType || checkForCleaningType(description)) {
       // Skip to next step based on what's already filled
       if (checkForPropertySize(description) || apartmentSize) {
         // Property size is set, check supplies
@@ -1543,7 +1562,7 @@ export default function cleaning() {
       // Show cleaning type modal first
       setShowCleaningTypeModal(true);
     }
-  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkForCleaningType, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
 
   const analyzecleaningDescription = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
@@ -2375,7 +2394,7 @@ export default function cleaning() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={styles.LocationIcon}
                 />
               </Marker>
@@ -2385,12 +2404,12 @@ export default function cleaning() {
         <View style={styles.contentArea}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
             <Image 
-              source={require('../assets/icons/backButton.png')} 
+              source={require('../../assets/icons/backButton.png')} 
               style={styles.backButtonIcon} 
             />
           </Pressable>
           <View style={styles.panel}>
-            <Text style={styles.title}>Wall Mounting Details</Text>
+            <Text style={styles.title}>Cleaning Details</Text>
             <View style={styles.DividerContainer1}>
                 <View style={styles.DividerLine1} />
             </View>
@@ -2401,12 +2420,12 @@ export default function cleaning() {
             ]}>  
               <View style={styles.locationLabelRow}>
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={[styles.confirmLocationIcon, { width: 24, height: 24, resizeMode: 'contain' }]}
                 />
                 <LocationAutocompleteInput
                 value={locationQuery}
-                placeholder="Service Location"
+                placeholder="Cleaning Location"
                 onChangeText={handleLocationChange}
                 onSelectSuggestion={handleLocationSelect}
                 onClear={handleLocationClear}
@@ -2520,11 +2539,11 @@ export default function cleaning() {
               <Animated.View style={styles.binarySlider}>
                 <View style={styles.binarySliderIcons}>
                   <Image 
-                    source={require('../assets/icons/ChooseHelprIcon.png')} 
+                    source={require('../../assets/icons/ChooseHelprIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 0.5 : 1, marginLeft: 7 }]} 
                   />
                   <Image 
-                    source={require('../assets/icons/AutoFillIcon.png')} 
+                    source={require('../../assets/icons/AutoFillIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 12 }]} 
                   />
                 </View>
@@ -2577,11 +2596,11 @@ export default function cleaning() {
                 <Animated.View style={styles.binarySlider}>
                   <View style={styles.binarySliderIcons2}>
                     <Image 
-                      source={require('../assets/icons/PersonalPMIcon.png')} 
+                      source={require('../../assets/icons/PersonalPMIcon.png')} 
                       style={styles.binarySliderIcon2} 
                     />
                     <Image 
-                      source={require('../assets/icons/BusinessPMIcon.png')} 
+                      source={require('../../assets/icons/BusinessPMIcon.png')} 
                       style={styles.BusinessPMIcon} 
                     />
                   </View>
@@ -2631,11 +2650,11 @@ export default function cleaning() {
               </View>
               <View style={styles.pmIconContainer}>
                 <Image 
-                  source={require('../assets/icons/PMIcon.png')} 
+                  source={require('../../assets/icons/PMIcon.png')} 
                   style={styles.pmIcon} 
                 />
                 <Image 
-                  source={require('../assets/icons/ArrowIcon.png')} 
+                  source={require('../../assets/icons/ArrowIcon.png')} 
                   style={[styles.arrowIcon, { resizeMode: 'contain' }]} 
                 />
               </View>

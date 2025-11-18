@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
-import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 export default function Signup() {
   console.log('Signup screen rendered');

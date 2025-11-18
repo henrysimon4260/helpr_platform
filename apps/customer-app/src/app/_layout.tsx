@@ -1,9 +1,9 @@
 import * as Linking from 'expo-linking';
 import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
 import { useEffect } from 'react';
-import { AuthProvider } from '../src/contexts/AuthContext';
-import { ModalProvider } from '../src/contexts/ModalContext';
-import { supabase } from '../src/lib/supabase';
+import { AuthProvider } from '../context/AuthContext';
+import { ModalProvider } from '../context/ModalContext';
+import { supabase } from '../lib/supabase';
 
 export default function Layout() {
   const segments = useSegments();

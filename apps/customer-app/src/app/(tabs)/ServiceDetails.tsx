@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import Constants from 'expo-constants';
-import { View, Text, StyleSheet, ScrollView, Platform, ActivityIndicator, Image, Pressable, Modal, TextInput } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT, LatLng } from 'react-native-maps';
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import LottieView from 'lottie-react-native';
-import { supabase } from '../src/lib/supabase';
-import { markCompletedServiceAsViewed } from '../src/lib/viewedCompletedServices';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { supabase } from '../../lib/supabase';
+import { markCompletedServiceAsViewed } from '../../lib/viewedCompletedServices';
 
 const resolveGooglePlacesKey = () => {
   const extras = (Constants?.expoConfig?.extra ?? {}) as Record<string, unknown>;
@@ -781,7 +781,7 @@ export default function ServiceDetails() {
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Image 
-            source={require('../assets/icons/backButton.png')} 
+            source={require('../../assets/icons/backButton.png')} 
             style={styles.backButtonIcon} 
           />
         </Pressable>
@@ -810,7 +810,7 @@ export default function ServiceDetails() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={styles.mapMarkerStartIcon}
                 />
               </Marker>
@@ -825,7 +825,7 @@ export default function ServiceDetails() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/finish-flag.png')}
+                  source={require('../../assets/icons/finish-flag.png')}
                   style={styles.mapMarkerEndIcon}
                 />
               </Marker>
@@ -847,7 +847,7 @@ export default function ServiceDetails() {
               <LottieView
                 key={service?.service_id ?? 'service-animation'}
                 ref={animationRef}
-                source={require('../assets/animations/ServiceProgressionAnimation.json')}
+                source={require('../../assets/animations/ServiceProgressionAnimation.json')}
                 autoPlay={false}
                 loop={false}
                 speed={1}

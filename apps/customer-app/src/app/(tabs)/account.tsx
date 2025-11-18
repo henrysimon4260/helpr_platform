@@ -2,8 +2,8 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { supabase } from '../src/lib/supabase';
-import { useModal, ModalButtonConfig } from '../src/contexts/ModalContext';
+import { ModalButtonConfig, useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 interface CustomerData {
   customer_id: string;
@@ -502,7 +502,7 @@ export default function Account() {
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
           <Image
-            source={require('../assets/icons/backButton.png')}
+            source={require('../../assets/icons/backButton.png')}
             style={styles.backButtonIcon}
           />
         </Pressable>

@@ -9,9 +9,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
-import { useAuth } from '../src/contexts/AuthContext';
-import { useModal } from '../src/contexts/ModalContext';
-import { supabase } from '../src/lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 type PlaceSuggestion = {
   id: string;
@@ -38,8 +38,7 @@ type CurrentLocationOption = {
 type EditServicePayload = {
   service_id: string;
   service_type?: string | null;
-  start_location?: string | null;
-  end_location?: string | null;
+  location?: string | null;
   price?: number | null;
   payment_method_type?: string | null;
   autofill_type?: string | null;
@@ -62,11 +61,9 @@ type LocationAutocompleteInputProps = {
 
 type AttachmentAsset = { uri: string; type: 'photo' | 'video'; name: string };
 
-type customServiceFormState = {
-  startQuery: string;
-  endQuery: string;
-  startLocation: SelectedLocation | null;
-  endLocation: SelectedLocation | null;
+type CleaningFormState = {
+  locationQuery: string;
+  location: SelectedLocation | null;
   description: string;
   isAuto: boolean;
   isPersonal: boolean;
@@ -79,16 +76,20 @@ type customServiceFormState = {
   needsTruck: '' | 'yes' | 'no';
   boxesNeeded: '' | 'yes' | 'no';
   furnitureScope: string;
+  cleaningType: '' | 'basic' | 'deep';
+  specialRequests: string;
+  detailsPhotos: AttachmentAsset[];
+  suppliesNeeded: string;
 };
 
-type customServiceReturnData = {
-  formState: customServiceFormState;
-  action?: 'schedule-customService';
+type CleaningReturnData = {
+  formState: CleaningFormState;
+  action?: 'schedule-cleaning';
   timestamp?: number;
   params?: Record<string, string>;
 };
 
-const customService_RETURN_PATH = 'customService';
+const CLEANING_RETURN_PATH = 'cleaning';
 
 const createUuid = () => {
   try {
@@ -576,7 +577,7 @@ const LocationAutocompleteInput = React.memo<LocationAutocompleteInputProps>(
 
 LocationAutocompleteInput.displayName = 'LocationAutocompleteInput';
 
-export default function customService() {
+export default function cleaning() {
   const { user, setReturnTo, getReturnTo, clearReturnTo } = useAuth();
   const { showModal } = useModal();
   const params = useLocalSearchParams<{ editServiceId?: string | string[]; editService?: string | string[] }>();
@@ -643,33 +644,22 @@ export default function customService() {
   const googlePlacesApiKey = useMemo(resolveGooglePlacesKey, []);
   const openAiApiKey = useMemo(resolveOpenAIApiKey, []);
   const mapRef = useRef<MapView | null>(null);
-  const startDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const endDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationSnapshotRef = useRef<{
-    startQuery: string;
-    endQuery: string;
-    startLocation: SelectedLocation | null;
-    endLocation: SelectedLocation | null;
+    locationQuery: string;
+    location: SelectedLocation | null;
   } | null>(null);
-  const [startSessionToken, setStartSessionToken] = useState(createSessionToken);
-  const [endSessionToken, setEndSessionToken] = useState(createSessionToken);
-  const [startQuery, setStartQuery] = useState('');
-  const [endQuery, setEndQuery] = useState('');
-  const [startSuggestions, setStartSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [endSuggestions, setEndSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [startLoading, setStartLoading] = useState(false);
-  const [endLoading, setEndLoading] = useState(false);
-  const [isStartSuggestionsVisible, setIsStartSuggestionsVisible] = useState(false);
-  const [isEndSuggestionsVisible, setIsEndSuggestionsVisible] = useState(false);
-  const [startLocation, setStartLocation] = useState<SelectedLocation | null>(null);
-  const [endLocation, setEndLocation] = useState<SelectedLocation | null>(null);
+  const [sessionToken, setSessionToken] = useState(createSessionToken);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isSuggestionsVisible, setIsSuggestionsVisible] = useState(false);
+  const [location, setLocation] = useState<SelectedLocation | null>(null);
   const [locationPermissionStatus, setLocationPermissionStatus] = useState<PermissionStatus>(
     PermissionStatus.UNDETERMINED,
   );
   const [currentLocation, setCurrentLocation] = useState<SelectedLocation | null>(null);
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
-  const [currentLocationLoadingTarget, setCurrentLocationLoadingTarget] = useState<'start' | 'end' | null>(null);
-  const [routeCoordinates, setRouteCoordinates] = useState<LatLng[]>([]);
   const [description, setDescription] = useState('');
   const [priceQuote, setPriceQuote] = useState<string | null>(null);
   const [priceNote, setPriceNote] = useState<string | null>(null);
@@ -689,8 +679,8 @@ export default function customService() {
   const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
-  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-customService'>(null);
-  const [showcustomServiceAnalysisModal, setShowcustomServiceAnalysisModal] = useState(false);
+  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-cleaning'>(null);
+  const [showcleaningAnalysisModal, setShowcleaningAnalysisModal] = useState(false);
   const [apartmentSize, setApartmentSize] = useState('');
   const [packingStatus, setPackingStatus] = useState<'packed' | 'not-packed' | ''>('');
   const [truckNeeded, setTruckNeeded] = useState<'yes' | 'no' | ''>('');
@@ -698,16 +688,23 @@ export default function customService() {
   const [currentQuestionStep, setCurrentQuestionStep] = useState(0);
   const [furnitureScope, setFurnitureScope] = useState('');
   const [needsTruck, setNeedsTruck] = useState<'yes' | 'no' | ''>('');
+  const [cleaningType, setCleaningType] = useState<'basic' | 'deep' | ''>('');
+  const [specialRequests, setSpecialRequests] = useState('');
+  const [detailsPhotos, setDetailsPhotos] = useState<AttachmentAsset[]>([]);
+  const [showCleaningTypeModal, setShowCleaningTypeModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showApartmentSizeModal, setShowApartmentSizeModal] = useState(false);
+  const [showSuppliesModal, setShowSuppliesModal] = useState(false);
+  const [suppliesNeeded, setSuppliesNeeded] = useState('');
+  const lastEnhancedDescriptionRef = useRef<string | null>(null);
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
 
-  const collectFormState = useCallback((): customServiceFormState => {
+  const collectFormState = useCallback((): CleaningFormState => {
     return {
-      startQuery,
-      endQuery,
-      startLocation: cloneSelectedLocation(startLocation),
-      endLocation: cloneSelectedLocation(endLocation),
+      locationQuery,
+      location: cloneSelectedLocation(location),
       description,
       isAuto,
       isPersonal,
@@ -720,14 +717,18 @@ export default function customService() {
       needsTruck,
       boxesNeeded,
       furnitureScope,
+      cleaningType,
+      specialRequests,
+      detailsPhotos: cloneAttachments(detailsPhotos),
+      suppliesNeeded,
     };
   }, [
     apartmentSize,
     attachments,
     boxesNeeded,
     description,
-    endLocation,
-    endQuery,
+    location,
+    locationQuery,
     furnitureScope,
     isAuto,
     isPersonal,
@@ -736,25 +737,25 @@ export default function customService() {
     priceError,
     priceNote,
     priceQuote,
-    startLocation,
-    startQuery,
+    cleaningType,
+    specialRequests,
+    detailsPhotos,
+    suppliesNeeded,
   ]);
 
   const restoreFormState = useCallback(
-    (formState: customServiceFormState) => {
-      setStartQuery(formState.startQuery ?? '');
-      setEndQuery(formState.endQuery ?? '');
-      setStartLocation(cloneSelectedLocation(formState.startLocation ?? null));
-      setEndLocation(cloneSelectedLocation(formState.endLocation ?? null));
-  setDescription(formState.description ?? '');
+    (formState: CleaningFormState) => {
+      setLocationQuery(formState.locationQuery ?? '');
+      setLocation(cloneSelectedLocation(formState.location ?? null));
+      setDescription(formState.description ?? '');
 
-  const nextIsAuto = Boolean(formState.isAuto);
-  setIsAuto(nextIsAuto);
-  slideAnimation.setValue(nextIsAuto ? 1 : 0);
+      const nextIsAuto = Boolean(formState.isAuto);
+      setIsAuto(nextIsAuto);
+      slideAnimation.setValue(nextIsAuto ? 1 : 0);
 
-  const nextIsPersonal = Boolean(formState.isPersonal);
-  setIsPersonal(nextIsPersonal);
-  slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
+      const nextIsPersonal = Boolean(formState.isPersonal);
+      setIsPersonal(nextIsPersonal);
+      slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
       setPriceQuote(formState.priceQuote ?? null);
       setPriceNote(formState.priceNote ?? null);
       setPriceError(formState.priceError ?? null);
@@ -764,6 +765,10 @@ export default function customService() {
       setNeedsTruck(formState.needsTruck ?? '');
       setBoxesNeeded(formState.boxesNeeded ?? '');
       setFurnitureScope(formState.furnitureScope ?? '');
+      setCleaningType(formState.cleaningType ?? '');
+      setSpecialRequests(formState.specialRequests ?? '');
+      setDetailsPhotos(cloneAttachments(formState.detailsPhotos ?? []));
+      setSuppliesNeeded(formState.suppliesNeeded ?? '');
     },
     [slideAnimation, slideAnimation2],
   );
@@ -789,9 +794,9 @@ export default function customService() {
       }
     });
 
-    const payload: customServiceReturnData = {
+    const payload: CleaningReturnData = {
       formState,
-      action: 'schedule-customService',
+      action: 'schedule-cleaning',
       timestamp: Date.now(),
     };
 
@@ -799,7 +804,7 @@ export default function customService() {
       payload.params = Object.fromEntries(sanitizedEntries);
     }
 
-    setReturnTo(customService_RETURN_PATH, payload);
+    setReturnTo(CLEANING_RETURN_PATH, payload);
   }, [collectFormState, params, setReturnTo]);
 
   const mapEdgePadding = useMemo(
@@ -848,12 +853,9 @@ export default function customService() {
   }, []);
 
   const loadCurrentLocation = useCallback(
-    async (options: { target?: 'start' | 'end'; silent?: boolean } = {}): Promise<SelectedLocation | null> => {
-      const { target, silent } = options;
+    async (options: { silent?: boolean } = {}): Promise<SelectedLocation | null> => {
+      const { silent } = options;
       if (!silent) {
-        if (target) {
-          setCurrentLocationLoadingTarget(target);
-        }
         setCurrentLocationLoading(true);
       }
 
@@ -902,9 +904,6 @@ export default function customService() {
       } finally {
         if (!silent) {
           setCurrentLocationLoading(false);
-          if (target) {
-            setCurrentLocationLoadingTarget(prev => (prev === target ? null : prev));
-          }
         }
       }
     },
@@ -971,11 +970,11 @@ export default function customService() {
     }
 
     const returnTo = getReturnTo();
-    if (!returnTo || returnTo.path !== customService_RETURN_PATH || !returnTo.data) {
+    if (!returnTo || returnTo.path !== CLEANING_RETURN_PATH || !returnTo.data) {
       return;
     }
 
-    const payload = returnTo.data as customServiceReturnData;
+    const payload = returnTo.data as CleaningReturnData;
 
     if (!payload?.formState) {
       clearReturnTo();
@@ -985,8 +984,8 @@ export default function customService() {
     restoreFormState(payload.formState);
     clearReturnTo();
 
-    if (payload.action === 'schedule-customService') {
-      setPendingResumeAction('schedule-customService');
+    if (payload.action === 'schedule-cleaning') {
+      setPendingResumeAction('schedule-cleaning');
     }
   }, [user, getReturnTo, clearReturnTo, restoreFormState]);
 
@@ -999,7 +998,6 @@ export default function customService() {
 
   const applyLocation = useCallback(
     (
-      target: 'start' | 'end',
       location: SelectedLocation,
       options: { showStreetNumberWarning?: boolean } = {},
     ) => {
@@ -1016,27 +1014,16 @@ export default function customService() {
       const shouldWarn = options.showStreetNumberWarning ?? true;
       const hasStreetNumber = containsStreetNumber(location.description);
 
-      if (target === 'start') {
-        setStartQuery(location.description);
-        setStartLocation(location);
-        setStartSuggestions([]);
-        setStartSessionToken(createSessionToken());
-        setStartLoading(false);
-      } else {
-        setEndQuery(location.description);
-        setEndLocation(location);
-        setEndSuggestions([]);
-        setEndSessionToken(createSessionToken());
-        setEndLoading(false);
-      }
+      setLocationQuery(location.description);
+      setLocation(location);
+      setSuggestions([]);
+      setSessionToken(createSessionToken());
+      setLoading(false);
 
       if (shouldWarn && !hasStreetNumber) {
-        const isStart = target === 'start';
         showModal({
-          title: isStart ? 'Add street number to start location' : 'Add street number to end location',
-          message: isStart
-            ? 'Update your start location to include the street number.'
-            : 'Update your end location to include the street number.',
+          title: 'Add street number to location',
+          message: 'Update your location to include the street number.',
         });
       }
     },
@@ -1044,7 +1031,7 @@ export default function customService() {
   );
 
   const resetCleanignAnalysisFlow = useCallback(() => {
-    setShowcustomServiceAnalysisModal(false);
+    setShowcleaningAnalysisModal(false);
     setCurrentQuestionStep(0);
     setApartmentSize('');
     setFurnitureScope('');
@@ -1054,20 +1041,20 @@ export default function customService() {
   }, []);
 
   const handleUseCurrentLocation = useCallback(
-    async (target: 'start' | 'end') => {
+    async () => {
       const existingLocation =
         locationPermissionStatus === PermissionStatus.GRANTED && currentLocation
           ? currentLocation
           : null;
 
       if (existingLocation && !currentLocationLoading) {
-        applyLocation(target, existingLocation);
+        applyLocation(existingLocation);
         return;
       }
 
-      const resolved = await loadCurrentLocation({ target });
+      const resolved = await loadCurrentLocation();
       if (resolved) {
-        applyLocation(target, resolved);
+        applyLocation(resolved);
       }
     },
     [applyLocation, currentLocation, currentLocationLoading, loadCurrentLocation, locationPermissionStatus],
@@ -1075,36 +1062,20 @@ export default function customService() {
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) {
+    if (!map || !location) {
       return;
     }
 
-    const coordinates = [startLocation, endLocation]
-      .filter((location): location is SelectedLocation => Boolean(location))
-      .map(location => location.coordinate);
-
-    if (coordinates.length === 0) {
-      return;
-    }
-
-    if (coordinates.length === 1) {
-      map.animateToRegion(
-        {
-          latitude: coordinates[0].latitude,
-          longitude: coordinates[0].longitude,
-          latitudeDelta: 0.006,
-          longitudeDelta: 0.006,
-        },
-        300,
-      );
-      return;
-    }
-
-    map.fitToCoordinates(coordinates, {
-      edgePadding: mapEdgePadding,
-      animated: true,
-    });
-  }, [endLocation, mapEdgePadding, startLocation]);
+    map.animateToRegion(
+      {
+        latitude: location.coordinate.latitude,
+        longitude: location.coordinate.longitude,
+        latitudeDelta: 0.006,
+        longitudeDelta: 0.006,
+      },
+      300,
+    );
+  }, [location, mapEdgePadding]);
 
   useEffect(() => {
     if (isRecording) {
@@ -1228,41 +1199,23 @@ export default function customService() {
     let cancelled = false;
 
     const hydrateLocations = async () => {
-      const startAddress = editingPayload.start_location?.trim();
-      const endAddress = editingPayload.end_location?.trim();
+      const address = editingPayload.location?.trim();
 
-      if (startAddress) {
-        const startResolved = await geocodeAddress(startAddress);
+      if (address) {
+        const resolved = await geocodeAddress(address);
         if (cancelled) {
           return;
         }
 
-        if (startResolved) {
-          applyLocation('start', startResolved, { showStreetNumberWarning: false });
+        if (resolved) {
+          applyLocation(resolved, { showStreetNumberWarning: false });
         } else {
-          setStartQuery(startAddress);
-          setStartLocation(null);
+          setLocationQuery(address);
+          setLocation(null);
         }
       } else {
-        setStartQuery('');
-        setStartLocation(null);
-      }
-
-      if (endAddress) {
-        const endResolved = await geocodeAddress(endAddress);
-        if (cancelled) {
-          return;
-        }
-
-        if (endResolved) {
-          applyLocation('end', endResolved, { showStreetNumberWarning: false });
-        } else {
-          setEndQuery(endAddress);
-          setEndLocation(null);
-        }
-      } else {
-        setEndQuery('');
-        setEndLocation(null);
+        setLocationQuery('');
+        setLocation(null);
       }
     };
 
@@ -1272,6 +1225,113 @@ export default function customService() {
       cancelled = true;
     };
   }, [applyLocation, editServiceId, editingPayload, geocodeAddress, slideAnimation, slideAnimation2]);
+
+  const checkIfDescriptionAlreadyEnhanced = useCallback((text: string) => {
+    const lowerText = text.toLowerCase();
+    
+    // Check if description already contains the modal information patterns
+    const hasTypeInfo = /\.\s*type:\s*(basic|deep)\s*cleaning/i.test(lowerText);
+    const hasSizeInfo = /\.\s*property size:/i.test(lowerText);
+    const hasSuppliesInfo = /\.\s*supplies to bring:/i.test(lowerText);
+    
+    return hasTypeInfo || hasSizeInfo || hasSuppliesInfo;
+  }, []);
+
+  // Sync state variables when description is manually edited
+  useEffect(() => {
+    // Check if description has the enhanced format
+    const hasEnhancedFormat = checkIfDescriptionAlreadyEnhanced(description);
+    
+    // If description is empty, only reset if we previously had an enhanced description
+    if (!description) {
+      if (lastEnhancedDescriptionRef.current && (cleaningType || apartmentSize || suppliesNeeded || specialRequests)) {
+        console.log('📝 Description cleared after modal completion - resetting modal states');
+        setCleaningType('');
+        setApartmentSize('');
+        setSuppliesNeeded('');
+        setSpecialRequests('');
+        lastEnhancedDescriptionRef.current = null;
+      }
+      return;
+    }
+
+    // If we have an enhanced format, track it
+    if (hasEnhancedFormat) {
+      lastEnhancedDescriptionRef.current = description;
+    }
+    
+    // Only reset if:
+    // 1. We previously had an enhanced description (modals were completed)
+    // 2. Current description doesn't have enhanced format (user removed it)
+    // 3. We have modal states that need clearing
+    if (!hasEnhancedFormat && lastEnhancedDescriptionRef.current && (cleaningType || apartmentSize || suppliesNeeded || specialRequests)) {
+      console.log('📝 Enhanced format removed after modal completion - resetting modal states');
+      setCleaningType('');
+      setApartmentSize('');
+      setSuppliesNeeded('');
+      setSpecialRequests('');
+      lastEnhancedDescriptionRef.current = null;
+      return;
+    }
+
+    // If no enhanced format and no previous enhanced description, don't do anything
+    // (This prevents resets while user is just typing initial description)
+    if (!hasEnhancedFormat) {
+      return;
+    }
+
+    // Extract cleaning type
+    const typeMatch = description.match(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/i);
+    if (typeMatch) {
+      const type = typeMatch[1].toLowerCase() as 'basic' | 'deep';
+      if (cleaningType !== type) {
+        console.log('📝 Extracted cleaning type:', type);
+        setCleaningType(type);
+      }
+    } else if (cleaningType) {
+      // Type info was removed from description
+      setCleaningType('');
+    }
+
+    // Extract property size
+    const sizeMatch = description.match(/\.\s*Property size:\s*([^.]+)/i);
+    if (sizeMatch) {
+      const size = sizeMatch[1].trim();
+      if (apartmentSize !== size) {
+        console.log('📝 Extracted property size:', size);
+        setApartmentSize(size);
+      }
+    } else if (apartmentSize) {
+      // Size info was removed from description
+      setApartmentSize('');
+    }
+
+    // Extract supplies
+    const suppliesMatch = description.match(/\.\s*Supplies to bring:\s*([^.]+)/i);
+    if (suppliesMatch) {
+      const supplies = suppliesMatch[1].trim();
+      if (suppliesNeeded !== supplies) {
+        console.log('📝 Extracted supplies:', supplies);
+        setSuppliesNeeded(supplies);
+      }
+    } else if (suppliesNeeded) {
+      // Supplies info was removed from description
+      setSuppliesNeeded('');
+    }
+
+    // Extract special requests
+    const requestsMatch = description.match(/\.\s*Special requests:\s*([^.]+)/i);
+    if (requestsMatch) {
+      const requests = requestsMatch[1].trim();
+      if (specialRequests !== requests) {
+        console.log('📝 Extracted special requests:', requests);
+        setSpecialRequests(requests);
+      }
+    } else if (specialRequests) {
+      // Requests info was removed from description
+      setSpecialRequests('');
+    }
+  }, [description, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced]);
 
   const handleDescriptionChange = useCallback((text: string) => {
     setDescription(text);
@@ -1304,31 +1364,36 @@ export default function customService() {
           ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
           : 'not provided';
 
+        const requestBody = {
+          model: 'gpt-4o-mini',
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are a pricing assistant for cleaning services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) degree of cleaning needed (light/medium/deep), 2) which rooms or entire home, 3) property size. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on property size - Studio: $20-40 (basic) / $40-80 (deep), 1-bed: $30-50 (basic) / $60-100 (deep), 2-bed: $45-70 (basic) / $90-130 (deep), 3-bed: $60-90 (basic) / $120-170 (deep), 4+ bed or house: $80-130 (basic) / $150-250 (deep). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.',
+            },
+            {
+              role: 'user',
+              content: [
+                `Task description: ${taskDescription}`,
+                `Start location: ${startDetails}`,
+                `End location: ${endDetails}`,
+              ].join('\n'),
+            },
+          ],
+        };
+
+        console.log('🔍 Fetching price estimate with description:', taskDescription);
+        console.log('📝 Full request:', JSON.stringify(requestBody, null, 2));
+
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${openAiApiKey}`,
           },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            response_format: { type: 'json_object' },
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You are a pricing assistant for custom service requests. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Carefully analyze the task description for the exact scope of work. Use your best judgment to determine if essential details are missing - dynamically adjust what you ask for based on the type of task described. If the description is too vague or missing critical details for that specific type of work, set needs_clarification to true with a clarification_prompt asking for the specific missing information. If the request involves: dangerous activities, illegal activities, licensed professional work (electrical/plumbing/HVAC), hazardous materials, extreme physical risk, or appears priced well above $800, set safety_concern to true. For complete, suitable descriptions, provide price in USD (50-800 range): simple tasks $50-150, medium complexity $150-300, complex tasks $300-800. Provide optimistic, budget-friendly estimates.',
-              },
-              {
-                role: 'user',
-                content: [
-                  `Task description: ${taskDescription}`,
-                  `Start location: ${startDetails}`,
-                  `End location: ${endDetails}`,
-                ].join('\n'),
-              },
-            ],
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -1362,11 +1427,8 @@ export default function customService() {
 
         // Check if clarification is needed
         if (parsed.needs_clarification === true && parsed.clarification_prompt) {
-          showModal({
-            title: 'More Details Needed',
-            message: parsed.clarification_prompt,
-          });
-          setPriceError('Please provide more details about your custom service request.');
+          setShowCleaningTypeModal(true);
+          setPriceError('Please select a cleaning type.');
           return;
         }
 
@@ -1376,7 +1438,9 @@ export default function customService() {
           throw new Error('Invalid price value');
         }
 
-        const sanitizedPrice = Math.max(0, Math.round(price));
+        // Apply 15% discount to make pricing more competitive
+        const discountedPrice = price * 0.85;
+        const sanitizedPrice = Math.max(0, Math.round(discountedPrice));
 
         setPriceQuote(formatCurrency(sanitizedPrice));
       } catch (error) {
@@ -1388,6 +1452,24 @@ export default function customService() {
     },
     [openAiApiKey],
   );
+
+  const checkForPropertySize = useCallback((text: string) => {
+    const lowerText = text.toLowerCase();
+    
+    // Check for square footage
+    const hasSqFt = /\b\d+\s*(sq\s*ft|square\s*feet|sqft|sf)\b/i.test(lowerText);
+    
+    // Check for room count (bedroom, bathroom, etc.)
+    const hasRoomCount = /\b\d+[\s-]*(bedroom|bed|br|bathroom|bath|ba|room)\b/i.test(lowerText);
+    
+    // Check for property descriptors
+    const hasPropertyDesc = /\b(studio|apartment|condo|house|office|townhouse|loft)\b/i.test(lowerText);
+    
+    // Check for size descriptors
+    const hasSizeDesc = /\b(small|medium|large|tiny|huge|spacious|compact)\s*(apartment|house|office|space|property|home|room)\b/i.test(lowerText);
+    
+    return hasSqFt || hasRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
+  }, []);
 
   const handleDescriptionSubmit = useCallback(() => {
     if (isPriceLoading || isTranscribing) {
@@ -1403,19 +1485,67 @@ export default function customService() {
       return;
     }
 
-    if (!startLocation || !endLocation) {
+    if (!location) {
       showModal({
         title: 'Missing location',
-        message: 'Please enter start and end location.',
+        message: 'Please enter a location.',
       });
       return;
     }
 
     Keyboard.dismiss();
-    fetchPriceEstimate(trimmed, { start: startLocation, end: endLocation });
-  }, [description, endLocation, fetchPriceEstimate, isPriceLoading, isTranscribing, showModal, startLocation]);
+    
+    // Check if cleaning type is already set
+    if (cleaningType) {
+      // Skip to next step based on what's already filled
+      if (checkForPropertySize(description) || apartmentSize) {
+        // Property size is set, check supplies
+        if (suppliesNeeded) {
+          // All main fields set - rebuild description from state to ensure consistency
+          const baseDesc = description
+            .replace(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/gi, '')
+            .replace(/\.\s*Property size:\s*[^.]+/gi, '')
+            .replace(/\.\s*Supplies to bring:\s*[^.]+/gi, '')
+            .replace(/\.\s*Special requests:\s*[^.]+/gi, '')
+            .trim();
+          
+          const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
+          const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
+          const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
+          const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
+          
+          const rebuiltDescription = `${baseDesc}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+          
+          console.log('🔄 Rebuilding description:');
+          console.log('  Original:', description);
+          console.log('  Base:', baseDesc);
+          console.log('  cleaningType:', cleaningType);
+          console.log('  apartmentSize:', apartmentSize);
+          console.log('  suppliesNeeded:', suppliesNeeded);
+          console.log('  specialRequests:', specialRequests);
+          console.log('  Rebuilt:', rebuiltDescription);
+          
+          // Update description if it changed
+          if (rebuiltDescription !== description) {
+            setDescription(rebuiltDescription);
+          }
+          
+          fetchPriceEstimate(rebuiltDescription, { start: location, end: location });
+        } else {
+          // Show supplies modal
+          setShowSuppliesModal(true);
+        }
+      } else {
+        // Show apartment size modal
+        setShowApartmentSizeModal(true);
+      }
+    } else {
+      // Show cleaning type modal first
+      setShowCleaningTypeModal(true);
+    }
+  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
 
-  const analyzecustomServiceDescription = useCallback((text: string) => {
+  const analyzecleaningDescription = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
 
     const spelledOutBedroomPattern = /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/;
@@ -1426,35 +1556,24 @@ export default function customService() {
 
     const hasPackingStatus = /\b(pack|packed|packing|unpack|unpacked|unpacking)\b/i.test(lowerText);
 
-    const hasTruckInfo = /\b(truck|customService truck|rental truck|vehicle|car|van)\b/i.test(lowerText);
+    const hasTruckInfo = /\b(truck|cleaning truck|rental truck|vehicle|car|van)\b/i.test(lowerText);
 
     const hasBoxInfo = /\b(box|boxes|packing supplies|supplies)\b/i.test(lowerText);
 
     const hasFurnitureScope = /\b(everything|entire|whole|all|complete)\b/i.test(lowerText) ||
       /\b(furniture|bedroom|living room|kitchen|dining room|office)\b/i.test(lowerText) ||
       /\b(specific pieces|pieces|items|only)\b/i.test(lowerText) ||
-      /\b(customService scope|scope)\b/i.test(lowerText);
+      /\b(cleaning scope|scope)\b/i.test(lowerText);
 
     const descriptionHasStreetNumber = containsStreetNumber(text);
 
-    const startAddressCandidates = [startQuery, startLocation?.description];
-    const endAddressCandidates = [endQuery, endLocation?.description];
+    const addressCandidates = [locationQuery, location?.description];
 
-    const hasStartStreetNumber = startAddressCandidates.some(candidate => containsStreetNumber(candidate));
-    const hasEndStreetNumber = endAddressCandidates.some(candidate => containsStreetNumber(candidate));
+    const hasStreetNumber = addressCandidates.some(candidate => containsStreetNumber(candidate));
 
-    const hasStartInput = startAddressCandidates.some(candidate => typeof candidate === 'string' && candidate.trim().length > 0);
-    const hasEndInput = endAddressCandidates.some(candidate => typeof candidate === 'string' && candidate.trim().length > 0);
+    const hasInput = addressCandidates.some(candidate => typeof candidate === 'string' && candidate.trim().length > 0);
 
-    const missingStreetNumberTargets: Array<'start' | 'end'> = [];
-    if (hasStartInput && !hasStartStreetNumber) {
-      missingStreetNumberTargets.push('start');
-    }
-    if (hasEndInput && !hasEndStreetNumber) {
-      missingStreetNumberTargets.push('end');
-    }
-
-    const hasStreetNumber = missingStreetNumberTargets.length === 0 && (!hasStartInput || hasStartStreetNumber) && (!hasEndInput || hasEndStreetNumber);
+    const missingStreetNumber = hasInput && !hasStreetNumber;
 
     return {
       hasApartmentSize,
@@ -1462,23 +1581,20 @@ export default function customService() {
       hasTruckInfo,
       hasBoxInfo,
       hasFurnitureScope,
-      hasStreetNumber: hasStreetNumber || (!hasStartInput && !hasEndInput && descriptionHasStreetNumber),
-      hasStartStreetNumber,
-      hasEndStreetNumber,
-      missingStreetNumberTargets,
+      hasStreetNumber: hasStreetNumber || (!hasInput && descriptionHasStreetNumber),
+      missingStreetNumber,
       isPacked: hasPackingStatus && /\b(packed|packing)\b/i.test(lowerText),
     };
-  }, [endLocation?.description, endQuery, startLocation?.description, startQuery]);
+  }, [location?.description, locationQuery]);
 
-  const customServiceAnalysis = useMemo(() => {
-    const analysis = analyzecustomServiceDescription(description);
+  const cleaningAnalysis = useMemo(() => {
+    const analysis = analyzecleaningDescription(description);
 
     const missingInfo: string[] = [];
 
-    if (analysis.missingStreetNumberTargets.includes('start')) missingInfo.push('start street number');
-    if (analysis.missingStreetNumberTargets.includes('end')) missingInfo.push('end street number');
+    if (analysis.missingStreetNumber) missingInfo.push('street number');
 
-    // No additional questions needed for custom service
+    // Determine which questions to show - no moving-related questions for cleaning service
     const questionsToShow: Array<{ id: string; title: string; message: string; placeholder: string; multiline?: boolean; options?: string[] }> = [];
     
     return {
@@ -1486,38 +1602,37 @@ export default function customService() {
       missingInfo,
       questionsToShow,
     };
-  }, [analyzecustomServiceDescription, description]);
+  }, [analyzecleaningDescription, description]);
 
-  const handlecustomServiceAnalysisSubmit = useCallback(() => {
-    const analysis = analyzecustomServiceDescription(description);
+  const handlecleaningAnalysisSubmit = useCallback(() => {
+    const analysis = analyzecleaningDescription(description);
 
     if (!analysis.hasStreetNumber) {
-      const needsBoth = analysis.missingStreetNumberTargets.length === 2;
-      const target = analysis.missingStreetNumberTargets[0] ?? 'start';
-
       showModal({
-        title: needsBoth ? 'Add street numbers' : target === 'start' ? 'add an exact street number for your starting location' : 'add an exact street number for your ending location',
-        message: needsBoth
-          ? 'Update both pickup and drop-off locations to include street numbers so your helpr can find you.'
-          : target === 'start'
-            ? 'Update your pickup location to include the street number so your helpr can find you.'
-            : 'Update your drop-off location to include the street number so your helpr can finish the move.',
+        title: 'Add street number',
+        message: 'Update your location to include the street number so your helpr can find you.',
       });
       return;
     }
     
-    // For custom service, no additional questions needed - proceed directly
+    // For cleaning service, no additional questions needed - proceed directly
     handleDescriptionSubmit();
-  }, [analyzecustomServiceDescription, description, handleDescriptionSubmit, showModal]);
+  }, [analyzecleaningDescription, description, handleDescriptionSubmit, showModal]);
 
   const handleAnalysisModalSubmit = useCallback(() => {
+    // For cleaning service, no modal questions - this should not be called
     resetCleanignAnalysisFlow();
     handleDescriptionSubmit();
   }, [handleDescriptionSubmit, resetCleanignAnalysisFlow]);
 
   const handleAnalysisModalBack = useCallback(() => {
-    resetCleanignAnalysisFlow();
-  }, [resetCleanignAnalysisFlow]);
+    if (currentQuestionStep === 0) {
+      resetCleanignAnalysisFlow();
+      return;
+    }
+
+    setCurrentQuestionStep(prev => Math.max(0, prev - 1));
+  }, [currentQuestionStep, resetCleanignAnalysisFlow]);
 
   const resolveCustomerId = useCallback(async () => {
     if (customerId) {
@@ -1590,14 +1705,124 @@ export default function customService() {
     }
   }, [showModal]);
 
+  const handleDetailsPhotoUpload = useCallback(async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        showModal({
+          title: 'Permission needed',
+          message: 'Enable photo library access to attach images.',
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+      });
+
+      if (result.canceled || !(result.assets && result.assets.length > 0)) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const name = asset.fileName ?? 'details-photo.jpg';
+
+      setDetailsPhotos(prev => [...prev, { uri: asset.uri, type: 'photo', name }]);
+    } catch (error) {
+      console.warn('Photo picker error', error);
+      showModal({
+        title: 'Upload failed',
+        message: 'Unable to select photo right now.',
+      });
+    }
+  }, [showModal]);
+
+  const handleCleaningTypeSelect = useCallback((type: 'basic' | 'deep') => {
+    setCleaningType(type);
+    setShowCleaningTypeModal(false);
+    
+    // Check if property size is already in description
+    if (checkForPropertySize(description)) {
+      // Skip apartment size modal, go directly to supplies
+      setShowSuppliesModal(true);
+    } else {
+      // Show apartment size modal after selecting cleaning type
+      setShowApartmentSizeModal(true);
+    }
+  }, [description, checkForPropertySize]);
+
+  const handleApartmentSizeBack = useCallback(() => {
+    setShowApartmentSizeModal(false);
+    // Go back to cleaning type modal
+    setShowCleaningTypeModal(true);
+  }, []);
+
+  const handleApartmentSizeSubmit = useCallback(() => {
+    if (!apartmentSize.trim()) {
+      return;
+    }
+    setShowApartmentSizeModal(false);
+    // Show supplies modal after apartment size
+    setShowSuppliesModal(true);
+  }, [apartmentSize]);
+
+  const handleSuppliesBack = useCallback(() => {
+    setShowSuppliesModal(false);
+    // Check if we came from apartment size modal or directly from cleaning type
+    if (checkForPropertySize(description)) {
+      // If property size was already in description, go back to cleaning type
+      setShowCleaningTypeModal(true);
+    } else {
+      // Otherwise go back to apartment size modal
+      setShowApartmentSizeModal(true);
+    }
+  }, [description, checkForPropertySize]);
+
+  const handleSuppliesSubmit = useCallback(() => {
+    setShowSuppliesModal(false);
+    // Show details modal after supplies
+    setShowDetailsModal(true);
+  }, []);
+
+  const handleDetailsBack = useCallback(() => {
+    setShowDetailsModal(false);
+    // Go back to supplies modal
+    setShowSuppliesModal(true);
+  }, []);
+
+  const handleDetailsSubmit = useCallback(() => {
+    setShowDetailsModal(false);
+    // Run price estimation with all collected information
+    if (description.trim() && location) {
+      // Check if description is already enhanced to avoid duplication
+      if (checkIfDescriptionAlreadyEnhanced(description)) {
+        // Description already has modal info, just fetch price
+        fetchPriceEstimate(description, { start: location, end: location });
+      } else {
+        // Build enhanced description for the first time
+        const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
+        const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
+        const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
+        const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
+        
+        const enhancedDescription = `${description}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+        
+        // Update the description state with the enhanced description
+        setDescription(enhancedDescription);
+        
+        fetchPriceEstimate(enhancedDescription, { start: location, end: location });
+      }
+    }
+  }, [description, location, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+
   const snapshotLocations = useCallback(() => {
     locationSnapshotRef.current = {
-      startQuery,
-      endQuery,
-      startLocation,
-      endLocation,
+      locationQuery,
+      location,
     };
-  }, [endLocation, endQuery, startLocation, startQuery]);
+  }, [location, locationQuery]);
 
   const restoreLocations = useCallback(() => {
     const snapshot = locationSnapshotRef.current;
@@ -1605,10 +1830,8 @@ export default function customService() {
       return;
     }
 
-    setStartQuery(snapshot.startQuery);
-    setEndQuery(snapshot.endQuery);
-    setStartLocation(snapshot.startLocation);
-    setEndLocation(snapshot.endLocation);
+    setLocationQuery(snapshot.locationQuery);
+    setLocation(snapshot.location);
   }, []);
 
   const handleScheduleHelpr = useCallback(async () => {
@@ -1622,24 +1845,24 @@ export default function customService() {
       snapshotLocations();
       showModal({
         title: 'Add a description',
-        message: 'Please describe what you need help with before scheduling your customService service.',
+        message: 'Please describe what you need help with before scheduling your cleaning service.',
         onDismiss: restoreLocations,
       });
       return;
     }
 
-    if (!startLocation || !endLocation) {
+    if (!location) {
       showModal({
-        title: 'Add locations',
-        message: 'Please provide both start and end locations before scheduling.',
+        title: 'Add location',
+        message: 'Please provide a location before scheduling.',
       });
       return;
     }
 
-    if (!isWithinServiceArea(startLocation.coordinate) || !isWithinServiceArea(endLocation.coordinate)) {
+    if (!isWithinServiceArea(location.coordinate)) {
       showModal({
         title: 'We\'re not in your area yet.',
-        message: "Helpr currently operates in NYC's five boroughs, Westchester County, and Hudson & Bergen counties in NJ. Please pick addresses within this area to continue.",
+        message: "Helpr currently operates in NYC's five boroughs, Westchester County, and Hudson & Bergen counties in NJ. Please pick an address within this area to continue.",
       });
       return;
     }
@@ -1651,31 +1874,15 @@ export default function customService() {
     if (sanitizedPrice === null) {
       showModal({
         title: 'Estimate needed',
-        message: 'Request a quick price estimate before scheduling your customService service.',
+        message: 'Request a quick price estimate before scheduling your cleaning service.',
       });
       return;
     }
 
-    const missingStreetTargets: Array<'start' | 'end'> = [];
-    if (!containsStreetNumber(startLocation.description)) {
-      missingStreetTargets.push('start');
-    }
-    if (!containsStreetNumber(endLocation.description)) {
-      missingStreetTargets.push('end');
-    }
-
-    if (missingStreetTargets.length > 0) {
-      const needsBoth = missingStreetTargets.length === 2;
-      const title = needsBoth ? 'Add street numbers' : missingStreetTargets[0] === 'start' ? 'Add pickup street number' : 'Add drop-off street number';
-      const message = needsBoth
-        ? 'Update both pickup and drop-off locations to include street numbers before scheduling.'
-        : missingStreetTargets[0] === 'start'
-          ? 'Update your pickup location to include the street number.'
-          : 'Update your drop-off location to include the street number.';
-
+    if (!containsStreetNumber(location.description)) {
       showModal({
-        title,
-        message,
+        title: 'Add street number',
+        message: 'Update your location to include the street number before scheduling.',
       });
       return;
     }
@@ -1714,7 +1921,13 @@ export default function customService() {
       resolvedCustomerIdValue = resolvedCustomerId;
     }
 
-  const normalizedDescription = trimmedDescription;
+    // Build enhanced description with all collected information
+    const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
+    const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
+    const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
+    const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
+    
+    const normalizedDescription = `${trimmedDescription}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
@@ -1724,8 +1937,7 @@ export default function customService() {
 
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
-          start_location: startLocation.description,
-          end_location: endLocation.description,
+          location: location.description,
           price: sanitizedPrice,
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
@@ -1738,10 +1950,10 @@ export default function customService() {
           .eq('service_id', editServiceId);
 
         if (error) {
-          console.error('Failed to update customService service:', error);
+          console.error('Failed to update cleaning service:', error);
           showModal({
             title: 'Update failed',
-            message: 'Unable to save changes to your customService request. Please try again.',
+            message: 'Unable to save changes to your cleaning request. Please try again.',
           });
           return;
         }
@@ -1765,12 +1977,10 @@ export default function customService() {
         service_id: targetServiceId,
         customer_id: resolvedCustomerIdValue,
         date_of_creation: new Date().toISOString(),
-        service_type: 'customService',
+        service_type: 'cleaning',
         status: 'finding_pros',
         scheduling_type: null,
-        location: null,
-        start_location: startLocation.description,
-        end_location: endLocation.description,
+        location: location.description,
         price: sanitizedPrice,
         start_datetime: null,
         end_datetime: null,
@@ -1805,7 +2015,7 @@ export default function customService() {
     customerLookupError,
     description,
     editServiceId,
-    endLocation,
+    location,
     isAuto,
     isEditing,
     isPersonal,
@@ -1816,12 +2026,15 @@ export default function customService() {
     router,
     snapshotLocations,
     restoreLocations,
-    startLocation,
     user,
+    cleaningType,
+    apartmentSize,
+    suppliesNeeded,
+    specialRequests,
   ]);
 
   useEffect(() => {
-    if (!user || pendingResumeAction !== 'schedule-customService' || isSubmitting) {
+    if (!user || pendingResumeAction !== 'schedule-cleaning' || isSubmitting) {
       return;
     }
 
@@ -2059,107 +2272,55 @@ export default function customService() {
     [googlePlacesApiKey],
   );
 
-  const handleStartChange = useCallback(
+  const handleLocationChange = useCallback(
     (text: string) => {
-      setStartQuery(text);
-      setStartLocation(null);
+      setLocationQuery(text);
+      setLocation(null);
       resetPriceState();
 
-      if (startDebounceRef.current) {
-        clearTimeout(startDebounceRef.current);
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
       }
 
       const trimmed = text.trim();
       if (trimmed.length < 3) {
-        setStartSuggestions([]);
+        setSuggestions([]);
         return;
       }
 
-      startDebounceRef.current = setTimeout(() => {
-        fetchPredictions(trimmed, startSessionToken, setStartSuggestions, setStartLoading);
+      debounceRef.current = setTimeout(() => {
+        fetchPredictions(trimmed, sessionToken, setSuggestions, setLoading);
       }, 350);
     },
-    [fetchPredictions, resetPriceState, startSessionToken],
+    [fetchPredictions, resetPriceState, sessionToken],
   );
 
-  const handleEndChange = useCallback(
-    (text: string) => {
-      setEndQuery(text);
-      setEndLocation(null);
-      resetPriceState();
-
-      if (endDebounceRef.current) {
-        clearTimeout(endDebounceRef.current);
-      }
-
-      const trimmed = text.trim();
-      if (trimmed.length < 3) {
-        setEndSuggestions([]);
-        return;
-      }
-
-      endDebounceRef.current = setTimeout(() => {
-        fetchPredictions(trimmed, endSessionToken, setEndSuggestions, setEndLoading);
-      }, 350);
-    },
-    [endSessionToken, fetchPredictions, resetPriceState],
-  );
-
-  const handleStartSelect = useCallback(
+  const handleLocationSelect = useCallback(
     async (suggestion: PlaceSuggestion) => {
       if (!suggestion.placeId) {
         return;
       }
-      setStartLoading(true);
-      const details = await fetchPlaceDetails(suggestion.placeId, startSessionToken);
-      setStartLoading(false);
+      setLoading(true);
+      const details = await fetchPlaceDetails(suggestion.placeId, sessionToken);
+      setLoading(false);
 
       if (!details) {
         return;
       }
 
-      applyLocation('start', {
+      applyLocation({
         description: details.description || suggestion.description,
         coordinate: details.coordinate,
       });
     },
-    [applyLocation, fetchPlaceDetails, startSessionToken],
+    [applyLocation, fetchPlaceDetails, sessionToken],
   );
 
-  const handleEndSelect = useCallback(
-    async (suggestion: PlaceSuggestion) => {
-      if (!suggestion.placeId) {
-        return;
-      }
-      setEndLoading(true);
-      const details = await fetchPlaceDetails(suggestion.placeId, endSessionToken);
-      setEndLoading(false);
-
-      if (!details) {
-        return;
-      }
-
-      applyLocation('end', {
-        description: details.description || suggestion.description,
-        coordinate: details.coordinate,
-      });
-    },
-    [applyLocation, fetchPlaceDetails, endSessionToken],
-  );
-
-  const handleStartClear = useCallback(() => {
-    setStartQuery('');
-    setStartSuggestions([]);
-    setStartLocation(null);
-    setStartSessionToken(createSessionToken());
-    resetPriceState();
-  }, [resetPriceState]);
-
-  const handleEndClear = useCallback(() => {
-    setEndQuery('');
-    setEndSuggestions([]);
-    setEndLocation(null);
-    setEndSessionToken(createSessionToken());
+  const handleLocationClear = useCallback(() => {
+    setLocationQuery('');
+    setSuggestions([]);
+    setLocation(null);
+    setSessionToken(createSessionToken());
     resetPriceState();
   }, [resetPriceState]);
 
@@ -2175,114 +2336,21 @@ export default function customService() {
     return 'Fill with your device\'s current GPS position.';
   }, [currentLocation, locationPermissionStatus]);
 
-  const startCurrentLocationOption = useMemo<CurrentLocationOption>(
+  const currentLocationOption = useMemo<CurrentLocationOption>(
     () => ({
-      id: 'current-location-start',
+      id: 'current-location',
       primaryText: 'Current Location',
       secondaryText: currentLocationSecondaryText,
-      onSelect: () => handleUseCurrentLocation('start'),
-      loading: currentLocationLoading && currentLocationLoadingTarget === 'start',
+      onSelect: () => handleUseCurrentLocation(),
+      loading: currentLocationLoading,
       disabled: currentLocationLoading,
     }),
-    [currentLocationLoading, currentLocationLoadingTarget, currentLocationSecondaryText, handleUseCurrentLocation],
+    [currentLocationLoading, currentLocationSecondaryText, handleUseCurrentLocation],
   );
 
-  const endCurrentLocationOption = useMemo<CurrentLocationOption>(
-    () => ({
-      id: 'current-location-end',
-      primaryText: 'Use Current Location',
-      secondaryText: currentLocationSecondaryText,
-      onSelect: () => handleUseCurrentLocation('end'),
-      loading: currentLocationLoading && currentLocationLoadingTarget === 'end',
-      disabled: currentLocationLoading,
-    }),
-    [currentLocationLoading, currentLocationLoadingTarget, currentLocationSecondaryText, handleUseCurrentLocation],
-  );
-
-  const handleEndSuggestionsVisibilityChange = useCallback((visible: boolean) => {
-    setIsEndSuggestionsVisible(visible);
+  const handleSuggestionsVisibilityChange = useCallback((visible: boolean) => {
+    setIsSuggestionsVisible(visible);
   }, []);
-
-  useEffect(() => {
-    if (!startLocation || !endLocation) {
-      setRouteCoordinates([]);
-      return;
-    }
-
-    if (!googlePlacesApiKey) {
-      console.warn('Google Places API key is not configured. Falling back to straight line.');
-      setRouteCoordinates(
-        ensureRouteEndpoints(
-          [startLocation.coordinate, endLocation.coordinate],
-          startLocation.coordinate,
-          endLocation.coordinate,
-        ),
-      );
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchDirections = async () => {
-      try {
-        const params = new URLSearchParams({
-          origin: `${startLocation.coordinate.latitude},${startLocation.coordinate.longitude}`,
-          destination: `${endLocation.coordinate.latitude},${endLocation.coordinate.longitude}`,
-          key: googlePlacesApiKey,
-          mode: 'driving',
-        });
-
-        const response = await fetch(
-          `https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`,
-        );
-        const data = await response.json();
-
-        if (cancelled) {
-          return;
-        }
-
-        if (data.status === 'OK') {
-          const polyline = data.routes?.[0]?.overview_polyline?.points;
-          if (typeof polyline === 'string' && polyline.length > 0) {
-            const decoded = decodePolyline(polyline);
-            const resolvedPath = ensureRouteEndpoints(
-              decoded.length >= 2 ? decoded : [startLocation.coordinate, endLocation.coordinate],
-              startLocation.coordinate,
-              endLocation.coordinate,
-            );
-            setRouteCoordinates(resolvedPath);
-            return;
-          }
-        }
-
-        console.warn('Google Directions error:', data.status, data.error_message);
-        setRouteCoordinates(
-          ensureRouteEndpoints(
-            [startLocation.coordinate, endLocation.coordinate],
-            startLocation.coordinate,
-            endLocation.coordinate,
-          ),
-        );
-      } catch (error) {
-        if (!cancelled) {
-          console.warn('Failed to fetch directions', error);
-          setRouteCoordinates(
-            ensureRouteEndpoints(
-              [startLocation.coordinate, endLocation.coordinate],
-              startLocation.coordinate,
-              endLocation.coordinate,
-            ),
-          );
-        }
-      }
-    };
-
-    fetchDirections();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [endLocation, googlePlacesApiKey, startLocation]);
 
   return (
     <View style={styles.root}>
@@ -2297,80 +2365,55 @@ export default function customService() {
             showsMyLocationButton={false}
             loadingEnabled
           >
-            {startLocation && (
+            {location && (
               <Marker
-                coordinate={startLocation.coordinate}
-                title="Start"
-                description={startLocation.description}
+                coordinate={location.coordinate}
+                title="Location"
+                description={location.description}
                 anchor={{ x: 0.5, y: 1 }}
                 centerOffset={{ x: 0, y: -12 }}
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={styles.LocationIcon}
                 />
               </Marker>
-            )}
-            {endLocation && (
-              <Marker
-                coordinate={endLocation.coordinate}
-                title="End"
-                description={endLocation.description}
-                anchor={{ x: 0.3, y: 1 }}
-                centerOffset={{ x: 0, y: -10 }}
-                tracksViewChanges={false}
-              >
-                <Image
-                  source={require('../assets/icons/finish-flag.png')}
-                  style={styles.mapMarkerEndIcon}
-                />
-              </Marker>
-            )}
-            {routeCoordinates.length > 1 && (
-              <Polyline
-                coordinates={routeCoordinates}
-                strokeColor="#0c4309"
-                strokeWidth={3}
-              />
             )}
           </MapView>
         </View>
         <View style={styles.contentArea}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
             <Image 
-              source={require('../assets/icons/backButton.png')} 
+              source={require('../../assets/icons/backButton.png')} 
               style={styles.backButtonIcon} 
             />
           </Pressable>
           <View style={styles.panel}>
-            <Text style={styles.title}>Custom Service Details</Text>
+            <Text style={styles.title}>Wall Mounting Details</Text>
             <View style={styles.DividerContainer1}>
                 <View style={styles.DividerLine1} />
             </View>
             <View style={[
               styles.locationSection, 
               styles.locationSectionStart,
-              isStartSuggestionsVisible ? styles.locationSectionEndDropdownVisible : null
+              isSuggestionsVisible ? styles.locationSectionEndDropdownVisible : null
             ]}>  
               <View style={styles.locationLabelRow}>
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={[styles.confirmLocationIcon, { width: 24, height: 24, resizeMode: 'contain' }]}
                 />
                 <LocationAutocompleteInput
-                value={startQuery}
+                value={locationQuery}
                 placeholder="Service Location"
-                onChangeText={handleStartChange}
-                onSelectSuggestion={handleStartSelect}
-                onClear={handleStartClear}
-                suggestions={startSuggestions}
-                loading={
-                  startLoading ||
-                  (currentLocationLoading && currentLocationLoadingTarget === 'start')
-                }
-                currentLocationOption={startCurrentLocationOption}
-                onSuggestionsVisibilityChange={setIsStartSuggestionsVisible}
+                onChangeText={handleLocationChange}
+                onSelectSuggestion={handleLocationSelect}
+                onClear={handleLocationClear}
+                suggestions={suggestions}
+                loading={loading || currentLocationLoading}
+                currentLocationOption={currentLocationOption}
+                onSuggestionsVisibilityChange={handleSuggestionsVisibilityChange}
               />
               </View>
             </View>
@@ -2423,13 +2466,13 @@ export default function customService() {
             <View style={styles.jobDescriptionContainer}>
               <TextInput
                 style={styles.jobDescriptionText}
-                placeholder="Describe your task...                                         (e.g.  'I need a mirror mounted on my wall.')"
+                placeholder="Describe your task...                                         (e.g.  'I need my one bedroom apartment deep cleaned.')"
                 multiline
                 numberOfLines={4}
                 placeholderTextColor="#333333ab"
                 value={description}
                 onChangeText={handleDescriptionChange}
-                onSubmitEditing={handlecustomServiceAnalysisSubmit}
+                onSubmitEditing={handlecleaningAnalysisSubmit}
                 blurOnSubmit
                 returnKeyType="done"
                 editable={!isTranscribing}
@@ -2477,11 +2520,11 @@ export default function customService() {
               <Animated.View style={styles.binarySlider}>
                 <View style={styles.binarySliderIcons}>
                   <Image 
-                    source={require('../assets/icons/ChooseHelprIcon.png')} 
+                    source={require('../../assets/icons/ChooseHelprIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 0.5 : 1, marginLeft: 7 }]} 
                   />
                   <Image 
-                    source={require('../assets/icons/AutoFillIcon.png')} 
+                    source={require('../../assets/icons/AutoFillIcon.png')} 
                     style={[styles.binarySliderIcon, { opacity: isAuto ? 1 : 0.5, marginLeft: 12 }]} 
                   />
                 </View>
@@ -2534,11 +2577,11 @@ export default function customService() {
                 <Animated.View style={styles.binarySlider}>
                   <View style={styles.binarySliderIcons2}>
                     <Image 
-                      source={require('../assets/icons/PersonalPMIcon.png')} 
+                      source={require('../../assets/icons/PersonalPMIcon.png')} 
                       style={styles.binarySliderIcon2} 
                     />
                     <Image 
-                      source={require('../assets/icons/BusinessPMIcon.png')} 
+                      source={require('../../assets/icons/BusinessPMIcon.png')} 
                       style={styles.BusinessPMIcon} 
                     />
                   </View>
@@ -2588,11 +2631,11 @@ export default function customService() {
               </View>
               <View style={styles.pmIconContainer}>
                 <Image 
-                  source={require('../assets/icons/PMIcon.png')} 
+                  source={require('../../assets/icons/PMIcon.png')} 
                   style={styles.pmIcon} 
                 />
                 <Image 
-                  source={require('../assets/icons/ArrowIcon.png')} 
+                  source={require('../../assets/icons/ArrowIcon.png')} 
                   style={[styles.arrowIcon, { resizeMode: 'contain' }]} 
                 />
               </View>
@@ -2621,7 +2664,7 @@ export default function customService() {
             <Text style={styles.signInTitle}>Sign In Required</Text>
             <View style={styles.signInDivider} />
             <Text style={styles.signInMessage}>
-              Please sign in or sign up to schedule a customService service.
+              Please sign in or sign up to schedule a cleaning service.
             </Text>
             <View style={styles.signInButtonsRow}>
               <Pressable 
@@ -2655,101 +2698,296 @@ export default function customService() {
         </View>
       </Modal>
 
-      {/* customService Analysis Modal */}
+      {/* Cleaning Type Selection Modal */}
       <Modal
-        visible={showcustomServiceAnalysisModal}
+        visible={showCleaningTypeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCleaningTypeModal(false)}
+      >
+        <View style={styles.signInOverlayBackground}>
+          <View style={styles.signInModal}>
+            <Text style={styles.signInTitle}>Select Cleaning Type</Text>
+            <View style={styles.signInDivider} />
+            <Text style={styles.signInMessage}>
+              Please select the type of cleaning you need:
+            </Text>
+            <View style={styles.cleaningTypeOptionsContainer}>
+              <Pressable 
+                style={[styles.cleaningTypeOption, cleaningType === 'basic' && styles.cleaningTypeOptionSelected]}
+                onPress={() => handleCleaningTypeSelect('basic')}
+              >
+                <Text style={[styles.cleaningTypeOptionText, cleaningType === 'basic' && styles.cleaningTypeOptionTextSelected]}>
+                  Basic Cleaning
+                </Text>
+                <Text style={styles.cleaningTypeOptionDescription}>
+                  General tidying, dusting, vacuuming, and surface cleaning
+                </Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.cleaningTypeOption, cleaningType === 'deep' && styles.cleaningTypeOptionSelected]}
+                onPress={() => handleCleaningTypeSelect('deep')}
+              >
+                <Text style={[styles.cleaningTypeOptionText, cleaningType === 'deep' && styles.cleaningTypeOptionTextSelected]}>
+                  Deep Cleaning
+                </Text>
+                <Text style={styles.cleaningTypeOptionDescription}>
+                  Comprehensive cleaning including baseboards, inside appliances, and hard-to-reach areas
+                </Text>
+              </Pressable>
+            </View>
+            <Pressable
+              style={styles.cleaningTypeModalCancelButton}
+              onPress={() => setShowCleaningTypeModal(false)}
+            >
+              <Text style={styles.cleaningTypeModalCancelButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Space Size Modal */}
+      <Modal
+        visible={showApartmentSizeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowApartmentSizeModal(false)}
+      >
+        <View style={styles.signInOverlayBackground}>
+          <View style={styles.apartmentSizeModal}>
+            <Text style={styles.apartmentSizeTitle}>Space Size</Text>
+            <View style={styles.apartmentSizeDivider} />
+            <Text style={styles.apartmentSizeMessage}>
+              Please specify the size of your home or office:
+            </Text>
+            
+            <TextInput
+              style={styles.cleaningAnalysisInput}
+              placeholder="e.g., 2-bedroom apartment, 1500 sq ft house, 3-room office..."
+              placeholderTextColor="#7C7160"
+              value={apartmentSize}
+              onChangeText={setApartmentSize}
+              autoFocus
+            />
+
+            <View style={styles.apartmentSizeButtonsRow}>
+              <Pressable
+                style={styles.apartmentSizeBackButton}
+                onPress={handleApartmentSizeBack}
+              >
+                <Text style={styles.apartmentSizeBackButtonText}>Back</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.apartmentSizeContinueButton, !apartmentSize.trim() && { opacity: 0.5 }]}
+                onPress={handleApartmentSizeSubmit}
+                disabled={!apartmentSize.trim()}
+              >
+                <Text style={styles.apartmentSizeContinueButtonText}>Continue</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Supplies Needed Modal */}
+      <Modal
+        visible={showSuppliesModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuppliesModal(false)}
+      >
+        <View style={styles.signInOverlayBackground}>
+          <View style={styles.suppliesModal}>
+            <Text style={styles.suppliesModalTitle}>Cleaning Supplies</Text>
+            <View style={styles.suppliesModalDivider} />
+            <Text style={styles.suppliesModalMessage}>
+              What cleaning supplies or equipment should your Helpr bring?
+            </Text>
+            
+            <TextInput
+              style={styles.cleaningAnalysisInput}
+              placeholder="e.g., All cleaning supplies, vacuum, mop, eco-friendly products..."
+              placeholderTextColor="#7C7160"
+              value={suppliesNeeded}
+              onChangeText={setSuppliesNeeded}
+              multiline
+              numberOfLines={3}
+              autoFocus
+            />
+
+            <View style={styles.suppliesModalButtonsRow}>
+              <Pressable
+                style={styles.suppliesModalBackButton}
+                onPress={handleSuppliesBack}
+              >
+                <Text style={styles.suppliesModalBackButtonText}>Back</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.suppliesModalContinueButton, !suppliesNeeded.trim() && { opacity: 0.5 }]}
+                onPress={handleSuppliesSubmit}
+                disabled={!suppliesNeeded.trim()}
+              >
+                <Text style={styles.suppliesModalContinueButtonText}>Continue</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Details and Photos Modal */}
+      <Modal
+        visible={showDetailsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDetailsModal(false)}
+      >
+        <View style={styles.signInOverlayBackground}>
+          <View style={styles.detailsModal}>
+            <Text style={styles.detailsModalTitle}>Any Special Requests?</Text>
+            <View style={styles.detailsModalDivider} />
+            <Text style={styles.detailsModalMessage}>
+              Share any specific details or add photos to help us understand your cleaning needs better (optional):
+            </Text>
+            
+            <TextInput
+              style={styles.specialRequestsInput}
+              placeholder="e.g., Focus on kitchen and bathrooms, pet-friendly products, etc..."
+              multiline
+              numberOfLines={4}
+              placeholderTextColor="#7C7160"
+              value={specialRequests}
+              onChangeText={setSpecialRequests}
+            />
+
+            <Pressable
+              style={styles.addPhotosButton}
+              onPress={handleDetailsPhotoUpload}
+            >
+              <SvgXml xml={cameraIconSvg} width="20" height="20" />
+              <Text style={styles.addPhotosButtonText}>Add Photos</Text>
+            </Pressable>
+
+            {detailsPhotos.length > 0 && (
+              <View style={styles.detailsPhotosSummary}>
+                <Text style={styles.detailsPhotosSummaryText}>
+                  {detailsPhotos.length} photo{detailsPhotos.length > 1 ? 's' : ''} attached
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.signInButtonsRow}>
+              <Pressable
+                style={styles.detailsModalSkipButton}
+                onPress={handleDetailsBack}
+              >
+                <Text style={styles.detailsModalSkipButtonText}>Back</Text>
+              </Pressable>
+              <Pressable 
+                style={styles.detailsModalContinueButton}
+                onPress={handleDetailsSubmit}
+              >
+                <Text style={styles.detailsModalContinueButtonText}>Continue</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* cleaning Analysis Modal */}
+      <Modal
+        visible={showcleaningAnalysisModal}
         transparent={true}
         animationType="fade"
         onRequestClose={resetCleanignAnalysisFlow}
       >
-        <View style={styles.customServiceAnalysisOverlayBackground}>
-          <View style={styles.customServiceAnalysisModal}>
-            {customServiceAnalysis.questionsToShow.length > 0 && (
+        <View style={styles.cleaningAnalysisOverlayBackground}>
+          <View style={styles.cleaningAnalysisModal}>
+            {cleaningAnalysis.questionsToShow.length > 0 && (
               <>
-                <Text style={styles.customServiceAnalysisTitle}>
-                  {customServiceAnalysis.questionsToShow[currentQuestionStep]?.title}
+                <Text style={styles.cleaningAnalysisTitle}>
+                  {cleaningAnalysis.questionsToShow[currentQuestionStep]?.title}
                 </Text>
-                <Text style={styles.customServiceAnalysisMessage}>
-                  {customServiceAnalysis.questionsToShow[currentQuestionStep]?.message}
+                <Text style={styles.cleaningAnalysisMessage}>
+                  {cleaningAnalysis.questionsToShow[currentQuestionStep]?.message}
                 </Text>
 
-                {customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && (
-                  <View style={styles.customServiceAnalysisOptionsContainer}>
+                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && (
+                  <View style={styles.cleaningAnalysisOptionsContainer}>
                     <Pressable
-                      style={[styles.customServiceAnalysisOption, needsTruck === 'yes' && styles.customServiceAnalysisOptionSelected]}
+                      style={[styles.cleaningAnalysisOption, needsTruck === 'yes' && styles.cleaningAnalysisOptionSelected]}
                       onPress={() => setNeedsTruck('yes')}
                     >
-                      <Text style={[styles.customServiceAnalysisOptionText, needsTruck === 'yes' && styles.customServiceAnalysisOptionTextSelected]}>
+                      <Text style={[styles.cleaningAnalysisOptionText, needsTruck === 'yes' && styles.cleaningAnalysisOptionTextSelected]}>
                         Yes, I need a truck
                       </Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.customServiceAnalysisOption, needsTruck === 'no' && styles.customServiceAnalysisOptionSelected]}
+                      style={[styles.cleaningAnalysisOption, needsTruck === 'no' && styles.cleaningAnalysisOptionSelected]}
                       onPress={() => setNeedsTruck('no')}
                     >
-                      <Text style={[styles.customServiceAnalysisOptionText, needsTruck === 'no' && styles.customServiceAnalysisOptionTextSelected]}>
+                      <Text style={[styles.cleaningAnalysisOptionText, needsTruck === 'no' && styles.cleaningAnalysisOptionTextSelected]}>
                         No, I don't need a truck
                       </Text>
                     </Pressable>
                   </View>
                 )}
 
-                {customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && (
-                  <View style={styles.customServiceAnalysisOptionsContainer}>
+                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && (
+                  <View style={styles.cleaningAnalysisOptionsContainer}>
                     <Pressable
-                      style={[styles.customServiceAnalysisOption, packingStatus === 'not-packed' && styles.customServiceAnalysisOptionSelected]}
+                      style={[styles.cleaningAnalysisOption, packingStatus === 'not-packed' && styles.cleaningAnalysisOptionSelected]}
                       onPress={() => setPackingStatus('not-packed')}
                     >
-                      <Text style={[styles.customServiceAnalysisOptionText, packingStatus === 'not-packed' && styles.customServiceAnalysisOptionTextSelected]}>
+                      <Text style={[styles.cleaningAnalysisOptionText, packingStatus === 'not-packed' && styles.cleaningAnalysisOptionTextSelected]}>
                         Yes, I need help packing
                       </Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.customServiceAnalysisOption, packingStatus === 'packed' && styles.customServiceAnalysisOptionSelected]}
+                      style={[styles.cleaningAnalysisOption, packingStatus === 'packed' && styles.cleaningAnalysisOptionSelected]}
                       onPress={() => setPackingStatus('packed')}
                     >
-                      <Text style={[styles.customServiceAnalysisOptionText, packingStatus === 'packed' && styles.customServiceAnalysisOptionTextSelected]}>
+                      <Text style={[styles.cleaningAnalysisOptionText, packingStatus === 'packed' && styles.cleaningAnalysisOptionTextSelected]}>
                         No, everything is already packed
                       </Text>
                     </Pressable>
                   </View>
                 )}
 
-                {customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && (
-                  <View style={styles.customServiceAnalysisOptionsContainer}>
+                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && (
+                  <View style={styles.cleaningAnalysisOptionsContainer}>
                     <Pressable
-                      style={[styles.customServiceAnalysisOption, boxesNeeded === 'yes' && styles.customServiceAnalysisOptionSelected]}
+                      style={[styles.cleaningAnalysisOption, boxesNeeded === 'yes' && styles.cleaningAnalysisOptionSelected]}
                       onPress={() => setBoxesNeeded('yes')}
                     >
-                      <Text style={[styles.customServiceAnalysisOptionText, boxesNeeded === 'yes' && styles.customServiceAnalysisOptionTextSelected]}>
+                      <Text style={[styles.cleaningAnalysisOptionText, boxesNeeded === 'yes' && styles.cleaningAnalysisOptionTextSelected]}>
                         Yes, please bring boxes
                       </Text>
                     </Pressable>
                     <Pressable
-                      style={[styles.customServiceAnalysisOption, boxesNeeded === 'no' && styles.customServiceAnalysisOptionSelected]}
+                      style={[styles.cleaningAnalysisOption, boxesNeeded === 'no' && styles.cleaningAnalysisOptionSelected]}
                       onPress={() => setBoxesNeeded('no')}
                     >
-                      <Text style={[styles.customServiceAnalysisOptionText, boxesNeeded === 'no' && styles.customServiceAnalysisOptionTextSelected]}>
+                      <Text style={[styles.cleaningAnalysisOptionText, boxesNeeded === 'no' && styles.cleaningAnalysisOptionTextSelected]}>
                         No, I have boxes
                       </Text>
                     </Pressable>
                   </View>
                 )}
 
-                {customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && (
+                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && (
                   <TextInput
-                    style={styles.customServiceAnalysisInput}
-                    placeholder={customServiceAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
+                    style={styles.cleaningAnalysisInput}
+                    placeholder={cleaningAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
                     value={apartmentSize}
                     onChangeText={setApartmentSize}
                     autoFocus
                   />
                 )}
 
-                {customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && (
+                {cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && (
                   <TextInput
-                    style={styles.customServiceAnalysisInput}
-                    placeholder={customServiceAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
+                    style={styles.cleaningAnalysisInput}
+                    placeholder={cleaningAnalysis.questionsToShow[currentQuestionStep]?.placeholder}
                     value={furnitureScope}
                     onChangeText={setFurnitureScope}
                     autoFocus
@@ -2758,26 +2996,26 @@ export default function customService() {
                   />
                 )}
 
-                <View style={styles.customServiceAnalysisButtonsRow}>
+                <View style={styles.cleaningAnalysisButtonsRow}>
                   <Pressable 
-                    style={styles.customServiceAnalysisCancelButton}
+                    style={styles.cleaningAnalysisCancelButton}
                     onPress={handleAnalysisModalBack}
                   >
-                    <Text style={styles.customServiceAnalysisCancelButtonText}>Back</Text>
+                    <Text style={styles.cleaningAnalysisCancelButtonText}>Back</Text>
                   </Pressable>
                   <Pressable 
-                    style={styles.customServiceAnalysisButton}
+                    style={styles.cleaningAnalysisButton}
                     onPress={handleAnalysisModalSubmit}
                     disabled={
-                      (customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && !packingStatus) ||
-                      (customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && !needsTruck) ||
-                      (customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && !boxesNeeded) ||
-                      (customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && !apartmentSize.trim()) ||
-                      (customServiceAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && !furnitureScope.trim())
+                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'packingStatus' && !packingStatus) ||
+                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'needsTruck' && !needsTruck) ||
+                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'boxesNeeded' && !boxesNeeded) ||
+                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'apartmentSize' && !apartmentSize.trim()) ||
+                      (cleaningAnalysis.questionsToShow[currentQuestionStep]?.id === 'furnitureScope' && !furnitureScope.trim())
                     }
                   >
-                    <Text style={styles.customServiceAnalysisButtonText}>
-                      {currentQuestionStep < customServiceAnalysis.questionsToShow.length - 1 ? 'Next' : 'Continue'}
+                    <Text style={styles.cleaningAnalysisButtonText}>
+                      {currentQuestionStep < cleaningAnalysis.questionsToShow.length - 1 ? 'Next' : 'Continue'}
                     </Text>
                   </Pressable>
                 </View>
@@ -3451,7 +3689,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   signInModal: {
-    width: '70%',
+    width: '80%',
     backgroundColor: '#FFF8E8',
     borderRadius: 30,
     paddingTop: 10,
@@ -3543,14 +3781,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
-  // customService Analysis Modal Styles
-  customServiceAnalysisOverlayBackground: {
+  // cleaning Analysis Modal Styles
+  cleaningAnalysisOverlayBackground: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  customServiceAnalysisModal: {
+  cleaningAnalysisModal: {
     width: '85%',
     backgroundColor: '#FFF8E8',
     borderRadius: 30,
@@ -3565,14 +3803,14 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 10,
   },
-  customServiceAnalysisTitle: {
+  cleaningAnalysisTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#0c4309',
     textAlign: 'center',
     marginBottom: 15,
   },
-  customServiceAnalysisMessage: {
+  cleaningAnalysisMessage: {
     fontSize: 14,
     fontWeight: '500',
     color: '#0c4309',
@@ -3580,7 +3818,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 20,
   },
-  customServiceAnalysisInput: {
+  cleaningAnalysisInput: {
     width: '100%',
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
@@ -3593,16 +3831,16 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     textAlignVertical: 'top',
   },
-  customServiceAnalysisRadioGroup: {
+  cleaningAnalysisRadioGroup: {
     width: '100%',
     marginBottom: 20,
   },
-  customServiceAnalysisRadioOption: {
+  cleaningAnalysisRadioOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
   },
-  customServiceAnalysisRadioButton: {
+  cleaningAnalysisRadioButton: {
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -3612,21 +3850,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  customServiceAnalysisRadioSelected: {
+  cleaningAnalysisRadioSelected: {
     backgroundColor: '#0c4309',
   },
-  customServiceAnalysisRadioText: {
+  cleaningAnalysisRadioText: {
     fontSize: 16,
     color: '#0c4309',
     fontWeight: '500',
   },
-  customServiceAnalysisButtonsRow: {
+  cleaningAnalysisButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
     gap: 12,
   },
-  customServiceAnalysisButton: {
+  cleaningAnalysisButton: {
     flex: 1,
     backgroundColor: '#0c4309',
     borderRadius: 25,
@@ -3640,13 +3878,13 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  customServiceAnalysisButtonText: {
+  cleaningAnalysisButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
-  customServiceAnalysisCancelButton: {
+  cleaningAnalysisCancelButton: {
     flex: 1,
     backgroundColor: '#E5DCC9',
     borderRadius: 25,
@@ -3662,17 +3900,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  customServiceAnalysisCancelButtonText: {
+  cleaningAnalysisCancelButtonText: {
     color: '#0c4309',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
-  customServiceAnalysisOptionsContainer: {
+  cleaningAnalysisOptionsContainer: {
     width: '100%',
     marginBottom: 20,
   },
-  customServiceAnalysisOption: {
+  cleaningAnalysisOption: {
     backgroundColor: '#E5DCC9',
     borderRadius: 10,
     paddingVertical: 15,
@@ -3681,18 +3919,356 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#E5DCC9',
   },
-  customServiceAnalysisOptionSelected: {
+  cleaningAnalysisOptionSelected: {
     backgroundColor: '#0c4309',
     borderColor: '#0c4309',
   },
-  customServiceAnalysisOptionText: {
+  cleaningAnalysisOptionText: {
     fontSize: 16,
     color: '#0c4309',
     fontWeight: '500',
     textAlign: 'center',
   },
-  customServiceAnalysisOptionTextSelected: {
+  cleaningAnalysisOptionTextSelected: {
     color: '#FFFFFF',
+  },
+  cleaningTypeOptionsContainer: {
+    width: '100%',
+    marginVertical: 15,
+  },
+  cleaningTypeOption: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#E5DCC9',
+  },
+  cleaningTypeOptionSelected: {
+    backgroundColor: '#0c4309',
+    borderColor: '#0c4309',
+  },
+  cleaningTypeOptionText: {
+    fontSize: 18,
+    color: '#0c4309',
+    fontWeight: '600',
+    marginBottom: 5,
+  },
+  cleaningTypeOptionTextSelected: {
+    color: '#FFFFFF',
+  },
+  cleaningTypeOptionDescription: {
+    fontSize: 13,
+    color: '#666666',
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  detailsModal: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 20,
+    paddingVertical: 30,
+    paddingHorizontal: 25,
+    width: '85%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  detailsModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0c4309',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  detailsModalDivider: {
+    alignSelf: 'stretch',
+    height: 1,
+    backgroundColor: '#CAC4D0',
+    marginBottom: 10,
+    marginHorizontal: -25,
+  },
+  detailsModalMessage: {
+    fontSize: 12,
+    color: '#49454F',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 15,
+  },
+  detailsModalSkipButton: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    flex: 1,
+    marginRight: 8,
+    borderWidth: 2,
+    borderColor: '#0c4309',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailsModalSkipButtonText: {
+    color: '#0c4309',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  detailsModalContinueButton: {
+    backgroundColor: '#0c4309',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    flex: 1,
+    marginLeft: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  detailsModalContinueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  specialRequestsInput: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333333',
+    borderWidth: 1,
+    borderColor: '#0c4309',
+    marginVertical: 15,
+    textAlignVertical: 'top',
+    minHeight: 100,
+  },
+  addPhotosButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0c4309',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginBottom: 15,
+    gap: 10,
+  },
+  addPhotosButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  detailsPhotosSummary: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#0c4309',
+  },
+  detailsPhotosSummaryText: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  apartmentSizeModal: {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 20,
+    padding: 25,
+    width: '90%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  apartmentSizeTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0c4309',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  apartmentSizeDivider: {
+    height: 1,
+    backgroundColor: '#CAC4D0',
+    marginBottom: 15,
+  },
+  apartmentSizeMessage: {
+    fontSize: 12,
+    color: '#49454F',
+    marginBottom: 20,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  apartmentSizeButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 10,
+  },
+  apartmentSizeBackButton: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    flex: 1,
+    borderWidth: 2,
+    borderColor: '#0c4309',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  apartmentSizeBackButtonText: {
+    color: '#0c4309',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  apartmentSizeContinueButton: {
+    backgroundColor: '#0c4309',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    flex: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  apartmentSizeContinueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  suppliesModal: {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 20,
+    padding: 25,
+    width: '90%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  suppliesModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0c4309',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  suppliesModalDivider: {
+    height: 1,
+    backgroundColor: '#CAC4D0',
+    marginBottom: 15,
+  },
+  suppliesModalMessage: {
+    fontSize: 12,
+    color: '#49454F',
+    marginBottom: 20,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  suppliesModalButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 10,
+  },
+  suppliesModalBackButton: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    flex: 1,
+    borderWidth: 2,
+    borderColor: '#0c4309',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  suppliesModalBackButtonText: {
+    color: '#0c4309',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  suppliesModalContinueButton: {
+    backgroundColor: '#0c4309',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    flex: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  suppliesModalContinueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  cleaningTypeModalCancelButton: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    marginTop: 15,
+    borderWidth: 2,
+    borderColor: '#0c4309',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    width: '100%',
+  },
+  cleaningTypeModalCancelButtonText: {
+    color: '#0c4309',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 
