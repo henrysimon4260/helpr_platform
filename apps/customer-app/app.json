@@ -7,12 +7,15 @@
     "icon": "./src/assets/icon.png",
     "scheme": "customerapp",
     "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0C4309",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "com.helpr.customer-app"
+      "bundleIdentifier": "com.helpr.customer-app",
+      "backgroundColor": "#0C4309"
     },
     "android": {
       "package": "com.helpr.customer_app",
+      "backgroundColor": "#0C4309",
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/icon.png",
         "backgroundColor": "#0C4309"

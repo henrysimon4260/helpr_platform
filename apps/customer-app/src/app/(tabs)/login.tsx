@@ -1,7 +1,8 @@
+import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
-import { useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Image, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { supabase } from '../../lib/supabase';
@@ -18,11 +19,7 @@ export default function Login() {
   const [otpCode, setOtpCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const searchParams = useLocalSearchParams();
-  const showSplash = searchParams.splash === 'true';
 
-  const splashFadeAnim = useRef(new Animated.Value(1)).current;
-  const splashScaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     // Listen for auth state changes to handle deleted accounts
@@ -51,25 +48,7 @@ export default function Login() {
     console.log('Login screen loaded - dev menu should be hidden via app.json');
   }, []);
 
-  useEffect(() => {
-    if (showSplash) {
-      const dissolveAnimation = Animated.parallel([
-        Animated.timing(splashFadeAnim, {
-          toValue: 0,
-          duration: 1400,
-          easing: Easing.bezier(0.22, 1, 0.36, 1),
-          useNativeDriver: true,
-        }),
-        Animated.timing(splashScaleAnim, {
-          toValue: 0.95,
-          duration: 1400,
-          easing: Easing.bezier(0.22, 1, 0.36, 1),
-          useNativeDriver: true,
-        }),
-      ]);
-      dissolveAnimation.start();
-    }
-  }, [splashFadeAnim, splashScaleAnim, showSplash]);
+
 
   const redirectAfterAuth = useCallback(() => {
     const returnTo = getReturnTo();
@@ -186,14 +165,28 @@ export default function Login() {
   };
 
   const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-    });
+    try {
+      const redirectUrl = Linking.createURL('/auth/callback');
+      console.log('📱 App Redirect URL:', redirectUrl);
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
+        },
+      });
 
-    if (error) {
+      if (error) throw error;
+
+      if (data?.url) {
+        await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+      }
+    } catch (error) {
+      console.error('❌ Google Sign-In Error:', error);
       showModal({
         title: 'Error',
-        message: error.message,
+        message: error instanceof Error ? error.message : 'An error occurred',
       });
     }
   };
@@ -276,15 +269,16 @@ export default function Login() {
   };
 
   return (
-    <View style={styles.container}>
-        
-      <View style={styles.signInDivider}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={styles.container}>
           
-          <Text style={styles.title}>Sign in</Text>
-          
-        </View>
+        <View style={styles.signInDivider}>
+            
+            <Text style={styles.title}>Sign In</Text>
+            
+          </View>
 
-      <View style={styles.formContainer}>
+        <View style={styles.formContainer}>
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -322,18 +316,28 @@ export default function Login() {
           <Text style={styles.secondaryButtonText}>Sign Up</Text>
         </Pressable>
 
-        <View style={styles.orDivider}>
-          <View style={styles.orDividerLine} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.orDividerLine} />
+        <View style={styles.orContainer}>
+          <View style={styles.orLine} />
+          <Text style={styles.orText}>or</Text>
+          <View style={styles.orLine} />
         </View>
 
         <Pressable style={styles.socialButton} onPress={signInWithGoogle}>
           <Image
-            source={{ uri: 'https://developers.google.com/identity/images/g-logo.png' }}
+            source={require('../../assets/icons/google-icon.png')}
             style={styles.socialIcon}
+            resizeMode="contain"
           />
           <Text style={styles.socialButtonText}>Continue with Google</Text>
+        </Pressable>
+
+        <Pressable style={styles.socialButton} onPress={() => showModal({ title: 'Coming Soon', message: 'Apple Sign In is not yet implemented.' })}>
+          <Image
+            source={require('../../assets/icons/apple-icon.png')}
+            style={styles.appleIcon}
+            resizeMode="contain"
+          />
+          <Text style={styles.socialButtonText}>Continue with Apple</Text>
         </Pressable>
 
         <Pressable style={styles.skipLink} onPress={skipSignIn}>
@@ -396,22 +400,8 @@ export default function Login() {
         </View>
       </Modal>
       
-      {showSplash && (
-        <Animated.View style={[
-          styles.splashOverlay,
-          { 
-            opacity: splashFadeAnim,
-            transform: [{ scale: splashScaleAnim }]
-          }
-        ]}>
-          <Image 
-            source={require('../../assets/images/splash.png')}
-            style={styles.splashImage}
-            resizeMode="cover"
-          />
-        </Animated.View>
-      )}
-    </View>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -420,17 +410,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFF8E8',
     justifyContent: 'center',
-    padding: 20,
+    padding: 24,
   },
   headerContainer: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 24,
+    fontWeight: 'bold',
     color: '#0c4309',
-    marginTop: 90,
   },
   formContainer: {
     width: '100%',
@@ -439,7 +428,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5DCC9',
     borderRadius: 30,
     padding: 15,
-    marginBottom: 15,
+    marginBottom: 16,
     paddingLeft: 20,
     fontSize: 16,
     color: '#49454F',
@@ -449,7 +438,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#E5DCC9',
     borderRadius: 30,
-    marginBottom: 15,
+    marginBottom: 16,
     paddingLeft: 20,
     paddingRight: 10,
   },
@@ -470,11 +459,10 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: '#0c4309',
-    borderRadius: 10,
+    borderRadius: 30,
     padding: 15,
     alignItems: 'center',
-    marginBottom: 10,
-    marginTop: 5,
+    marginBottom: 16,
   },
   buttonText: {
     color: '#FFFFFF',
@@ -482,13 +470,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   secondaryButton: {
-    backgroundColor: 'transparent',
-    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
     padding: 13,
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 0,
     borderWidth: 1,
-    borderColor: '#cfbf9dff',
+    borderColor: '#E5DCC9',
   },
   secondaryButtonText: {
     color: '#0c4309',
@@ -497,52 +485,53 @@ const styles = StyleSheet.create({
   },
 
   signInDivider: {
-    marginVertical: 15,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 100,
-    marginBottom: 15,
+    marginBottom: 36,
   },
-  orDivider: {
+  orContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    justifyContent: 'center',
+    marginVertical: 16,
   },
-  signInDividerLine: {
-    width: '40%',
-    height: 1,
-    backgroundColor: '#cfbf9dff',
-    marginHorizontal: 10,
-  },
-  orDividerLine: {
+  orLine: {
     flex: 1,
     height: 1,
     backgroundColor: '#cfbf9dff',
-  },
-  dividerText: {
-    marginVertical: 15,
-    marginBottom: 15,
-    textAlign: 'center',
     marginHorizontal: 10,
+  },
+  orText: {
+    textAlign: 'center',
     color: '#49454F',
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '500',
+    paddingBottom: 2, // Slight adjustment for visual centering if needed
   },
   socialButton: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+    borderRadius: 30,
     padding: 15,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#E5DCC9',
+    marginBottom: 16,
   },
   socialIcon: {
     width: 20,
     height: 20,
     marginRight: 10,
+    backgroundColor: 'transparent',
+  },
+  appleIcon: {
+    width: 24,
+    height: 24,
+    marginRight: 10,
+    backgroundColor: 'transparent',
+    marginTop: -4,
   },
   socialButtonText: {
     color: '#49454F',
@@ -559,21 +548,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 60,
-    paddingVertical: 10,
+    paddingTop: 30,
   },
 
   skipLinkText: {
     color: '#0c4309',
     fontSize: 16,
     fontWeight: '500',
-  },
-  orText: {
-    textAlign: 'center',
-    color: '#49454F',
-    fontSize: 14,
-    marginTop: 30,
-    marginBottom: 2,
   },
   verificationText: {
     textAlign: 'center',
@@ -680,18 +661,5 @@ const styles = StyleSheet.create({
     right: 0,
     height: 50, // Covers the typical dev menu button area
     backgroundColor: 'transparent',
-  },
-  splashOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
-  },
-  splashImage: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
   },
 });

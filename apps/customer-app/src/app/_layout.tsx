@@ -52,13 +52,12 @@ export default function Layout() {
         <Stack
           screenOptions={{
             headerShown: false,
+            animation: 'none',
+            contentStyle: { backgroundColor: '#0C4309' },
           }}
         >
         <Stack.Screen name="index" options={{ animation: 'none' }} />
-        <Stack.Screen name="login" options={{ animation: 'fade', animationDuration: 100 }} />
-        <Stack.Screen name="signup" options={{ animation: 'fade', animationDuration: 100 }} />
-        <Stack.Screen name="account" options={{ animation: 'fade', animationDuration: 100 }} />
-        <Stack.Screen name="landing" options={{ animation: 'none' }} />
+        <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
         <Stack.Screen name="moving" options={{ animation: 'fade' , animationDuration: 100}} />
         <Stack.Screen name="cleaning" options={{ animation: 'fade' , animationDuration: 100}} />
         <Stack.Screen name="furniture-assembly" options={{ animation: 'fade',animationDuration: 100}} />
