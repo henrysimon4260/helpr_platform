@@ -23,6 +23,8 @@ public class AppDelegate: ExpoAppDelegate {
 
 #if os(iOS) || os(tvOS)
     window = UIWindow(frame: UIScreen.main.bounds)
+    // Set window background to match splash screen to prevent white flash
+    window?.backgroundColor = UIColor(red: 12.0/255.0, green: 67.0/255.0, blue: 9.0/255.0, alpha: 1.0)
     factory.startReactNative(
       withModuleName: "main",
       in: window,

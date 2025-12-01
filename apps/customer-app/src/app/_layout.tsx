@@ -53,6 +53,7 @@ export default function Layout() {
           screenOptions={{
             headerShown: false,
             animation: 'none',
+            contentStyle: { backgroundColor: '#0C4309' },
           }}
         >
         <Stack.Screen name="index" options={{ animation: 'none' }} />

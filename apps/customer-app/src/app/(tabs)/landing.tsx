@@ -72,12 +72,12 @@ export default function Landing() {
   }, []);
 
   useEffect(() => {
-    // Normal fade in
+    // Smooth fade in from green splash to beige landing
     fadeAnim.setValue(0);
     const fadeInAnimation = Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 1700,
-      delay: 150,
+      duration: 1200,
+      delay: 0,
       easing: Easing.bezier(0.16, 1, 0.3, 1),
       useNativeDriver: true,
     });

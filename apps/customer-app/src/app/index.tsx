@@ -26,11 +26,11 @@ export default function SplashComponent() {
         console.warn('Splash screen error:', error);
       }
 
-      // Wait a brief moment to ensure smooth start, then begin fade
+      // Wait longer to show splash, then fade quicker
       setTimeout(() => {
         Animated.timing(fadeAnim, {
           toValue: 0,
-          duration: 1600,
+          duration: 1200,
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }).start(({ finished }) => {
@@ -41,7 +41,7 @@ export default function SplashComponent() {
             router.replace(targetRoute as any);
           }
         });
-      }, 100);
+      }, 800);
     };
 
     navigateAfterSplash();
@@ -63,7 +63,7 @@ export default function SplashComponent() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8E8',
+    backgroundColor: '#0C4309',
   },
   splashContainer: {
     flex: 1,
