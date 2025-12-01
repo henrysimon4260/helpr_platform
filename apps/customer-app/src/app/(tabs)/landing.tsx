@@ -3,7 +3,7 @@ import { Audio } from 'expo-av';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, FlatList, Image, ImageSourcePropType, InteractionManager, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
@@ -39,15 +39,12 @@ const resolveOpenAIApiKey = () => {
 export default function Landing() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const searchParams = useLocalSearchParams();
-  const showSplash = searchParams.splash === 'true';
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [canRenderLottie, setCanRenderLottie] = useState(Platform.OS !== 'web');
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const landingScaleAnim = useRef(new Animated.Value(0.9)).current;
   const openAiApiKey = useMemo(resolveOpenAIApiKey, []);
   const [jobDescription, setJobDescription] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -62,9 +59,6 @@ export default function Landing() {
   const statusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previousServiceStatusesRef = useRef<Record<string, string>>({});
 
-  const splashFadeAnim = useRef(new Animated.Value(1)).current;
-  const splashScaleAnim = useRef(new Animated.Value(1)).current;
-
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
       setCanRenderLottie(false);
@@ -78,57 +72,17 @@ export default function Landing() {
   }, []);
 
   useEffect(() => {
-    if (showSplash) {
-      // Animate splash away
-      const dissolveAnimation = Animated.parallel([
-        Animated.timing(splashFadeAnim, {
-          toValue: 0,
-          duration: 1400,
-          easing: Easing.bezier(0.22, 1, 0.36, 1),
-          useNativeDriver: true,
-        }),
-        Animated.timing(splashScaleAnim, {
-          toValue: 0.95,
-          duration: 1400,
-          easing: Easing.bezier(0.22, 1, 0.36, 1),
-          useNativeDriver: true,
-        }),
-      ]);
-      dissolveAnimation.start();
-      // Set landing to visible immediately
-      fadeAnim.setValue(1);
-      landingScaleAnim.setValue(1);
-    } else {
-      // Normal fade in
-      fadeAnim.setValue(0);
-      landingScaleAnim.setValue(0.9);
-      const fadeInAnimation = Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 1700,
-          delay: 150,
-          easing: Easing.bezier(0.16, 1, 0.3, 1),
-          useNativeDriver: true,
-        }),
-        Animated.timing(landingScaleAnim, {
-          toValue: 1,
-          duration: 1700,
-          delay: 150,
-          easing: Easing.bezier(0.16, 1, 0.3, 1),
-          useNativeDriver: true,
-        }),
-      ]);
-      fadeInAnimation.start();
-    }
-
-    return () => {
-      if (showSplash) {
-        // Stop splash animation
-      } else {
-        // Stop fade in
-      }
-    };
-  }, [fadeAnim, landingScaleAnim, splashFadeAnim, splashScaleAnim, showSplash]);
+    // Normal fade in
+    fadeAnim.setValue(0);
+    const fadeInAnimation = Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 1700,
+      delay: 150,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+      useNativeDriver: true,
+    });
+    fadeInAnimation.start();
+  }, [fadeAnim]);
 
   useEffect(() => {
     if (isRecording) {
@@ -530,185 +484,171 @@ export default function Landing() {
   );
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <Animated.View style={[styles.fadeContainer, { opacity: fadeAnim, transform: [{ scale: landingScaleAnim }] }]}> 
-        <KeyboardAvoidingView
-          style={styles.root}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
-        >
-        <StatusBar style="dark" backgroundColor="#0c4309" />
-        <View style={styles.container}>
-          <View style={styles.contentArea}>
-            <Text style={styles.title}>What can we help with?</Text>
-            <Text style={styles.popularTitle}>Popular Services</Text>
-          <View style={styles.servicesWrapper}>
-            <FlatList
-              data={services}
-              renderItem={renderService}
-              keyExtractor={(item) => item.id}
-              numColumns={3}
-              columnWrapperStyle={styles.row}
-              contentContainerStyle={styles.listContent}
-              scrollEnabled={false}
-            />
-          </View>
-
-          <View style={styles.orContainer}>
-            <View style={styles.orLine} />
-            <Text style={styles.orText}>or</Text>
-            <View style={styles.orLine} />
-          </View>
-
-          <Text style={styles.makeYourCustomServiceText}>Make A Custom Service</Text>
-        </View>
-      </View>
-
-      {/* Screen-wide overlay, outside the padded container (true screen edges) */}
-      <View pointerEvents="box-none" style={styles.overlay}>
-        {/* Large animation view (visual only, no touches) */}
-        <View style={[styles.menuButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
-          {Platform.OS === 'web' || !canRenderLottie ? (
-            <Text style={[styles.menuIconTextLarge, { color: '#0c4309' }]}>☰</Text>
-          ) : (
-            <LottieView
-              ref={lottieRef}
-              source={require('../../assets/animations/menuButtonAnimation.json')}
-              autoPlay={false}
-              loop={false}
-              style={styles.lottieAnimationLarge}
-            />
-          )}
-        </View>
-        
-        {/* Small pressable area for toggling (matches closed button size) */}
-        <Pressable 
-          onPress={handleMenuPress} 
-          style={styles.menuTogglePressable}
-        />
-
-        <View style={[styles.helpButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
-          {Platform.OS === 'web' || !canRenderLottie ? (
-            <SvgXml xml={helpIconSvg} width="20" height="20" />
-          ) : (
-            <LottieView
-              ref={helpLottieRef}
-              source={require('../../assets/animations/helpButtonAnimation.json')}
-              autoPlay={false}
-              loop={false}
-              style={styles.lottieAnimationLarge}
-            />
-          )}
-        </View>
-        
-        {/* Small pressable area for toggling (matches closed button size) */}
-        <Pressable 
-          onPress={handleHelpPress} 
-          style={styles.helpTogglePressable}
-        />
-  
-        {/* Invisible overlay with visible menu items */}
-        {isMenuOpen && (
-          <>
-          {/* Full-screen dismiss overlay (taps here close the menu) */}
-          <Pressable
-            style={styles.dismissOverlay}
-            onPress={() => {
-              if (Platform.OS !== 'web' && lottieRef.current) {
-                lottieRef.current.play(24, 0); // Reverse the open animation
-              }
-              setIsMenuOpen(false);
-            }}
-          />
-          {/* Menu Overlay */}
-          <View style={styles.menuOverlay}>
-            <View style={styles.menuContainer}>
-              <Pressable 
-                style={styles.menuItem} 
-                onPress={() => {
-                  setIsMenuOpen(false);
-                  navigate('booked-services');
-                }}
-              >
-                <View style={styles.menuItemRow}>
-                  <Text style={styles.menuItemText}>Booked Services</Text>
-                </View>
-              </Pressable>
-              
-              <Pressable 
-                style={styles.menuItem} 
-                onPress={() => {
-                  setIsMenuOpen(false);
-                  navigate('past-services');
-                }}
-              >
-                <View style={styles.menuItemRow}>
-                  <Text style={styles.menuItemText}>Past Services</Text>
-                </View>
-              </Pressable>
-              
-              <Pressable 
-                style={styles.menuItem} 
-                onPress={handleAccountPress}
-              >
-                <View style={styles.menuItemRow}>
-                  <Text style={styles.menuItemText}>Account</Text>
-                </View>
-              </Pressable>
+    <View style={{ flex: 1 }}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <Animated.View style={[styles.fadeContainer, { opacity: fadeAnim }]}> 
+          <KeyboardAvoidingView
+            style={styles.root}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+          >
+          <StatusBar style="dark" backgroundColor="#0c4309" />
+          <View style={styles.container}>
+            <View style={styles.contentArea}>
+              <Text style={styles.title}>What can we help with?</Text>
+              <Text style={styles.popularTitle}>Popular Services</Text>
+            <View style={styles.servicesWrapper}>
+              <FlatList
+                data={services}
+                renderItem={renderService}
+                keyExtractor={(item) => item.id}
+                numColumns={3}
+                columnWrapperStyle={styles.row}
+                contentContainerStyle={styles.listContent}
+                scrollEnabled={false}
+              />
             </View>
+
+            <View style={styles.orContainer}>
+              <View style={styles.orLine} />
+              <Text style={styles.orText}>or</Text>
+              <View style={styles.orLine} />
+            </View>
+
+            <Text style={styles.makeYourCustomServiceText}>Make A Custom Service</Text>
           </View>
-          </>
-        )}
-        {isHelpMenuOpen && (
-          <>
-          {/* Full-screen dismiss overlay (taps here close the help menu) */}
-          <Pressable
-            style={styles.dismissOverlay}
-            onPress={() => {
-              if (Platform.OS !== 'web' && helpLottieRef.current) {
-                helpLottieRef.current.play(24, 0); // Reverse the open animation
-              }
-              setIsHelpMenuOpen(false);
-            }}
+        </View>
+
+        {/* Screen-wide overlay, outside the padded container (true screen edges) */}
+        <View pointerEvents="box-none" style={styles.overlay}>
+          {/* Large animation view (visual only, no touches) */}
+          <View style={[styles.menuButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
+            {Platform.OS === 'web' || !canRenderLottie ? (
+              <Text style={[styles.menuIconTextLarge, { color: '#0c4309' }]}>☰</Text>
+            ) : (
+              <LottieView
+                ref={lottieRef}
+                source={require('../../assets/animations/menuButtonAnimation.json')}
+                autoPlay={false}
+                loop={false}
+                style={styles.lottieAnimationLarge}
+              />
+            )}
+          </View>
+          
+          {/* Small pressable area for toggling (matches closed button size) */}
+          <Pressable 
+            onPress={handleMenuPress} 
+            style={styles.menuTogglePressable}
           />
-          {/* Help Button overlay */}
-          <View style={styles.helpMenuOverlay}>
-            <View style={styles.helpMenuContainer}>
-              <Pressable 
-                style={styles.helpMenuItem} 
-                onPress={() => {
-                  setIsMenuOpen(false);
-                  navigate('customer-service-chat');
-                }}
-              >
-              <View style={styles.menuItemRow}>
-                <Text style={styles.menuItemText}>Customer Service Chat</Text>
+
+          <View style={[styles.helpButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
+            {Platform.OS === 'web' || !canRenderLottie ? (
+              <SvgXml xml={helpIconSvg} width="20" height="20" />
+            ) : (
+              <LottieView
+                ref={helpLottieRef}
+                source={require('../../assets/animations/helpButtonAnimation.json')}
+                autoPlay={false}
+                loop={false}
+                style={styles.lottieAnimationLarge}
+              />
+            )}
+          </View>
+          
+          {/* Small pressable area for toggling (matches closed button size) */}
+          <Pressable 
+            onPress={handleHelpPress} 
+            style={styles.helpTogglePressable}
+          />
+    
+          {/* Invisible overlay with visible menu items */}
+          {isMenuOpen && (
+            <>
+            {/* Full-screen dismiss overlay (taps here close the menu) */}
+            <Pressable
+              style={styles.dismissOverlay}
+              onPress={() => {
+                if (Platform.OS !== 'web' && lottieRef.current) {
+                  lottieRef.current.play(24, 0); // Reverse the open animation
+                }
+                setIsMenuOpen(false);
+              }}
+            />
+            {/* Menu Overlay */}
+            <View style={styles.menuOverlay}>
+              <View style={styles.menuContainer}>
+                <Pressable 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setIsMenuOpen(false);
+                    navigate('booked-services');
+                  }}
+                >
+                  <View style={styles.menuItemRow}>
+                    <Text style={styles.menuItemText}>Booked Services</Text>
+                  </View>
+                </Pressable>
+                
+                <Pressable 
+                  style={styles.menuItem} 
+                  onPress={() => {
+                    setIsMenuOpen(false);
+                    navigate('past-services');
+                  }}
+                >
+                  <View style={styles.menuItemRow}>
+                    <Text style={styles.menuItemText}>Past Services</Text>
+                  </View>
+                </Pressable>
+                
+                <Pressable 
+                  style={styles.menuItem} 
+                  onPress={handleAccountPress}
+                >
+                  <View style={styles.menuItemRow}>
+                    <Text style={styles.menuItemText}>Account</Text>
+                  </View>
+                </Pressable>
               </View>
-              </Pressable>
             </View>
+            </>
+          )}
+          {isHelpMenuOpen && (
+            <>
+            {/* Full-screen dismiss overlay (taps here close the help menu) */}
+            <Pressable
+              style={styles.dismissOverlay}
+              onPress={() => {
+                if (Platform.OS !== 'web' && helpLottieRef.current) {
+                  helpLottieRef.current.play(24, 0); // Reverse the open animation
+                }
+                setIsHelpMenuOpen(false);
+              }}
+            />
+            {/* Help Button overlay */}
+            <View style={styles.helpMenuOverlay}>
+              <View style={styles.helpMenuContainer}>
+                <Pressable 
+                  style={styles.helpMenuItem} 
+                  onPress={() => {
+                    setIsMenuOpen(false);
+                    navigate('customer-service-chat');
+                  }}
+                >
+                <View style={styles.menuItemRow}>
+                  <Text style={styles.menuItemText}>Customer Service Chat</Text>
+                </View>
+                </Pressable>
+              </View>
+            </View>
+            </>
+          )}
           </View>
-          </>
-        )}
-        </View>
-      </KeyboardAvoidingView>
-      </Animated.View>
-
-      {showSplash && (
-        <Animated.View style={[
-          styles.splashOverlay,
-          { 
-            opacity: splashFadeAnim,
-            transform: [{ scale: splashScaleAnim }]
-          }
-        ]}>
-          <Image 
-            source={require('../../assets/images/splash.png')}
-            style={styles.splashImage}
-            resizeMode="cover"
-          />
+        </KeyboardAvoidingView>
         </Animated.View>
-      )}
-    </TouchableWithoutFeedback>
+      </TouchableWithoutFeedback>
+    </View>
   );  
 }
 
@@ -725,13 +665,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'transparent',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingTop: 80,
   },
   contentArea: {
     flex: 1,
     justifyContent: 'flex-start',
-    paddingBottom: 50,
+    paddingBottom: 48,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -741,34 +681,34 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#0c4309',
-    marginBottom: 20,
-    marginTop: 10,
+    marginBottom: 24,
+    marginTop: 16,
     textAlign: 'center',
   },
   popularTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#0c4309',
-    marginBottom: 5,
-    marginTop: 5,
+    marginBottom: 16,
+    marginTop: 8,
     textAlign: 'center',
   },
   servicesWrapper: {
-    height: 300,
+    height: 320,
   },
   listContent: {
-    paddingTop: 15,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   row: {
     justifyContent: 'center',
-    gap: 10,
+    gap: 16,
   },
   serviceItem: {
     flex: 1,
     alignItems: 'center',
-    marginBottom: 15,
-    marginTop: 5,
+    marginBottom: 24,
+    marginTop: 8,
     maxWidth: '30%',
   },
   serviceImage: {
@@ -780,21 +720,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: '#0c4309',
-    marginTop: 10,
+    marginTop: 8,
     textAlign: 'center',
   },
   orContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 15,
+    marginVertical: 32,
   },
   orText: {
     fontSize: 16,
     fontWeight: '500',
     color: '#0c4309',
     textAlign: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   orLine: {
     width: 140,
@@ -806,17 +746,17 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#0c4309',
     textAlign: 'center',
-    paddingTop: 5,
-    paddingBottom: 15,
-    marginTop: 10,
+    paddingTop: 8,
+    paddingBottom: 16,
+    marginTop: 16,
   },
   jobDescriptionContainer: {
     flexDirection: 'column',
     alignItems: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 16,
     height: 150,
     borderWidth: 1,
     borderColor: '#e1e1e1ff'
@@ -827,21 +767,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'left',
     textAlignVertical: 'top',
-    paddingLeft: 15,
-    paddingRight: 15,
-    paddingBottom: 50,
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingBottom: 48,
   },
   inputButtonsContainer: {
     position: 'absolute',
-    bottom: 10,
-    left: 10,
-    right: 10,
+    bottom: 16,
+    left: 16,
+    right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   cameraButton: {
-    width: 50,
+    width: 48,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#0c4309',
@@ -857,7 +797,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#0c4309',
-    marginLeft: 10,
+    marginLeft: 8,
   },
   continueButtonInline: {
     minWidth: 72,
@@ -878,13 +818,13 @@ const styles = StyleSheet.create({
     color: '#FFF8E8',
     fontSize: 16,
     fontWeight: '700',
-    marginRight: 6,
+    marginRight: 8,
     textTransform: 'uppercase',
   },
   continueButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   continueButtonLabel: {
     color: '#fff',
@@ -982,10 +922,10 @@ const styles = StyleSheet.create({
   },
   menuItem: {
     backgroundColor: 'transparent', // Light beige background like your screenshot
-    paddingVertical: 17,
-    paddingHorizontal: 25,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     borderRadius: 8,
-    marginVertical: 2,
+    marginVertical: 4,
     minWidth: 200,
     shadowColor: '#000000',
     shadowOffset: {
@@ -998,11 +938,11 @@ const styles = StyleSheet.create({
   },
   helpMenuItem: {
     backgroundColor: 'transparent', // Light beige background like your screenshot
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    marginVertical: 2,
-    marginHorizontal: 20,
+    marginVertical: 4,
+    marginHorizontal: 24,
     minWidth: 90,
     shadowColor: '#000000',
     shadowOffset: {
@@ -1022,19 +962,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     flex: 1,
-  },
-  splashOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
-  },
-  splashImage: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
   },
 });
 
