@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import Constants from 'expo-constants';
-import { View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, Image, Modal, TextInput, Alert } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT, LatLng } from 'react-native-maps';
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import LottieView from 'lottie-react-native';
-import { supabase } from '../src/lib/supabase';
-import { useAuth } from '../src/contexts/AuthContext';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { supabase } from '../../lib/supabase';
+import { markCompletedServiceAsViewed } from '../../lib/viewedCompletedServices';
 
 const resolveGooglePlacesKey = () => {
   const extras = (Constants?.expoConfig?.extra ?? {}) as Record<string, unknown>;
@@ -45,7 +45,7 @@ type LocationData = {
   description: string;
 };
 
-type CustomerRatingRow = {
+type ServiceProviderRatingRow = {
   id: string;
   service_id: string;
   service_provider_id: string;
@@ -54,6 +54,7 @@ type CustomerRatingRow = {
   comment: string | null;
 };
 
+// Decode polyline from Google Directions API
 const decodePolyline = (encoded: string): LatLng[] => {
   const poly: LatLng[] = [];
   let index = 0;
@@ -119,7 +120,6 @@ export default function ServiceDetails() {
   const params = useLocalSearchParams();
   const serviceId = params.serviceId as string;
   const googlePlacesApiKey = useMemo(resolveGooglePlacesKey, []);
-  const { user, loading: authLoading } = useAuth();
 
   const [service, setService] = useState<ServiceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,13 +127,13 @@ export default function ServiceDetails() {
   const [endLocation, setEndLocation] = useState<LocationData | null>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<LatLng[]>([]);
   const [helprFirstName, setHelprFirstName] = useState<string | null>(null);
-  const [customerFirstName, setCustomerFirstName] = useState<string | null>(null);
-  const [customerLastName, setCustomerLastName] = useState<string | null>(null);
-  const [customerProfileImageUrl, setCustomerProfileImageUrl] = useState<string | null>(null);
+  const [helprLastName, setHelprLastName] = useState<string | null>(null);
+  const [helprProfileImageUrl, setHelprProfileImageUrl] = useState<string | null>(null);
   const [rating, setRating] = useState<number>(0);
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingError, setRatingError] = useState<string | null>(null);
   const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSaving, setCommentSaving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -143,11 +143,34 @@ export default function ServiceDetails() {
   const animationRef = useRef<LottieView | null>(null);
   const [animationLoaded, setAnimationLoaded] = useState(false);
   const latestRequestRef = useRef(0);
+  const pendingAnimationRef = useRef<{ frame: number; status: string } | null>(null);
+  const [hasShowReviewedModal, setHasShowReviewedModal] = useState(false);
+
+  const helprDisplayName = useMemo(() => {
+    const trimmedFirst = helprFirstName?.trim();
+    if (trimmedFirst) {
+      return trimmedFirst;
+    }
+
+    const trimmedLast = helprLastName?.trim();
+    if (trimmedLast) {
+      return trimmedLast;
+    }
+
+    return null;
+  }, [helprFirstName, helprLastName]);
+
+  const helprSentenceName = helprDisplayName ?? 'your Helpr';
+  const helprSentenceStartName = helprDisplayName ?? 'Your Helpr';
+  const helprTitleName = helprDisplayName ?? 'Your Helpr';
 
   const fetchServiceData = useCallback(async () => {
-    const requestId = Date.now();
-    latestRequestRef.current = requestId;
+    if (!serviceId) {
+      return;
+    }
+
     console.log('🔄 Fetching service data for:', serviceId);
+
     try {
       const { data, error } = await supabase
         .from('service')
@@ -157,31 +180,28 @@ export default function ServiceDetails() {
 
       if (error) throw error;
 
-      if (latestRequestRef.current !== requestId) {
-        return;
-      }
-
       console.log('✅ Service data fetched. Status:', data.status);
       setService(data);
       setRating(0);
       setRatingRecordId(null);
       setRatingComment(null);
 
-      if (data.customer_id && data.service_provider_id) {
+      // Mark completed services as viewed
+      if (data.status?.toLowerCase() === 'completed') {
+        markCompletedServiceAsViewed(data.service_id);
+      }
+
+      if (data.service_provider_id && data.customer_id) {
         const { data: ratingRow, error: ratingFetchError } = await supabase
-          .from('customer_ratings')
+          .from('service_provider_ratings')
           .select('id, rating, comment')
           .eq('service_id', data.service_id)
           .eq('customer_id', data.customer_id)
           .eq('service_provider_id', data.service_provider_id)
           .maybeSingle();
 
-        if (latestRequestRef.current !== requestId) {
-          return;
-        }
-
         if (!ratingFetchError && ratingRow) {
-          const typedRow = ratingRow as CustomerRatingRow;
+          const typedRow = ratingRow as ServiceProviderRatingRow;
           setRating(typeof typedRow.rating === 'number' && !Number.isNaN(typedRow.rating) ? typedRow.rating : 0);
           setRatingRecordId(typedRow.id ?? null);
           setRatingComment(typedRow.comment ?? null);
@@ -191,60 +211,30 @@ export default function ServiceDetails() {
       if (data.service_provider_id) {
         const { data: providerData, error: providerError } = await supabase
           .from('service_provider')
-          .select('first_name')
+          .select('first_name, last_name, profile_image_url')
           .eq('service_provider_id', data.service_provider_id)
           .single();
 
-        if (latestRequestRef.current !== requestId) {
-          return;
-        }
-
         if (!providerError && providerData) {
           setHelprFirstName(providerData.first_name);
-        }
-      }
-
-      if (data.customer_id) {
-        const { data: customerData, error: customerError } = await supabase
-          .from('customer')
-          .select('first_name, last_name, profile_picture_url')
-          .eq('customer_id', data.customer_id)
-          .single();
-
-        if (latestRequestRef.current !== requestId) {
-          return;
-        }
-
-        if (!customerError && customerData) {
-          setCustomerFirstName(customerData.first_name ?? null);
-          setCustomerLastName(customerData.last_name ?? null);
-          setCustomerProfileImageUrl(customerData.profile_picture_url ?? null);
+          setHelprLastName(providerData.last_name ?? null);
+          setHelprProfileImageUrl(providerData.profile_image_url ?? null);
         }
       }
 
       if (data.start_location) {
         const startGeocode = await geocodeAddress(data.start_location);
-        if (latestRequestRef.current !== requestId) {
-          return;
-        }
         if (startGeocode) {
           setStartLocation(startGeocode);
         }
       }
-
       if (data.end_location) {
         const endGeocode = await geocodeAddress(data.end_location);
-        if (latestRequestRef.current !== requestId) {
-          return;
-        }
         if (endGeocode) {
           setEndLocation(endGeocode);
         }
       } else if (data.location && !data.start_location && !data.end_location) {
         const locationGeocode = await geocodeAddress(data.location);
-        if (latestRequestRef.current !== requestId) {
-          return;
-        }
         if (locationGeocode) {
           setStartLocation(locationGeocode);
         }
@@ -252,9 +242,7 @@ export default function ServiceDetails() {
     } catch (error) {
       console.error('Error fetching service:', error);
     } finally {
-      if (latestRequestRef.current === requestId) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, [serviceId]);
 
@@ -262,12 +250,38 @@ export default function ServiceDetails() {
     fetchServiceData();
   }, [fetchServiceData]);
 
-  // Redirect unauthenticated users to login
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace('/login');
+    if (!serviceId) {
+      return;
     }
-  }, [authLoading, user, router]);
+
+    const channel = supabase
+      .channel(`service-status-${serviceId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'service',
+        },
+        (payload) => {
+          if (payload.new && payload.new.service_id === serviceId) {
+            fetchServiceData();
+          }
+        }
+      )
+      .subscribe();
+
+    // Poll every 5 seconds as a fallback
+    const pollInterval = setInterval(() => {
+      fetchServiceData();
+    }, 5000);
+
+    return () => {
+      clearInterval(pollInterval);
+      supabase.removeChannel(channel);
+    };
+  }, [serviceId, fetchServiceData]);
 
   useEffect(() => {
     if (!startLocation || !endLocation) {
@@ -350,39 +364,6 @@ export default function ServiceDetails() {
     };
   }, [startLocation, endLocation, googlePlacesApiKey]);
 
-  useEffect(() => {
-    if (!serviceId) {
-      return;
-    }
-
-    const channel = supabase
-      .channel(`service-status-${serviceId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'service',
-        },
-        (payload) => {
-          if (payload.new && payload.new.service_id === serviceId) {
-            fetchServiceData();
-          }
-        }
-      )
-      .subscribe();
-
-    // Poll every 5 seconds as a fallback
-    const pollInterval = setInterval(() => {
-      fetchServiceData();
-    }, 5000);
-
-    return () => {
-      clearInterval(pollInterval);
-      supabase.removeChannel(channel);
-    };
-  }, [serviceId, fetchServiceData]);
-
   // Fit map to markers once loaded
   useEffect(() => {
     if (!mapRef.current) {
@@ -447,127 +428,25 @@ export default function ServiceDetails() {
       case 'confirmed':
         return 'Service Details';
       case 'helpr_otw':
-        return 'Service Details';
+        return helprFirstName ? `${helprFirstName} is on the way!` : 'On the Way';
       case 'in_progress':
-        return 'Service In Progress';
+        return 'In Progress';
       case 'completed':
         return 'Service Completed';
       default:
         return 'Service Details';
-    }
-  };
-
-  const getNextStatus = (currentStatus: string | null | undefined) => {
-    const normalized = (currentStatus ?? '').toLowerCase();
-    switch (normalized) {
-      case 'confirmed':
-        return 'helpr_otw';
-      case 'helpr_otw':
-        return 'in_progress';
-      case 'in_progress':
-        return 'completed';
-      default:
-        return null;
-    }
-  };
-
-  const getButtonText = (status: string | null | undefined) => {
-    const normalized = (status ?? '').toLowerCase();
-    switch (normalized) {
-      case 'confirmed':
-        return "I'm on the way";
-      case 'helpr_otw':
-        return 'Start Service';
-      case 'in_progress':
-        return 'Complete Service';
-      case 'completed':
-        return 'Service Completed';
-      default:
-        return 'Update Status';
     }
   };
 
   const getOnTheWaySubtext = (status: string | null | undefined) => {
     const normalized = (status ?? '').toLowerCase();
     if (normalized === 'confirmed') {
-      return 'Let the customer know when you are on the way';
+  return `${helprSentenceStartName} will let you know when they are on the way`;
     }
     if (normalized === 'helpr_otw') {
-      return 'Let the customer know when you are at the service location. Press the Start Service button when you begin your work.';
+  return `${helprSentenceStartName} will let you know when they are at your location`;
     }
     return null;
-  };
-
-  const handleUpdateStatus = async () => {
-    if (!service) return;
-
-    const nextStatus = getNextStatus(service.status);
-    if (!nextStatus) {
-      return;
-    }
-
-    try {
-      // If completing the service, process payment and transfer to provider
-      if (nextStatus === 'completed') {
-        console.log('🔄 Completing service and processing payment...');
-        
-        const { data: paymentData, error: paymentError } = await supabase.functions.invoke('complete-service', {
-          body: {
-            serviceId: service.service_id,
-            platformFeePercent: 0.15, // 15% platform fee
-            skipCustomerCharge: true, // Skip charging customer for now (pay from platform balance)
-          },
-        });
-
-        if (paymentError || !paymentData?.success) {
-          const errorMessage = paymentData?.error || paymentError?.message || 'Failed to process payment';
-          console.error('Payment processing error:', errorMessage);
-          
-          // Show error to user but still update status locally
-          Alert.alert(
-            'Payment Processing Error',
-            `The service status was updated, but payment processing failed: ${errorMessage}. Please contact support.`,
-            [{ text: 'OK' }]
-          );
-        } else {
-          console.log('✅ Payment processed successfully:', paymentData);
-          console.log(`💰 Provider earned: $${paymentData.provider_amount}`);
-          console.log(`🏦 New balance: $${paymentData.new_balance}`);
-        }
-      } else {
-        // For other status updates, just update the status
-        const { error } = await supabase
-          .from('service')
-          .update({ status: nextStatus })
-          .eq('service_id', serviceId);
-
-        if (error) throw error;
-      }
-
-      // Refresh service data
-      await fetchServiceData();
-    } catch (error) {
-      console.error('Error updating status:', error);
-      Alert.alert(
-        'Error',
-        'Failed to update service status. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const isCheckpointComplete = (checkpoint: string) => {
-    const normalized = (service?.status ?? '').toLowerCase();
-    switch (checkpoint) {
-      case 'on_the_way':
-        return normalized === 'helpr_otw' || normalized === 'in_progress' || normalized === 'completed';
-      case 'in_progress':
-        return normalized === 'in_progress' || normalized === 'completed';
-      case 'completed':
-        return normalized === 'completed';
-      default:
-        return false;
-    }
   };
 
   const getAnimationFrame = (status: string | null | undefined) => {
@@ -579,15 +458,14 @@ export default function ServiceDetails() {
   const currentStatusRef = useRef<string | null>(null);
   const currentFrameRef = useRef<number | null>(null);
   const isAnimatingRef = useRef(false);
-  const pendingAnimationRef = useRef<{ frame: number; status: string } | null>(null);
 
-  // Synchronise the progress animation with the latest service state.
+  // Synchronize animation with the current service status.
   useEffect(() => {
     const lottieView = animationRef.current;
     const activeServiceId = service?.service_id;
     const rawStatus = service?.status;
 
-    console.log('🔍 Animation sync check:', { 
+    console.log('🔍 [Customer] Animation sync check:', { 
       hasLottie: !!lottieView, 
       serviceId: activeServiceId, 
       status: rawStatus,
@@ -681,7 +559,7 @@ export default function ServiceDetails() {
     };
 
     if (isNewService) {
-      console.log('🎬 New service detected, animating from 0 to', targetFrame, 'for status:', normalizedStatus);
+      console.log('🎬 [Customer] New service detected, animating from 0 to', targetFrame, 'for status:', normalizedStatus);
       currentServiceIdRef.current = activeServiceId;
       currentStatusRef.current = null;
       currentFrameRef.current = 0;
@@ -712,7 +590,7 @@ export default function ServiceDetails() {
       return;
     }
     // Reset all animation state when service changes
-    console.log('🔄 [Provider] Service changed to:', service?.service_id, 'Status:', service?.status);
+    console.log('🔄 [Customer] Service changed to:', service?.service_id, 'Status:', service?.status);
     setAnimationLoaded(false);
     currentServiceIdRef.current = null;
     currentStatusRef.current = null;
@@ -722,7 +600,7 @@ export default function ServiceDetails() {
     
     // Fallback: set loaded to true after a short delay if callback doesn't fire
     const fallbackTimer = setTimeout(() => {
-      console.log('⏰ [Provider] Animation load fallback triggered');
+      console.log('⏰ [Customer] Animation load fallback triggered');
       setAnimationLoaded(true);
     }, 500);
     
@@ -739,14 +617,14 @@ export default function ServiceDetails() {
     };
   }, []);
 
-  const handleRateCustomer = useCallback(
+  const handleRateService = useCallback(
     async (value: number) => {
-      if (
-        !service?.service_id ||
-        !service?.customer_id ||
-        !service?.service_provider_id ||
-        submittingRating
-      ) {
+      if (!service?.service_id || submittingRating) {
+        return;
+      }
+
+      if (!service.customer_id || !service.service_provider_id) {
+        setRatingError('Missing service details. Please try again later.');
         return;
       }
 
@@ -759,7 +637,7 @@ export default function ServiceDetails() {
       try {
         if (ratingRecordId) {
           const { error } = await supabase
-            .from('customer_ratings')
+            .from('service_provider_ratings')
             .update({ rating: clampedValue })
             .eq('id', ratingRecordId);
 
@@ -767,8 +645,8 @@ export default function ServiceDetails() {
             throw error;
           }
         } else {
-          const { data, error } = await supabase
-            .from('customer_ratings')
+          const { data: insertedRow, error } = await supabase
+            .from('service_provider_ratings')
             .insert({
               service_id: service.service_id,
               customer_id: service.customer_id,
@@ -776,15 +654,17 @@ export default function ServiceDetails() {
               rating: clampedValue,
               comment: ratingComment ?? null,
             })
-            .select('id')
+            .select('id, comment')
             .single();
 
           if (error) {
             throw error;
           }
 
-          if (data?.id) {
-            setRatingRecordId(data.id);
+          const typedRow = insertedRow as ServiceProviderRatingRow | null;
+          setRatingRecordId(typedRow?.id ?? null);
+          if (typedRow?.comment !== undefined) {
+            setRatingComment(typedRow.comment ?? null);
           }
         }
       } catch (error) {
@@ -795,17 +675,9 @@ export default function ServiceDetails() {
         setSubmittingRating(false);
       }
     },
-    [
-      service?.service_id,
-      service?.customer_id,
-      service?.service_provider_id,
-      submittingRating,
-      rating,
-      ratingRecordId,
-      ratingComment,
-    ],
+    [service?.service_id, service?.customer_id, service?.service_provider_id, submittingRating, rating, ratingRecordId, ratingComment],
   );
-
+  
   const handleOpenCommentModal = () => {
     if (commentSaving) {
       return;
@@ -823,12 +695,12 @@ export default function ServiceDetails() {
   };
 
   const handleSaveComment = useCallback(async () => {
-    if (
-      !service?.service_id ||
-      !service?.customer_id ||
-      !service?.service_provider_id ||
-      commentSaving
-    ) {
+    if (!service?.service_id || commentSaving) {
+      return;
+    }
+
+    if (!service.customer_id || !service.service_provider_id) {
+      setCommentError('Missing service details. Please try again later.');
       return;
     }
 
@@ -840,8 +712,8 @@ export default function ServiceDetails() {
       const normalized = trimmed.length > 0 ? trimmed : null;
 
       if (ratingRecordId) {
-        const { data, error } = await supabase
-          .from('customer_ratings')
+        const { data: updatedRow, error } = await supabase
+          .from('service_provider_ratings')
           .update({ comment: normalized })
           .eq('id', ratingRecordId)
           .select('comment')
@@ -851,10 +723,11 @@ export default function ServiceDetails() {
           throw error;
         }
 
-        setRatingComment(data?.comment ?? null);
+        const typedRow = updatedRow as ServiceProviderRatingRow | null;
+        setRatingComment(typedRow?.comment ?? normalized ?? null);
       } else {
-        const { data, error } = await supabase
-          .from('customer_ratings')
+        const { data: insertedRow, error } = await supabase
+          .from('service_provider_ratings')
           .insert({
             service_id: service.service_id,
             customer_id: service.customer_id,
@@ -862,39 +735,26 @@ export default function ServiceDetails() {
             rating: rating > 0 ? rating : null,
             comment: normalized,
           })
-          .select('id, comment, rating')
+          .select('id, comment')
           .single();
 
         if (error) {
           throw error;
         }
 
-        if (data?.id) {
-          setRatingRecordId(data.id);
-        }
-        if (typeof data?.rating === 'number' && !Number.isNaN(data.rating)) {
-          setRating(data.rating);
-        }
-        setRatingComment(data?.comment ?? null);
+        const typedRow = insertedRow as ServiceProviderRatingRow | null;
+        setRatingRecordId(typedRow?.id ?? null);
+        setRatingComment(typedRow?.comment ?? normalized ?? null);
       }
 
-      setCommentDraft(normalized ?? '');
       setCommentModalVisible(false);
     } catch (error) {
-      console.error('Failed to save customer comment:', error);
+      console.error('Failed to save provider comment:', error);
       setCommentError('Unable to save your comment right now. Please try again.');
     } finally {
       setCommentSaving(false);
     }
-  }, [
-    service?.service_id,
-    service?.customer_id,
-    service?.service_provider_id,
-    commentDraft,
-    commentSaving,
-    ratingRecordId,
-    rating,
-  ]);
+  }, [service?.service_id, service?.customer_id, service?.service_provider_id, commentDraft, commentSaving, ratingRecordId, rating]);
 
   if (loading) {
     return (
@@ -921,7 +781,7 @@ export default function ServiceDetails() {
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Image 
-            source={require('../assets/icons/backButton.png')} 
+            source={require('../../assets/icons/backButton.png')} 
             style={styles.backButtonIcon} 
           />
         </Pressable>
@@ -950,7 +810,7 @@ export default function ServiceDetails() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/ConfirmLocationIcon.png')}
+                  source={require('../../assets/icons/ConfirmLocationIcon.png')}
                   style={styles.mapMarkerStartIcon}
                 />
               </Marker>
@@ -965,7 +825,7 @@ export default function ServiceDetails() {
                 tracksViewChanges={false}
               >
                 <Image
-                  source={require('../assets/icons/finish-flag.png')}
+                  source={require('../../assets/icons/finish-flag.png')}
                   style={styles.mapMarkerEndIcon}
                 />
               </Marker>
@@ -987,13 +847,13 @@ export default function ServiceDetails() {
               <LottieView
                 key={service?.service_id ?? 'service-animation'}
                 ref={animationRef}
-                source={require('../assets/animations/ServiceProgressionAnimation.json')}
+                source={require('../../assets/animations/ServiceProgressionAnimation.json')}
                 autoPlay={false}
                 loop={false}
                 speed={1}
                 style={styles.lottieAnimation}
                 onAnimationLoaded={() => { 
-                  console.log('🎨 [Provider] Animation loaded for service:', service?.service_id);
+                  console.log('🎨 [Customer] Animation loaded for service:', service?.service_id);
                   setAnimationLoaded(true); 
                 }}
               />
@@ -1011,7 +871,7 @@ export default function ServiceDetails() {
                 <Text style={styles.stageLabelTextInProgress}>In Progress</Text>
                 <View style={styles.stageLabelSubtextInProgressWrapper}>
                   {service?.status?.toLowerCase() === 'in_progress' ? (
-                    <Text style={styles.stageLabelSubtextInProgress}>Check with your client or make sure the service is finished before marking the service as completed.</Text>
+                    <Text style={styles.stageLabelSubtextInProgress}>{`Make sure the service is complete before dismissing ${helprSentenceName}`}</Text>
                   ) : null}
                 </View>
               </View>
@@ -1022,84 +882,67 @@ export default function ServiceDetails() {
           </View>
         </View>
 
-        {/* Update Status Button */}
-        <View style={styles.actionButtonContainer}>
-          {service?.status?.toLowerCase() === 'completed' ? (
-            <>
-              <View style={styles.reviewSection}>
-                <Text style={styles.reviewTitle}>
-                  {`Leave A Review For ${customerFirstName || 'Your Customer'}`}
-                </Text>
-                <View style={styles.reviewContentRow}>
-                {customerProfileImageUrl ? (
-                  <Image
-                    source={{ uri: customerProfileImageUrl }}
-                    style={styles.reviewAvatar}
-                  />
-                ) : (
-                  <View style={styles.reviewAvatarPlaceholder}>
-                    <Text style={styles.reviewAvatarInitials}>
-                      {`${customerFirstName?.charAt(0) ?? ''}${customerLastName?.charAt(0) ?? ''}`.trim() || 'C'}
-                    </Text>
-                  </View>
-                )}
-                <View style={styles.reviewBody}>
-                  <Text style={styles.reviewSubtitle}>How was your service?</Text>
-                  <View style={styles.starRow}>
-                    {[1, 2, 3, 4, 5].map(value => (
-                      <Pressable
-                        key={value}
-                        style={styles.starButton}
-                        onPress={() => handleRateCustomer(value)}
-                        disabled={submittingRating}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Rate ${value} star${value === 1 ? '' : 's'}`}
-                      >
-                        <FontAwesome
-                          name={rating >= value ? 'star' : 'star-o'}
-                          size={26}
-                          color="#0c4309"
-                        />
-                      </Pressable>
-                    ))}
-                  </View>
-                  {submittingRating ? (
-                    <Text style={styles.ratingStatusText}>Saving your rating…</Text>
-                  ) : ratingError ? (
-                    <Text style={styles.ratingErrorText}>{ratingError}</Text>
-                  ) : rating > 0 ? (
-                    <Text style={styles.ratingStatusText}>Thanks for your feedback!</Text>
-                  ) : (
-                    <Text style={styles.ratingHintText}>Tap a star to rate your experience.</Text>
-                  )}
-                  {ratingComment ? (
-                    <View style={styles.commentPreview}>
-                      <Text style={styles.commentPreviewLabel}>Your comment</Text>
-                      <Text style={styles.commentPreviewText}>{ratingComment}</Text>
-                    </View>
-                  ) : null}
+        {service?.status?.toLowerCase() === 'completed' ? (
+          <>
+            <View style={styles.reviewSection}>
+              <Text style={styles.reviewTitle}>
+                Leave A Review For {helprFirstName || 'Your Helpr'}
+              </Text>
+              <View style={styles.reviewContentRow}>
+              {helprProfileImageUrl ? (
+                <Image
+                  source={{ uri: helprProfileImageUrl }}
+                  style={styles.reviewAvatar}
+                />
+              ) : (
+                <View style={styles.reviewAvatarPlaceholder}>
+                  <Text style={styles.reviewAvatarInitials}>
+                    {`${helprFirstName?.charAt(0) ?? ''}${helprLastName?.charAt(0) ?? ''}`.trim() || 'H'}
+                  </Text>
                 </View>
+              )}
+              <View style={styles.reviewBody}>
+                <Text style={styles.reviewSubtitle}>How was your service?</Text>
+                <View style={styles.starRow}>
+                  {[1, 2, 3, 4, 5].map(value => (
+                    <Pressable
+                      key={value}
+                      style={styles.starButton}
+                      onPress={() => handleRateService(value)}
+                      disabled={submittingRating}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Rate ${value} star${value === 1 ? '' : 's'}`}
+                    >
+                      <FontAwesome
+                        name={rating >= value ? 'star' : 'star-o'}
+                        size={26}
+                        color="#0c4309"
+                      />
+                    </Pressable>
+                  ))}
+                </View>
+                {ratingComment ? (
+                  <View style={styles.commentPreview}>
+                    <Text style={styles.commentPreviewLabel}>Your comment</Text>
+                    <Text style={styles.commentPreviewText}>{ratingComment}</Text>
+                  </View>
+                ) : null}
               </View>
             </View>
-            <View style={styles.commentButtonContainer}>
-              <Pressable
-                style={[styles.commentButton, commentSaving ? styles.commentButtonDisabled : null]}
-                onPress={handleOpenCommentModal}
-                disabled={commentSaving}
-              >
-                <Text style={styles.commentButtonText}>
-                  {ratingComment ? 'Edit Comment' : 'Leave A Comment'}
-                </Text>
-              </Pressable>
-            </View>
-            </>
-          ) : null}
-          {service?.status !== 'completed' && (
-            <Pressable style={styles.updateButton} onPress={handleUpdateStatus}>
-              <Text style={styles.updateButtonText}>{getButtonText(service?.status)}</Text>
+          </View>
+          <View style={styles.commentButtonContainer}>
+            <Pressable
+              style={[styles.commentButton, commentSaving ? styles.commentButtonDisabled : null]}
+              onPress={handleOpenCommentModal}
+              disabled={commentSaving}
+            >
+              <Text style={styles.commentButtonText}>
+                {ratingComment ? 'Edit Comment' : 'Leave A Comment'}
+              </Text>
             </Pressable>
-          )}
-        </View>
+          </View>
+          </>
+        ) : null}
       </ScrollView>
 
       <Modal
@@ -1110,10 +953,10 @@ export default function ServiceDetails() {
       >
         <View style={styles.commentModalOverlay}>
           <View style={styles.commentModalContent}>
-            <Text style={styles.commentModalTitle}>Share more about your client</Text>
+            <Text style={styles.commentModalTitle}>Share more about your experience</Text>
             <TextInput
               style={styles.commentInput}
-              placeholder="Leave a comment for your customer"
+              placeholder="Leave a comment for your Helpr"
               placeholderTextColor="#9B9B9B"
               multiline
               autoFocus
@@ -1161,7 +1004,7 @@ const styles = StyleSheet.create({
   },
   commentButtonContainer: {
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 0,
     paddingHorizontal: 20,
     width: '100%',
   },
@@ -1180,7 +1023,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.2,
-    textTransform: 'uppercase',
   },
   commentPreview: {
     marginTop: 10,
@@ -1262,7 +1104,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#FFF8E8',
-    paddingTop: Platform.OS === 'ios' ? 90 : 40,
+    paddingTop: Platform.OS === 'ios' ? 70 : 40,
     paddingBottom: 15,
     paddingHorizontal: 20,
   },
@@ -1317,16 +1159,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'center',
     paddingTop: 5,
-  },
-  animationTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0c4309',
-    marginBottom: 35,
-    marginTop: 10,
-    marginLeft: 20,
-    paddingTop: 10,
-    alignSelf: 'flex-start',
   },
   animationContentRow: {
     marginTop: 25,
@@ -1409,21 +1241,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 40,
   },
-  updateButton: {
-    backgroundColor: '#0c4309',
-    paddingVertical: 16,
-    borderRadius: 30,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  updateButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
   reviewSection: {
     marginTop: 0,
     marginHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 14,
     borderRadius: 18,
     backgroundColor: '#fff8e8',
     alignSelf: 'center',
@@ -1434,7 +1256,6 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     marginBottom: 15,
     alignSelf: 'center',
-    marginTop: 15,
   },
   reviewContentRow: {
     flexDirection: 'row',
