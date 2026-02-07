@@ -1978,7 +1978,7 @@ export default function cleaning() {
         }
 
         router.push({
-          pathname: 'booked-services' as any,
+          pathname: '/(tabs)/booked-services' as any,
           params: { serviceId: editServiceId },
         });
         return;
@@ -2012,7 +2012,7 @@ export default function cleaning() {
 
       // Don't insert yet - let booked-services.tsx handle the insert when scheduling is confirmed
       router.push({
-        pathname: 'booked-services' as any,
+        pathname: '/(tabs)/booked-services' as any,
         params: {
           showOverlay: 'true',
           temporaryService: encodeURIComponent(JSON.stringify(payload)),
@@ -2691,7 +2691,7 @@ export default function cleaning() {
                 onPress={() => {
                   preserveFormForAuth();
                   setShowSignInModal(false);
-                  router.push('/login');
+                  router.push('/(auth)/login');
                 }}
               >
                 <Text style={styles.signInButtonText}>Sign In</Text>
@@ -2701,7 +2701,7 @@ export default function cleaning() {
                 onPress={() => {
                   preserveFormForAuth();
                   setShowSignInModal(false);
-                  router.push('/signup');
+                  router.push('/(auth)/signup');
                 }}
               >
                 <Text style={styles.signUpButtonText}>Sign Up</Text>

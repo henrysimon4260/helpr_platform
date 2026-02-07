@@ -7,7 +7,7 @@ import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
@@ -1959,7 +1959,7 @@ export default function cleaning() {
         }
 
         router.push({
-          pathname: 'booked-services' as any,
+          pathname: '/(tabs)/booked-services' as any,
           params: { serviceId: editServiceId },
         });
         return;
@@ -1993,7 +1993,7 @@ export default function cleaning() {
 
       // Don't insert yet - let booked-services.tsx handle the insert when scheduling is confirmed
       router.push({
-        pathname: 'booked-services' as any,
+        pathname: '/(tabs)/booked-services' as any,
         params: {
           showOverlay: 'true',
           temporaryService: encodeURIComponent(JSON.stringify(payload)),
@@ -2672,7 +2672,7 @@ export default function cleaning() {
                 onPress={() => {
                   preserveFormForAuth();
                   setShowSignInModal(false);
-                  router.push('/login');
+                  router.push('/(auth)/login');
                 }}
               >
                 <Text style={styles.signInButtonText}>Sign In</Text>
@@ -2682,7 +2682,7 @@ export default function cleaning() {
                 onPress={() => {
                   preserveFormForAuth();
                   setShowSignInModal(false);
-                  router.push('/signup');
+                  router.push('/(auth)/signup');
                 }}
               >
                 <Text style={styles.signUpButtonText}>Sign Up</Text>

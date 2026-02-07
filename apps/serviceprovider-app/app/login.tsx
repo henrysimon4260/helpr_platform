@@ -1,4 +1,5 @@
-import { router } from 'expo-router';
+import * as Linking from 'expo-linking';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../src/lib/supabase';
@@ -7,7 +8,7 @@ import { useModal } from '../src/contexts/ModalContext';
 
 export default function Login() {
   console.log('Login screen rendered');
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -15,11 +16,34 @@ export default function Login() {
   const [otpCode, setOtpCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const { showModal, hideModal } = useModal();
+  const params = useLocalSearchParams();
 
   useEffect(() => {
     // Log that login screen is loaded
     console.log('Login screen loaded - dev menu should be hidden via app.json');
-  }, [showModal]);
+
+    // Handle OAuth callback errors/warnings
+    if (params.error) {
+      const errorMessage = Array.isArray(params.message) ? params.message[0] : (params.message || 'Authentication failed');
+      showModal({
+        title: 'Authentication Error',
+        message: errorMessage,
+      });
+    } else if (params.warning) {
+      const warningType = Array.isArray(params.warning) ? params.warning[0] : params.warning;
+      if (warningType === 'profile_creation_failed') {
+        showModal({
+          title: 'Account Setup Warning',
+          message: 'Your account was created successfully, but there was an issue setting up your profile. You can complete this setup later from your account settings.',
+        });
+      } else if (warningType === 'stripe_setup_failed') {
+        showModal({
+          title: 'Payment Setup Warning',
+          message: 'Your account was created successfully, but there was an issue setting up payment processing. You can complete this setup later from your account settings.',
+        });
+      }
+    }
+  }, [showModal, params.error, params.message, params.warning]);
 
   const signInWithEmail = async () => {
     // Validate inputs
@@ -74,6 +98,20 @@ export default function Login() {
 
       if (!ensureResult.success) {
         console.warn('⚠️ Failed to ensure provider profile after sign-in:', ensureResult.error);
+        if (ensureResult.errorType === 'auth_missing') {
+          showModal({
+            title: 'Authentication Error',
+            message: 'Your session has expired. Please sign in again.',
+          });
+          return;
+        }
+      } else if (ensureResult.stripeError) {
+        console.warn('⚠️ Stripe account creation failed:', ensureResult.stripeError);
+        // Show a warning but don't block the login
+        showModal({
+          title: 'Payment Setup Warning',
+          message: 'Your account was created successfully, but there was an issue setting up payment processing. You can complete this setup later from your account settings.',
+        });
       }
       router.replace('/landing');
     }
@@ -116,6 +154,20 @@ export default function Login() {
       });
       if (!ensureResult.success) {
         console.warn('⚠️ Failed to ensure provider profile after OTP verification:', ensureResult.error);
+        if (ensureResult.errorType === 'auth_missing') {
+          showModal({
+            title: 'Authentication Error',
+            message: 'Your session has expired. Please sign in again.',
+          });
+          return;
+        }
+      } else if (ensureResult.stripeError) {
+        console.warn('⚠️ Stripe account creation failed:', ensureResult.stripeError);
+        // Show a warning but don't block the login
+        showModal({
+          title: 'Payment Setup Warning',
+          message: 'Your account was created successfully, but there was an issue setting up payment processing. You can complete this setup later from your account settings.',
+        });
       }
       setShowOTPVerification(false);
       router.replace('/landing');
@@ -163,28 +215,36 @@ export default function Login() {
   };
 
   const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const redirectUrl = Linking.createURL('auth/callback');
+    console.log('🚀 Starting Google OAuth flow...');
+    console.log('🔗 Redirect URL:', redirectUrl);
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: false,
+      },
     });
 
     if (error) {
+      console.error('❌ OAuth error:', error);
       showModal({
-        title: 'Error',
+        title: 'Authentication Error',
         message: error.message,
       });
+    } else {
+      console.log('✅ OAuth initiated successfully, data:', data);
     }
   };
 
-  const skipSignIn = () => {
-    router.replace('/landing');
-  };
 
   return (
     <View style={styles.container}>
         
       <View style={styles.signInDivider}>
           
-          <Text style={styles.title}>Sign in</Text>
+          <Text style={styles.title}>Get Started With Helpr.</Text>
           
         </View>
 
@@ -240,9 +300,6 @@ export default function Login() {
           <Text style={styles.socialButtonText}>Continue with Google</Text>
         </Pressable>
 
-        <Pressable style={styles.skipLink} onPress={skipSignIn}>
-          <Text style={styles.skipLinkText}>skip this step</Text>
-        </Pressable>
       </View>
 
       {/* Invisible overlay to block dev menu button */}
@@ -316,10 +373,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 32,
+    fontWeight: 'bold',
     color: '#0c4309',
-    marginTop: 90,
+    marginTop: 80,
+    textAlign: 'center',
   },
   formContainer: {
     width: '100%',
@@ -389,7 +447,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 100,
+    marginTop: 40,
     marginBottom: 15,
   },
   orDivider: {
@@ -442,18 +500,6 @@ const styles = StyleSheet.create({
     color: '#49454F',
     fontSize: 12,
     textAlign: 'center',
-  },
-  skipLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 60,
-    paddingVertical: 10,
-  },
-  skipLinkText: {
-    color: '#0c4309',
-    fontSize: 16,
-    fontWeight: '500',
   },
   orText: {
     textAlign: 'center',

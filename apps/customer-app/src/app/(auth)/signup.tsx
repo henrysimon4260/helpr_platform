@@ -44,7 +44,7 @@ export default function Signup() {
     }
 
     clearReturnTo();
-    router.replace('/landing');
+    router.replace('/(tabs)' as any);
   }, [clearReturnTo, getReturnTo]);
 
   const validateSignupInputs = () => {
@@ -137,7 +137,7 @@ export default function Signup() {
             buttons: [
               {
                 text: 'Go to Sign In',
-                onPress: () => router.replace('/login'),
+                onPress: () => router.replace('/(auth)/login'),
                 style: 'default',
               },
               {
@@ -177,7 +177,7 @@ export default function Signup() {
           buttons: [
             {
               text: 'Go to Sign In',
-              onPress: () => router.replace('/login'),
+              onPress: () => router.replace('/(auth)/login'),
               style: 'default',
             },
             {
@@ -289,7 +289,7 @@ export default function Signup() {
   };
 
   const goToSignIn = () => {
-    router.replace('/login');
+    router.replace('/(auth)/login');
   };
 
   return (

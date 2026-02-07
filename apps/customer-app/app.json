@@ -37,6 +37,13 @@
         {
           "addGeneratedScheme": false
         }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.helpr.customer-app",
+          "enableGooglePay": false
+        }
       ]
     ],
     "experiments": {

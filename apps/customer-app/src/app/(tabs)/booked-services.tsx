@@ -647,7 +647,7 @@ export default function BookedServices() {
                 onPress={(event) => {
                   event.stopPropagation();
                   router.push({
-                    pathname: '/selecthelpr' as any,
+                    pathname: '/(tabs)/selecthelpr' as any,
                     params: { serviceId: service.service_id }
                   });
                 }}
@@ -710,7 +710,7 @@ export default function BookedServices() {
               <Pressable
                 style={[styles.showDetailsButton, (isConfirmed || isCompleted) ? styles.showDetailsButtonCompact : null]}
                 onPress={() => router.push({
-                  pathname: '/ServiceDetails' as any,
+                  pathname: '/(tabs)/ServiceDetails' as any,
                   params: { serviceId: service.service_id }
                 })}
                 accessibilityRole="button"
@@ -797,16 +797,16 @@ export default function BookedServices() {
       
       // Map service type to route path
       const routeMap: Record<string, string> = {
-        'moving': 'moving',
-        'cleaning': 'cleaning',
-        'furniture assembly': 'furniture-assembly',
-        'home improvement': 'home-improvement',
-        'running errands': 'running-errands',
-        'wall mounting': 'wall-mounting',
-        'custom': 'customService',
+        'moving': '/(tabs)/moving',
+        'cleaning': '/(tabs)/cleaning',
+        'furniture assembly': '/(tabs)/furniture-assembly',
+        'home improvement': '/(tabs)/home-improvement',
+        'running errands': '/(tabs)/customService',
+        'wall mounting': '/(tabs)/wall-mounting',
+        'custom': '/(tabs)/customService',
       };
 
-      const routePath = routeMap[serviceType] || 'customService';
+      const routePath = routeMap[serviceType] || '/(tabs)/customService';
 
       const payload = {
         service_id: service.service_id,
@@ -933,7 +933,7 @@ export default function BookedServices() {
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
       router.replace({
-        pathname: 'booked-services' as any,
+        pathname: '/(tabs)/booked-services' as any,
         params: { serviceId: serviceIdForRouting },
       });
     }
@@ -1004,7 +1004,7 @@ export default function BookedServices() {
       setConfirmationModalType('finding_pros');
       setConfirmationModalVisible(true);
       router.replace({
-        pathname: 'booked-services' as any,
+        pathname: '/(tabs)/booked-services' as any,
         params: { serviceId: serviceIdForRouting },
       });
     }
@@ -1014,7 +1014,7 @@ export default function BookedServices() {
     <View style={styles.container}>
       <StatusBar style="dark" backgroundColor="#0c4309" />
       {/* Back Button */}
-      <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
+      <Pressable style={styles.backButton} onPress={() => router.push('/(tabs)' as any)}>
         <Image 
           source={require('../../assets/icons/backButton.png')} 
           style={styles.backButtonIcon} 
@@ -1320,7 +1320,7 @@ export default function BookedServices() {
               style={styles.selectProOkButton} 
               onPress={() => {
                 setSelectProModalVisible(false);
-                router.push('/selecthelpr');
+                router.push('/(tabs)/selecthelpr' as any);
               }}
             >
               <Text style={styles.selectProOkText}>OK</Text>

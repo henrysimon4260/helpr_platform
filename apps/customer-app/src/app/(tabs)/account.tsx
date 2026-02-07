@@ -74,7 +74,7 @@ export default function Account() {
 
       if (userError || !user || !user.email) {
         presentModal('Error', 'Please sign in to view your account');
-        router.replace('/login');
+        router.replace('/(auth)/login');
         return;
       }
 
@@ -262,7 +262,7 @@ export default function Account() {
         onPress: async () => {
           try {
             await supabase.auth.signOut();
-            router.replace('/login');
+            router.replace('/(auth)/login');
           } catch (error) {
             console.error('Error signing out:', error);
             presentModal('Error', 'Failed to sign out');
@@ -500,7 +500,7 @@ export default function Account() {
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
+        <Pressable style={styles.backButton} onPress={() => router.push('/(tabs)' as any)}>
           <Image
             source={require('../../assets/icons/backButton.png')}
             style={styles.backButtonIcon}

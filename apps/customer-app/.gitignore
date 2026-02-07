@@ -1,39 +1,87 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# dependencies
+# Dependencies
 node_modules/
+yarn.lock  # Ignore if using npm; prevents conflicts
 
-# Expo
+# Builds and distributions
 .expo/
 dist/
 web-build/
-expo-env.d.ts
+build/
+*.apk
+*.ap_
+*.dex
+*.class
+*.ipa
+*.jsbundle
 
-# Native
+# Expo-specific
+expo-env.d.ts
+.metro-health-check*
+
+# Native Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+*.iml
+*.keystore
+!debug.keystore
 .kotlin/
-*.orig.*
+
+# Native iOS
+ios/build/
+ios/DerivedData/
+ios/*.xcworkspace/xcuserdata/
+ios/Pods/  # Add if using CocoaPods; remove if not
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xccheckout
+*.moved-aside
+*.hmap
+*.xcuserstate
+
+# Environment and secrets
+.env
+.env*.local
+*.pem
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
 
-# Metro
-.metro-health-check*
-
-# debug
+# Logs and debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.log
+debug.log
 
-# macOS
+# OS-specific (macOS)
 .DS_Store
-*.pem
+.Apple*
+Thumbs.db
+ehthumbs.db
 
-# local env files
-.env*.local
+# Editor and temp files
+.vscode/*
+!*.vscode/settings.json  # Commit shared VS Code settings if needed
+*.orig.*
+*.bak
+*.swp
+*~
+.tmp
+.temp
+.history/
+.tsbuildinfo
 
-# typescript
-*.tsbuildinfo
-
+# Misc/custom
 app-example

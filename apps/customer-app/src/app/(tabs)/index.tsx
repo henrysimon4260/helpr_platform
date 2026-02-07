@@ -73,13 +73,13 @@ export default function Landing() {
 
   useEffect(() => {
     // Smooth fade in from green splash to beige landing
-    fadeAnim.setValue(0);
+  fadeAnim.setValue(0);
     const fadeInAnimation = Animated.timing(fadeAnim, {
-      toValue: 1,
+        toValue: 1,
       duration: 1200,
       delay: 0,
-      easing: Easing.bezier(0.16, 1, 0.3, 1),
-      useNativeDriver: true,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+        useNativeDriver: true,
     });
     fadeInAnimation.start();
   }, [fadeAnim]);
@@ -190,7 +190,7 @@ export default function Landing() {
             buttons: [
               {
                 text: 'Go',
-                onPress: () => router.push('/booked-services' as never),
+                onPress: () => router.push('/(tabs)/booked-services' as never),
               },
             ],
           });
@@ -226,7 +226,9 @@ export default function Landing() {
     };
   }, [evaluateServiceStatuses, isScreenFocused]);
 
-  const navigate = (route: keyof RouteParams) => router.push(route as any);
+  const navigate = (route: keyof RouteParams) => {
+    router.push(`/(tabs)/${route}` as any);
+  };
 
   const handleAccountPress = useCallback(() => {
     setIsMenuOpen(false);
@@ -281,7 +283,7 @@ export default function Landing() {
       return;
     }
 
-    router.push('/customService' as never);
+    router.push('/(tabs)/customService' as never);
   }, [jobDescription, router, showModal]);
   const transcribeAudioAsync = useCallback(
     async (uri: string) => {
@@ -485,169 +487,169 @@ export default function Landing() {
 
   return (
     <View style={{ flex: 1 }}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <Animated.View style={[styles.fadeContainer, { opacity: fadeAnim }]}> 
-          <KeyboardAvoidingView
-            style={styles.root}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
-          >
-          <StatusBar style="dark" backgroundColor="#0c4309" />
-          <View style={styles.container}>
-            <View style={styles.contentArea}>
-              <Text style={styles.title}>What can we help with?</Text>
-              <Text style={styles.popularTitle}>Popular Services</Text>
-            <View style={styles.servicesWrapper}>
-              <FlatList
-                data={services}
-                renderItem={renderService}
-                keyExtractor={(item) => item.id}
-                numColumns={3}
-                columnWrapperStyle={styles.row}
-                contentContainerStyle={styles.listContent}
-                scrollEnabled={false}
-              />
-            </View>
-
-            <View style={styles.orContainer}>
-              <View style={styles.orLine} />
-              <Text style={styles.orText}>or</Text>
-              <View style={styles.orLine} />
-            </View>
-
-            <Text style={styles.makeYourCustomServiceText}>Make A Custom Service</Text>
+        <KeyboardAvoidingView
+          style={styles.root}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+        <StatusBar style="dark" backgroundColor="#0c4309" />
+        <View style={styles.container}>
+          <View style={styles.contentArea}>
+            <Text style={styles.title}>What can we help with?</Text>
+            <Text style={styles.popularTitle}>Popular Services</Text>
+          <View style={styles.servicesWrapper}>
+            <FlatList
+              data={services}
+              renderItem={renderService}
+              keyExtractor={(item) => item.id}
+              numColumns={3}
+              columnWrapperStyle={styles.row}
+              contentContainerStyle={styles.listContent}
+              scrollEnabled={false}
+            />
           </View>
+
+          <View style={styles.orContainer}>
+            <View style={styles.orLine} />
+            <Text style={styles.orText}>or</Text>
+            <View style={styles.orLine} />
+          </View>
+
+          <Text style={styles.makeYourCustomServiceText}>Make A Custom Service</Text>
         </View>
+      </View>
 
-        {/* Screen-wide overlay, outside the padded container (true screen edges) */}
-        <View pointerEvents="box-none" style={styles.overlay}>
-          {/* Large animation view (visual only, no touches) */}
-          <View style={[styles.menuButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
-            {Platform.OS === 'web' || !canRenderLottie ? (
-              <Text style={[styles.menuIconTextLarge, { color: '#0c4309' }]}>☰</Text>
-            ) : (
-              <LottieView
-                ref={lottieRef}
-                source={require('../../assets/animations/menuButtonAnimation.json')}
-                autoPlay={false}
-                loop={false}
-                style={styles.lottieAnimationLarge}
-              />
-            )}
-          </View>
-          
-          {/* Small pressable area for toggling (matches closed button size) */}
-          <Pressable 
-            onPress={handleMenuPress} 
-            style={styles.menuTogglePressable}
-          />
-
-          <View style={[styles.helpButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
-            {Platform.OS === 'web' || !canRenderLottie ? (
-              <SvgXml xml={helpIconSvg} width="20" height="20" />
-            ) : (
-              <LottieView
-                ref={helpLottieRef}
-                source={require('../../assets/animations/helpButtonAnimation.json')}
-                autoPlay={false}
-                loop={false}
-                style={styles.lottieAnimationLarge}
-              />
-            )}
-          </View>
-          
-          {/* Small pressable area for toggling (matches closed button size) */}
-          <Pressable 
-            onPress={handleHelpPress} 
-            style={styles.helpTogglePressable}
-          />
-    
-          {/* Invisible overlay with visible menu items */}
-          {isMenuOpen && (
-            <>
-            {/* Full-screen dismiss overlay (taps here close the menu) */}
-            <Pressable
-              style={styles.dismissOverlay}
-              onPress={() => {
-                if (Platform.OS !== 'web' && lottieRef.current) {
-                  lottieRef.current.play(24, 0); // Reverse the open animation
-                }
-                setIsMenuOpen(false);
-              }}
+      {/* Screen-wide overlay, outside the padded container (true screen edges) */}
+      <View pointerEvents="box-none" style={styles.overlay}>
+        {/* Large animation view (visual only, no touches) */}
+        <View style={[styles.menuButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
+          {Platform.OS === 'web' || !canRenderLottie ? (
+            <Text style={[styles.menuIconTextLarge, { color: '#0c4309' }]}>☰</Text>
+          ) : (
+            <LottieView
+              ref={lottieRef}
+              source={require('../../assets/animations/menuButtonAnimation.json')}
+              autoPlay={false}
+              loop={false}
+              style={styles.lottieAnimationLarge}
             />
-            {/* Menu Overlay */}
-            <View style={styles.menuOverlay}>
-              <View style={styles.menuContainer}>
-                <Pressable 
-                  style={styles.menuItem} 
-                  onPress={() => {
-                    setIsMenuOpen(false);
-                    navigate('booked-services');
-                  }}
-                >
-                  <View style={styles.menuItemRow}>
-                    <Text style={styles.menuItemText}>Booked Services</Text>
-                  </View>
-                </Pressable>
-                
-                <Pressable 
-                  style={styles.menuItem} 
-                  onPress={() => {
-                    setIsMenuOpen(false);
-                    navigate('past-services');
-                  }}
-                >
-                  <View style={styles.menuItemRow}>
-                    <Text style={styles.menuItemText}>Past Services</Text>
-                  </View>
-                </Pressable>
-                
-                <Pressable 
-                  style={styles.menuItem} 
-                  onPress={handleAccountPress}
-                >
-                  <View style={styles.menuItemRow}>
-                    <Text style={styles.menuItemText}>Account</Text>
-                  </View>
-                </Pressable>
-              </View>
-            </View>
-            </>
           )}
-          {isHelpMenuOpen && (
-            <>
-            {/* Full-screen dismiss overlay (taps here close the help menu) */}
-            <Pressable
-              style={styles.dismissOverlay}
-              onPress={() => {
-                if (Platform.OS !== 'web' && helpLottieRef.current) {
-                  helpLottieRef.current.play(24, 0); // Reverse the open animation
-                }
-                setIsHelpMenuOpen(false);
-              }}
+        </View>
+        
+        {/* Small pressable area for toggling (matches closed button size) */}
+        <Pressable 
+          onPress={handleMenuPress} 
+          style={styles.menuTogglePressable}
+        />
+
+        <View style={[styles.helpButton, { pointerEvents: 'none', backgroundColor: 'transparent' }]}>
+          {Platform.OS === 'web' || !canRenderLottie ? (
+            <SvgXml xml={helpIconSvg} width="20" height="20" />
+          ) : (
+            <LottieView
+              ref={helpLottieRef}
+              source={require('../../assets/animations/helpButtonAnimation.json')}
+              autoPlay={false}
+              loop={false}
+              style={styles.lottieAnimationLarge}
             />
-            {/* Help Button overlay */}
-            <View style={styles.helpMenuOverlay}>
-              <View style={styles.helpMenuContainer}>
-                <Pressable 
-                  style={styles.helpMenuItem} 
-                  onPress={() => {
-                    setIsMenuOpen(false);
-                    navigate('customer-service-chat');
-                  }}
-                >
+          )}
+        </View>
+        
+        {/* Small pressable area for toggling (matches closed button size) */}
+        <Pressable 
+          onPress={handleHelpPress} 
+          style={styles.helpTogglePressable}
+        />
+  
+        {/* Invisible overlay with visible menu items */}
+        {isMenuOpen && (
+          <>
+          {/* Full-screen dismiss overlay (taps here close the menu) */}
+          <Pressable
+            style={styles.dismissOverlay}
+            onPress={() => {
+              if (Platform.OS !== 'web' && lottieRef.current) {
+                lottieRef.current.play(24, 0); // Reverse the open animation
+              }
+              setIsMenuOpen(false);
+            }}
+          />
+          {/* Menu Overlay */}
+          <View style={styles.menuOverlay}>
+            <View style={styles.menuContainer}>
+              <Pressable 
+                style={styles.menuItem} 
+                onPress={() => {
+                  setIsMenuOpen(false);
+                  navigate('booked-services');
+                }}
+              >
                 <View style={styles.menuItemRow}>
-                  <Text style={styles.menuItemText}>Customer Service Chat</Text>
+                  <Text style={styles.menuItemText}>Booked Services</Text>
                 </View>
-                </Pressable>
-              </View>
+              </Pressable>
+              
+              <Pressable 
+                style={styles.menuItem} 
+                onPress={() => {
+                  setIsMenuOpen(false);
+                  navigate('past-services');
+                }}
+              >
+                <View style={styles.menuItemRow}>
+                  <Text style={styles.menuItemText}>Past Services</Text>
+                </View>
+              </Pressable>
+              
+              <Pressable 
+                style={styles.menuItem} 
+                onPress={handleAccountPress}
+              >
+                <View style={styles.menuItemRow}>
+                  <Text style={styles.menuItemText}>Account</Text>
+                </View>
+              </Pressable>
             </View>
-            </>
-          )}
           </View>
-        </KeyboardAvoidingView>
-        </Animated.View>
-      </TouchableWithoutFeedback>
+          </>
+        )}
+        {isHelpMenuOpen && (
+          <>
+          {/* Full-screen dismiss overlay (taps here close the help menu) */}
+          <Pressable
+            style={styles.dismissOverlay}
+            onPress={() => {
+              if (Platform.OS !== 'web' && helpLottieRef.current) {
+                helpLottieRef.current.play(24, 0); // Reverse the open animation
+              }
+              setIsHelpMenuOpen(false);
+            }}
+          />
+          {/* Help Button overlay */}
+          <View style={styles.helpMenuOverlay}>
+            <View style={styles.helpMenuContainer}>
+              <Pressable 
+                style={styles.helpMenuItem} 
+                onPress={() => {
+                  setIsMenuOpen(false);
+                  navigate('customer-service-chat');
+                }}
+              >
+              <View style={styles.menuItemRow}>
+                <Text style={styles.menuItemText}>Customer Service Chat</Text>
+              </View>
+              </Pressable>
+            </View>
+          </View>
+          </>
+        )}
+        </View>
+      </KeyboardAvoidingView>
+      </Animated.View>
+    </TouchableWithoutFeedback>
     </View>
   );  
 }

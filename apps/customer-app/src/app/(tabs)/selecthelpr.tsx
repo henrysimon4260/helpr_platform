@@ -1,9 +1,9 @@
-import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useLocalSearchParams, router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useModal } from '../../context/ModalContext';
+import { supabase } from '../../lib/supabase';
 
 type ServiceFillRequestRow = {
   service_provider_id: string;
@@ -327,7 +327,7 @@ const SelectHelpr = () => {
         setSelectingProviderId(null);
 
         router.replace({
-          pathname: 'booked-services' as any,
+          pathname: '/(tabs)/booked-services' as any,
           params: { 
             serviceId,
             showConfirmedModal: 'true',
@@ -528,7 +528,7 @@ const SelectHelpr = () => {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" backgroundColor="#0c4309" />
-      <Pressable style={styles.backButton} onPress={() => router.push('/booked-services')}>
+      <Pressable style={styles.backButton} onPress={() => router.push('/(tabs)/booked-services' as any)}>
         <Image
           source={require('../../assets/icons/backButton.png')}
           style={styles.backButtonIcon}

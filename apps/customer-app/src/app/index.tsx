@@ -26,22 +26,22 @@ export default function SplashComponent() {
         console.warn('Splash screen error:', error);
       }
 
-      // Wait longer to show splash, then fade quicker
+      // Minimal delay, then slow smooth fade
       setTimeout(() => {
         Animated.timing(fadeAnim, {
           toValue: 0,
-          duration: 1200,
+          duration: 2200,
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }).start(({ finished }) => {
           if (finished) {
             setHasNavigated(true);
-            const targetRoute = user ? '/(tabs)/landing' : '/(tabs)/login';
+            const targetRoute = user ? '/(tabs)' : '/(auth)/login';
             console.log('Navigating to:', targetRoute);
             router.replace(targetRoute as any);
           }
         });
-      }, 800);
+      }, 100);
     };
 
     navigateAfterSplash();

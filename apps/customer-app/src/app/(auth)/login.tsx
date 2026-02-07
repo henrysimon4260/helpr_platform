@@ -68,7 +68,7 @@ export default function Login() {
     }
 
     clearReturnTo();
-    router.replace('/landing');
+    router.replace('/(tabs)' as any);
   }, [clearReturnTo, getReturnTo]);
 
   const signInWithEmail = async () => {
@@ -117,7 +117,7 @@ export default function Login() {
 
   const signUpWithEmail = async () => {
     // Navigate to dedicated signup page
-    router.replace('/signup' as any);
+    router.replace('/(auth)/signup' as any);
   };
 
   const verifyOTP = async () => {
@@ -192,7 +192,7 @@ export default function Login() {
   };
 
   const skipSignIn = () => {
-    router.replace('/landing');
+    router.replace('/(tabs)' as any);
   };
 
   const checkAccountStatus = async () => {

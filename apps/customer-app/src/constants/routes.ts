@@ -1,7 +1,6 @@
 // Centralized route param types for the customer app.
 // Import this where pages or navigation helpers need route names/params.
 export type RouteParams = {
-  landing: undefined;
   moving: undefined;
   cleaning: undefined;
   'furniture-assembly': undefined;
@@ -20,7 +19,6 @@ export type RouteParams = {
 
 // Optional: a helper constant if you only need route names elsewhere
 export const ROUTES = [
-  'landing',
   'moving',
   'cleaning',
   'furniture-assembly',

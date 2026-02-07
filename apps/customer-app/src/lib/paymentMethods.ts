@@ -14,7 +14,7 @@ export type SavedPaymentMethodSummary = {
   createdAt?: string | null;
 };
 
-const TABLE_NAME = 'customer_payment_methods';
+const TABLE_NAME = 'payment_methods';
 
 const mapRowToSummary = (row: Record<string, any>): SavedPaymentMethodSummary => {
   const expMonth = row.expiry_month ?? row.exp_month;

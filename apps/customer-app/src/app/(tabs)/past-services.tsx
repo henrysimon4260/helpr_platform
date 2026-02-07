@@ -1,10 +1,10 @@
-import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { supabase } from '../../lib/supabase';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 type ServiceRow = {
   service_id: string;
@@ -126,7 +126,7 @@ export default function PastServices() {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
-      <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
+      <Pressable style={styles.backButton} onPress={() => router.push('/(tabs)' as any)}>
         <Image source={require('../../assets/icons/backButton.png')} style={styles.backButtonIcon} />
       </Pressable>
       <View style={styles.header}>
@@ -189,7 +189,7 @@ export default function PastServices() {
                     <Pressable
                       style={styles.showDetailsButton}
                       onPress={() => router.push({
-                        pathname: '/ServiceDetails' as any,
+                        pathname: '/(tabs)/ServiceDetails' as any,
                         params: { serviceId: service.service_id }
                       })}
                     >
