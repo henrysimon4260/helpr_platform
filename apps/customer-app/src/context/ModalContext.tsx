@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import StyledModal, { StyledModalButton } from '../shared/components/StyledModal';
+
+import { StyledModal, StyledModalButton } from '../components/common/StyledModal';
 
 export type ModalButtonStyle = 'default' | 'cancel' | 'destructive';
 
@@ -86,7 +87,7 @@ export const ModalProvider: React.FC<React.PropsWithChildren> = ({ children }) =
           text: 'OK',
           variant: 'primary',
           onPress: hideModal,
-          fullWidth: true,
+          fullWidth: false,
         },
       ];
     }

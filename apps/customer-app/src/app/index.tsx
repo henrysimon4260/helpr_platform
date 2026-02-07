@@ -26,17 +26,17 @@ export default function SplashComponent() {
         console.warn('Splash screen error:', error);
       }
 
-      // Minimal delay, then slow smooth fade
+      // Minimal delay, then quick smooth fade
       setTimeout(() => {
         Animated.timing(fadeAnim, {
           toValue: 0,
-          duration: 2200,
+          duration: 800,
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
           useNativeDriver: true,
         }).start(({ finished }) => {
           if (finished) {
             setHasNavigated(true);
-            const targetRoute = user ? '/(tabs)' : '/(auth)/login';
+            const targetRoute = user ? '/(home)/landing' : '/(auth)/login';
             console.log('Navigating to:', targetRoute);
             router.replace(targetRoute as any);
           }

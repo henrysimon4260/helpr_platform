@@ -1,9 +1,13 @@
+import { StripeProvider } from '@stripe/stripe-react-native';
 import * as Linking from 'expo-linking';
 import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { AuthProvider } from '../context/AuthContext';
 import { ModalProvider } from '../context/ModalContext';
 import { supabase } from '../lib/supabase';
+
+// TODO: Move to environment variable
+const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
 
 export default function Layout() {
   const segments = useSegments();
@@ -23,7 +27,7 @@ export default function Layout() {
             console.error('Auth callback error:', error);
           } else if (data.session) {
             // User is authenticated, redirect to landing
-            router.replace('/(tabs)' as never);
+            router.replace('/(home)/landing' as never);
           }
         } catch (err) {
           console.error('Error handling auth callback:', err);
@@ -47,20 +51,24 @@ export default function Layout() {
   }, []);
 
   return (
-    <AuthProvider>
-      <ModalProvider>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: 'none',
-            contentStyle: { backgroundColor: '#0C4309' },
-          }}
-        >
-          <Stack.Screen name="index" options={{ animation: 'none' }} />
-          <Stack.Screen name="(auth)" options={{ animation: 'none' }} />
-          <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
-        </Stack>
-      </ModalProvider>
-    </AuthProvider>
+    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+      <AuthProvider>
+        <ModalProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: 'none',
+              contentStyle: { backgroundColor: '#0C4309' },
+            }}
+          >
+            <Stack.Screen name="index" options={{ animation: 'none' }} />
+            <Stack.Screen name="(auth)" options={{ animation: 'none' }} />
+            <Stack.Screen name="(home)" options={{ animation: 'none' }} />
+            <Stack.Screen name="(services)" options={{ animation: 'none' }} />
+            <Stack.Screen name="(booking-flow)" options={{ animation: 'none' }} />
+          </Stack>
+        </ModalProvider>
+      </AuthProvider>
+    </StripeProvider>
   );
 }

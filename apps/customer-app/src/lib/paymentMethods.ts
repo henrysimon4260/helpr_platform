@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 
 export type SavedPaymentMethodSummary = {
   id: string;
-  customerId: string;
+  user_id: string;
   stripePaymentMethodId: string;
   brand: string;
   last4: string;
@@ -22,8 +22,8 @@ const mapRowToSummary = (row: Record<string, any>): SavedPaymentMethodSummary =>
 
   return {
     id: row.id,
-    customerId: row.customer_id,
-    stripePaymentMethodId: row.stripe_payment_method_id,
+    user_id: row.user_id,
+    stripePaymentMethodId: row.stripe_pm_id,
     brand: row.brand,
     last4: row.last4,
     expMonth,
@@ -35,17 +35,17 @@ const mapRowToSummary = (row: Record<string, any>): SavedPaymentMethodSummary =>
   };
 };
 
-export const loadPaymentMethods = async (customerId: string): Promise<SavedPaymentMethodSummary[]> => {
-  if (!customerId) {
+export const loadPaymentMethods = async (user_id: string): Promise<SavedPaymentMethodSummary[]> => {
+  if (!user_id) {
     return [];
   }
 
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .select(
-      'id, customer_id, stripe_payment_method_id, brand, last4, exp_month, exp_year, is_default, created_at',
+      'id, user_id, stripe_pm_id, brand, last4, exp_month, exp_year, is_default, created_at',
     )
-    .eq('customer_id', customerId)
+    .eq('user_id', user_id)
     .order('is_default', { ascending: false })
     .order('created_at', { ascending: true });
 
@@ -58,41 +58,44 @@ export const loadPaymentMethods = async (customerId: string): Promise<SavedPayme
 };
 
 export const savePaymentMethod = async (
-  customerId: string,
+  user_id: string,
   stripePaymentMethodId: string,
   brand: string,
   last4: string,
   expMonth: number,
   expYear: number,
+  isDefault: boolean = false,
 ): Promise<SavedPaymentMethodSummary | null> => {
-  if (!customerId) {
+  if (!user_id) {
     return null;
   }
 
-  // Ensure this method becomes the default by clearing previous defaults first
-  const { error: clearError } = await supabase
-    .from(TABLE_NAME)
-    .update({ is_default: false })
-    .eq('customer_id', customerId);
+  // If this method should be default, clear previous defaults first
+  if (isDefault) {
+    const { error: clearError } = await supabase
+      .from(TABLE_NAME)
+      .update({ is_default: false })
+      .eq('user_id', user_id);
 
-  if (clearError) {
-    console.error('Failed to clear default payment methods', clearError);
-    throw clearError;
+    if (clearError) {
+      console.error('Failed to clear default payment methods', clearError);
+      throw clearError;
+    }
   }
 
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .insert({
-      customer_id: customerId,
-      stripe_payment_method_id: stripePaymentMethodId,
+      user_id: user_id,
+      stripe_pm_id: stripePaymentMethodId,
       brand,
       last4,
       exp_month: expMonth,
       exp_year: expYear,
-      is_default: true,
+      is_default: isDefault,
     })
     .select(
-      'id, customer_id, stripe_payment_method_id, brand, last4, exp_month, exp_year, is_default, created_at',
+      'id, user_id, stripe_pm_id, brand, last4, exp_month, exp_year, is_default, created_at',
     )
     .single();
 
@@ -105,17 +108,17 @@ export const savePaymentMethod = async (
 };
 
 export const setDefaultPaymentMethod = async (
-  customerId: string,
+  user_id: string,
   paymentMethodId: string,
 ): Promise<boolean> => {
-  if (!customerId || !paymentMethodId) {
+  if (!user_id || !paymentMethodId) {
     return false;
   }
 
   const { error: clearError } = await supabase
     .from(TABLE_NAME)
     .update({ is_default: false })
-    .eq('customer_id', customerId);
+    .eq('user_id', user_id);
 
   if (clearError) {
     console.error('Failed to clear default flags', clearError);
@@ -125,7 +128,7 @@ export const setDefaultPaymentMethod = async (
   const { error } = await supabase
     .from(TABLE_NAME)
     .update({ is_default: true })
-    .eq('customer_id', customerId)
+    .eq('user_id', user_id)
     .eq('id', paymentMethodId);
 
   if (error) {
