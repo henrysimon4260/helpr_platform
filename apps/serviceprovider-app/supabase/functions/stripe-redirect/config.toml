@@ -1,0 +1,10 @@
+# This function is called by Stripe's servers during redirect
+# and by browsers - no auth required
+verify_jwt = false
+
+
+
+
+
+
+

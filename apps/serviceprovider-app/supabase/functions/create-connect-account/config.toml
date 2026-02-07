@@ -1,0 +1,7 @@
+# This function needs to be publicly accessible because it's called
+# during signup BEFORE the user has an auth account
+verify_jwt = false
+
+# Import Map for Deno
+import_map = "./import_map.json"
+
