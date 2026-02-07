@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator
 import { SvgXml } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
+import { useRouter, useSegments } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
@@ -75,6 +75,7 @@ const greenArrowSvg = `
 
 export default function Landing() {
   const router = useRouter();
+  const segments = useSegments();
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
   const isDateTimePickerSupported = useMemo(() => Platform.OS === 'ios' || Platform.OS === 'android', []);
@@ -1148,11 +1149,56 @@ export default function Landing() {
   };
 
   // Redirect unauthenticated users to login
+  // Also check if authenticated user still has valid account data
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace('/login');
-    }
+    const checkAccountValidity = async () => {
+      if (authLoading) return; // Still loading auth state
+
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
+
+      // User is authenticated, but check if their account data still exists
+      try {
+        const { data: providerData, error } = await supabase
+          .from('service_provider')
+          .select('service_provider_id')
+          .eq('email', user.email)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error checking account validity:', error);
+          // Don't redirect on database errors, just continue
+          return;
+        }
+
+        if (!providerData) {
+          console.log('Account data not found for authenticated user - clearing session');
+          // Account was deleted but session still exists - clear session
+          await supabase.auth.signOut();
+          router.replace('/login');
+          return;
+        }
+
+        // Account data exists, user can stay on landing page
+      } catch (error) {
+        console.error('Error validating account:', error);
+        // Don't redirect on errors, just continue
+      }
+    };
+
+    checkAccountValidity();
   }, [authLoading, user, router]);
+
+  // Close menu when navigating to account or past-services routes
+  useEffect(() => {
+    const currentRoute = segments[segments.length - 1];
+    if (currentRoute === 'account' || currentRoute === 'past-services') {
+      setIsMenuOpen(false);
+      setIsHelpMenuOpen(false);
+    }
+  }, [segments]);
 
   return (
     <View style={styles.container}>

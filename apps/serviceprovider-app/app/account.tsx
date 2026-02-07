@@ -14,6 +14,7 @@ interface ProviderData {
   email: string;
   phone: string | null;
   profile_picture_url: string | null;
+  balance?: number | null;
 }
 
 export default function Account() {
@@ -304,7 +305,7 @@ export default function Account() {
           console.error('Error updating email:', updateError);
           showModal({
             title: 'Error',
-            message: 'Failed to send verification email',
+            message: `Failed to send verification email: ${updateError.message || 'Unknown error'}`,
           });
           return;
         }
@@ -393,7 +394,7 @@ export default function Account() {
         console.error('Error sending OTP:', otpError);
         showModal({
           title: 'Error',
-          message: 'Failed to send verification code',
+          message: `Failed to send verification code: ${otpError.message || 'Unknown error'}`,
         });
         return;
       }
@@ -575,7 +576,7 @@ export default function Account() {
         console.error('Error resending OTP:', error);
         showModal({
           title: 'Error',
-          message: 'Failed to resend verification code',
+          message: `Failed to resend verification code: ${error.message || 'Unknown error'}`,
         });
         return;
       }
@@ -609,7 +610,7 @@ export default function Account() {
         console.error('Error resending OTP:', error);
         showModal({
           title: 'Error',
-          message: 'Failed to resend verification code',
+          message: `Failed to resend verification code: ${error.message || 'Unknown error'}`,
         });
         return;
       }
@@ -654,6 +655,7 @@ export default function Account() {
       ],
     });
   };
+
 
   const chevronIcon = `
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -714,7 +716,7 @@ export default function Account() {
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.push('/landing')}>
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Image
             source={require('../assets/icons/backButton.png')}
             style={styles.backButtonIcon}
@@ -797,6 +799,25 @@ export default function Account() {
         </TouchableOpacity>
       </View>
 
+      {/* Balance Dashboard */}
+      <View style={styles.balanceDashboard}>
+        <TouchableOpacity
+          style={styles.withdrawButton}
+          onPress={() => {
+            showModal({
+              title: 'Withdraw Funds',
+              message: 'Withdrawal functionality coming soon!',
+            });
+          }}
+        >
+          <Text style={styles.withdrawButtonText}>Withdraw</Text>
+        </TouchableOpacity>
+        <Text style={styles.balanceAmount}>
+          ${(providerData?.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </Text>
+        <Text style={styles.balanceLabel}>Available Balance</Text>
+      </View>
+
       <View style={styles.menuContainer}>
         <TouchableOpacity style={styles.menuItem} onPress={() => setShowPaymentModal(true)}>
           <View style={styles.menuItemContent}>
@@ -815,6 +836,7 @@ export default function Account() {
         </TouchableOpacity>
 
         <View style={styles.divider} />
+
 
         <TouchableOpacity style={styles.signOutItem} onPress={signOut}>
           <Text style={styles.signOutText}>Sign out</Text>
@@ -1509,5 +1531,54 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     fontSize: 14,
     fontWeight: '500',
+  },
+  balanceDashboard: {
+    backgroundColor: '#0c4309',
+    marginHorizontal: 20,
+    marginBottom: 30,
+    borderRadius: 20,
+    padding: 24,
+    paddingTop: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 184,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  withdrawButton: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    backgroundColor: 'white',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  withdrawButtonText: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  balanceLabel: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 8,
+  },
+  balanceAmount: {
+    color: 'white',
+    fontSize: 42,
+    fontWeight: '700',
+    letterSpacing: -1,
+    marginTop: 30,
   },
 });
