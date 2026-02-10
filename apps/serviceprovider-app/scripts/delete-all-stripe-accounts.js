@@ -14,18 +14,18 @@
 
 const readline = require('readline');
 
-// Initialize readline interface
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
+const createPrompt = () => {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
 
-// Helper function to prompt user
-function question(prompt) {
-  return new Promise((resolve) => {
+  const question = (prompt) => new Promise((resolve) => {
     rl.question(prompt, resolve);
   });
-}
+
+  return { rl, question };
+};
 
 // Helper function to delay execution
 function delay(ms) {
@@ -45,7 +45,6 @@ async function deleteAllStripeAccounts() {
     if (!stripeSecretKey) {
       console.error('❌ Error: No Stripe secret key available');
       console.log('Please set the STRIPE_SECRET_KEY environment variable or update the script with your key.');
-      rl.close();
       return;
     }
 
@@ -60,7 +59,6 @@ async function deleteAllStripeAccounts() {
       supabase = createClient(supabaseUrl, supabaseAnonKey);
     } catch (error) {
       console.error('❌ Failed to load Supabase SDK. Please install it: npm install @supabase/supabase-js');
-      rl.close();
       return;
     }
 
@@ -71,7 +69,6 @@ async function deleteAllStripeAccounts() {
       stripe = new stripeModule.default(stripeSecretKey);
     } catch (error) {
       console.error('❌ Failed to load Stripe SDK. Please install it: npm install stripe');
-      rl.close();
       return;
     }
 
@@ -85,13 +82,11 @@ async function deleteAllStripeAccounts() {
 
     if (dbError) {
       console.error('❌ Database error:', dbError.message);
-      rl.close();
       return;
     }
 
     if (!providers || providers.length === 0) {
       console.log('✅ No Stripe accounts found in database. Nothing to delete.');
-      rl.close();
       return;
     }
 
@@ -105,22 +100,38 @@ async function deleteAllStripeAccounts() {
     console.log('   All accounts will be closed and all associated data will be removed.');
     console.log('   Users will need to create new accounts to receive payments.\n');
 
-    // Get confirmation
-    const confirmation = await question('Are you absolutely sure you want to delete ALL accounts? Type "DELETE ALL" to confirm: ');
-
-    if (confirmation !== 'DELETE ALL') {
-      console.log('❌ Bulk deletion cancelled. You must type "DELETE ALL" exactly to proceed.');
-      rl.close();
+    const forceDelete = process.argv.includes('--force') || process.env.STRIPE_DELETE_ALL_FORCE === 'true';
+    const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    if (!forceDelete && !isInteractive) {
+      console.error('❌ Cannot prompt for confirmation in a non-interactive shell.');
+      console.error('   Re-run with --force or STRIPE_DELETE_ALL_FORCE=true to proceed.');
       return;
     }
 
-    // Final confirmation
-    const finalConfirmation = await question('This is your LAST CHANCE. Type "YES, DELETE ALL ACCOUNTS" to permanently delete them: ');
+    let confirmation = '';
+    let finalConfirmation = '';
 
-    if (finalConfirmation !== 'YES, DELETE ALL ACCOUNTS') {
-      console.log('❌ Bulk deletion cancelled.');
-      rl.close();
-      return;
+    if (!forceDelete) {
+      const { rl, question } = createPrompt();
+      try {
+        // Get confirmation
+        confirmation = await question('Are you absolutely sure you want to delete ALL accounts? Type "DELETE ALL" to confirm: ');
+
+        if (confirmation !== 'DELETE ALL') {
+          console.log('❌ Bulk deletion cancelled. You must type "DELETE ALL" exactly to proceed.');
+          return;
+        }
+
+        // Final confirmation
+        finalConfirmation = await question('This is your LAST CHANCE. Type "YES, DELETE ALL ACCOUNTS" to permanently delete them: ');
+      } finally {
+        rl.close();
+      }
+
+      if (finalConfirmation !== 'YES, DELETE ALL ACCOUNTS') {
+        console.log('❌ Bulk deletion cancelled.');
+        return;
+      }
     }
 
     console.log('\n🔄 Starting bulk deletion process...');
@@ -225,7 +236,7 @@ async function deleteAllStripeAccounts() {
       console.error('Error code:', error.code);
     }
   } finally {
-    rl.close();
+    // No-op: readline interface is created only when prompting.
   }
 }
 
