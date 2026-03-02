@@ -13,7 +13,7 @@ import { AttachmentAsset } from '../../../components/services/AttachmentThumbnai
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../../lib/paymentMethods';
 import { supabase } from '../../../lib/supabase';
 
-import { CurrentLocationOption, PlaceSuggestion } from './LocationAutocompleteInput';
+import { CurrentLocationOption, PlaceSuggestion } from '../../../components/services/LocationAutocompleteInput';
 import { MovingAnalysisResult, MovingModalQuestion, SelectedLocation } from './moving.types';
 import {
   containsStreetNumber,

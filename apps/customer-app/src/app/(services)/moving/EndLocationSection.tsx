@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Image, View } from 'react-native';
 
-import { CurrentLocationOption, LocationAutocompleteInput, PlaceSuggestion } from './LocationAutocompleteInput';
+import { CurrentLocationOption, LocationAutocompleteInput, PlaceSuggestion } from '../../../components/services/LocationAutocompleteInput';
 import { styles } from './moving.styles';
 
 type EndLocationSectionProps = {

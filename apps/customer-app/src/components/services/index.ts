@@ -6,6 +6,7 @@ export { BackButton, type BackButtonProps } from './BackButton';
 export { BinarySlider, type BinarySliderProps } from './BinarySlider';
 export { JobDescriptionSection, type JobDescriptionSectionProps } from './JobDescriptionSection';
 export { JobDescriptionInput, type JobDescriptionInputProps } from './JobDescriptionInput';
+export { LocationAutocompleteInput, type CurrentLocationOption, type LocationAutocompleteInputProps, type PlaceSuggestion } from './LocationAutocompleteInput';
 export { PersonalBusinessToggle, type PaymentMethodInfo, type PersonalBusinessToggleProps } from './PersonalBusinessToggle';
 export { PaymentSummaryModal, type PaymentSummaryModalProps } from './PaymentSummaryModal';
 export { PriceDisplay, type PriceDisplayProps } from './PriceDisplay';
