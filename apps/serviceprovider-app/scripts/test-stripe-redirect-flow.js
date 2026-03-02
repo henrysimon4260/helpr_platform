@@ -50,3 +50,4 @@ console.log('- App detects redirect and completes signup automatically');
 console.log('- User is taken to landing page with account ready to accept jobs');
 
 
+
