@@ -550,7 +550,7 @@ export function usePaymentManagement({ user, showModal }: PaymentManagementProps
   }, [activePaymentMethodId, savedPaymentMethods]);
 
   const loadSavedPaymentMethods = useCallback(async (): Promise<SavedPaymentMethodSummary[]> => {
-    if (paymentMethodsLoaded) return savedPaymentMethods;
+    if (paymentMethodsLoaded) return [];
     if (!user?.id) return [];
 
     setLoadingPaymentMethods(true);
@@ -570,7 +570,7 @@ export function usePaymentManagement({ user, showModal }: PaymentManagementProps
     } finally {
       setLoadingPaymentMethods(false);
     }
-  }, [paymentMethodsLoaded, savedPaymentMethods, user, activePaymentMethodId]);
+  }, [paymentMethodsLoaded, user, activePaymentMethodId]);
 
   const openPaymentModal = useCallback(async () => {
     const methods = await loadSavedPaymentMethods();
@@ -668,14 +668,16 @@ export function usePaymentManagement({ user, showModal }: PaymentManagementProps
   // Auto-load payment methods when user is available
   useEffect(() => {
     if (!user) {
-      setPaymentMethodsLoaded(false);
-      setSavedPaymentMethods([]);
-      setActivePaymentMethodId(null);
+      if (paymentMethodsLoaded || savedPaymentMethods.length > 0 || activePaymentMethodId) {
+        setPaymentMethodsLoaded(false);
+        setSavedPaymentMethods([]);
+        setActivePaymentMethodId(null);
+      }
       return;
     }
     if (paymentMethodsLoaded) return;
     loadSavedPaymentMethods();
-  }, [user, paymentMethodsLoaded, loadSavedPaymentMethods]);
+  }, [user, paymentMethodsLoaded, savedPaymentMethods.length, activePaymentMethodId, loadSavedPaymentMethods]);
 
   return {
     paymentModalVisible,
