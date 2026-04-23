@@ -53,53 +53,37 @@ export default function Home() {
       </header>
 
       <section className="relative overflow-hidden border-b border-slate-100 bg-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(75,176,137,0.14),transparent_42%),radial-gradient(circle_at_84%_76%,rgba(96,155,255,0.12),transparent_40%)]" />
-        <div className="absolute -left-24 top-14 h-72 w-72 rounded-full bg-[#89d9b2]/20 blur-3xl" />
-        <div className="absolute -right-20 bottom-8 h-64 w-64 rounded-full bg-[#92c7ff]/20 blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_26%,rgba(75,176,137,0.24),transparent_42%),radial-gradient(circle_at_78%_82%,rgba(96,155,255,0.16),transparent_38%),radial-gradient(circle_at_22%_80%,rgba(118,189,151,0.14),transparent_34%)]" />
+        <div className="absolute left-1/2 top-24 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-[#7cd9aa]/25 blur-[110px]" />
+        <div className="absolute left-1/2 top-40 h-[24rem] w-[24rem] -translate-x-1/2 rounded-full bg-white/55 blur-[95px]" />
 
-        <div className="relative z-10 mx-auto flex min-h-[82vh] w-full max-w-7xl items-center px-6 py-16 md:px-10 md:py-20">
-          <div className="grid w-full items-center gap-12 md:grid-cols-[1fr_1.05fr]">
-            <div className="mx-auto w-full max-w-sm md:max-w-md">
-              <div className="relative rounded-[2.5rem] border border-[#cde7d8] bg-gradient-to-b from-[#f6fffa] to-[#edf7f2] p-3 shadow-[0_28px_64px_rgba(16,55,38,0.12)]">
-                <div className="aspect-[9/19] rounded-[2rem] border border-white/90 bg-[linear-gradient(160deg,#f9fffd_0%,#e6f3ec_68%,#dbeee5_100%)] p-2">
-                  <div className="h-full overflow-hidden rounded-[1.6rem] border border-[#cee4d8]/80 bg-white/65">
-                    <video
-                      className="h-full w-full object-cover"
-                      autoPlay
-                      muted
-                      playsInline
-                      preload="metadata"
-                    >
-                      <source src="/animations/mockup.mp4" type="video/mp4" />
-                    </video>
-                  </div>
+        <div className="relative z-10 mx-auto flex min-h-[82vh] w-full max-w-7xl flex-col items-center justify-center px-6 py-16 md:px-10 md:py-20">
+          <p className="mb-7 inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1d5f3a]">
+            Home Services, Simplified
+          </p>
+          <div className="mx-auto w-full max-w-sm md:max-w-md">
+            <div className="relative rounded-[2.5rem] border border-[#cde7d8] bg-gradient-to-b from-[#f6fffa] to-[#edf7f2] p-3 shadow-[0_28px_64px_rgba(16,55,38,0.12)]">
+              <div className="aspect-[9/19] rounded-[2rem] border border-white/90 bg-[linear-gradient(160deg,#f9fffd_0%,#e6f3ec_68%,#dbeee5_100%)] p-2">
+                <div className="h-full overflow-hidden rounded-[1.6rem] border border-[#cee4d8]/80 bg-white/65">
+                  <video
+                    className="h-full w-full object-cover"
+                    autoPlay
+                    muted
+                    playsInline
+                    preload="metadata"
+                  >
+                    <source src="/animations/mockup.mp4" type="video/mp4" />
+                  </video>
                 </div>
               </div>
             </div>
-
-            <div className="max-w-2xl">
-              <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1d5f3a]">
-                Home Services, Simplified
-              </p>
-              <h1 className="mt-5 text-5xl font-bold leading-tight text-slate-900 md:text-6xl">
-                <span className="text-[#0e5a2a]">Flat rates.</span>
-                <br />
-                Instant booking.
-              </h1>
-              <p className="mt-6 max-w-xl text-base leading-8 text-[#46604f] md:text-lg">
-                Book trusted local professionals quickly with transparent pricing
-                and a streamlined experience from start to finish.
-              </p>
-              <div className="mt-8 flex flex-wrap items-center gap-4">
-                <SlowScrollLink
-                  href="#download"
-                  className="rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#0a4a23]"
-                >
-                  Download the App
-                </SlowScrollLink>
-              </div>
-            </div>
           </div>
+          <SlowScrollLink
+            href="#download"
+            className="mt-8 rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#0a4a23]"
+          >
+            Download the App
+          </SlowScrollLink>
         </div>
       </section>
 
