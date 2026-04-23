@@ -57,7 +57,7 @@ export default function Home() {
 
       <section className="relative h-[115vh] w-full overflow-hidden border-b border-slate-100 bg-white md:h-[133vh]">
         <video
-          className="absolute inset-x-0 -top-[3%] h-[103%] w-full object-cover [object-position:50%_50%] md:-top-[6%] md:h-[106%] md:[object-position:38%_50%]"
+          className="absolute left-0 top-0 h-full w-[52%] object-contain [object-position:50%_50%] md:inset-x-0 md:-top-[6%] md:h-[106%] md:w-full md:object-cover md:[object-position:38%_50%]"
           autoPlay
           muted
           playsInline
@@ -67,7 +67,7 @@ export default function Home() {
         </video>
 
         <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.6)_45%,rgba(255,255,255,0.92)_100%)] md:block" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-[62%] bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.5)_35%,rgba(255,255,255,0.92)_100%)] md:hidden" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-[52%] bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.72)_25%,rgba(255,255,255,0.96)_100%)] md:hidden" />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 flex h-screen items-center sm:pb-20 md:pb-32">
           <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center px-4 sm:px-6 md:px-10">
@@ -77,15 +77,15 @@ export default function Home() {
                 <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#1d5f3a] backdrop-blur sm:px-4 sm:py-1 sm:text-[11px] sm:tracking-[0.22em]">
                   Home Services, Simplified
                 </p>
-                <h1 className="mt-2 text-xl font-bold leading-[1.05] tracking-[-0.015em] text-slate-900 sm:mt-6 sm:text-5xl md:text-6xl">
+                <h1 className="mt-1.5 text-xl font-bold leading-[1.02] tracking-[-0.015em] text-slate-900 sm:mt-6 sm:text-5xl sm:leading-[1.05] md:text-6xl">
                   <span className="block whitespace-nowrap text-[#0e5a2a]">Flat rates.</span>
                   <span className="block whitespace-nowrap">Instant booking.</span>
                 </h1>
-                <p className="mt-2 text-[11px] leading-[1.45] text-[#3f5848] sm:mt-5 sm:max-w-xl sm:text-base sm:leading-[1.65] md:text-lg md:leading-[1.7]">
+                <p className="mt-1.5 text-[11px] leading-[1.35] text-[#3f5848] sm:mt-5 sm:max-w-xl sm:text-base sm:leading-[1.65] md:text-lg md:leading-[1.7]">
                  Moving, Cleaning, Furniture Assembly and more. Transparent pricing
                   and a streamlined experience from start to finish.
                 </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-9 sm:gap-4">
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 sm:mt-9 sm:gap-4">
                   <SlowScrollLink
                     href="#download"
                     className="inline-flex items-center justify-center rounded-lg bg-[#0e5a2a] px-3 py-1.5 text-xs font-semibold text-white shadow-[0_6px_14px_rgba(14,90,42,0.25)] transition hover:-translate-y-0.5 hover:bg-[#0a4a23] sm:rounded-xl sm:px-6 sm:py-3 sm:text-sm sm:shadow-[0_10px_24px_rgba(14,90,42,0.22)]"
