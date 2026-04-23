@@ -50,21 +50,21 @@ export default function BecomeAProPage() {
   return (
     <main className="min-h-screen bg-[#f6efdf] text-slate-900">
       <header className="border-b border-[#d8ccb2] bg-[#f7f1e4]">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-4 sm:h-20 sm:flex-row sm:items-center sm:justify-between sm:px-6 md:px-10">
-          <Link href="/become-a-pro" className="flex items-end gap-2">
-            <span className="text-3xl font-bold text-[#0e5a2a] sm:text-4xl">helpr</span>
-            <span className="pb-1 text-[11px] tracking-[0.18em] text-[#0e5a2a] sm:text-xs [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:h-20 sm:px-6 md:px-10">
+          <Link href="/become-a-pro" className="flex items-end gap-1.5 sm:gap-2">
+            <span className="text-2xl font-bold tracking-tight text-[#0e5a2a] sm:text-4xl">
+              helpr
+            </span>
+            <span className="pb-0.5 text-[10px] tracking-[0.16em] text-[#0e5a2a] sm:pb-1 sm:text-xs sm:tracking-[0.18em] [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
               for Pros
             </span>
           </Link>
-          <div className="flex w-full items-center sm:w-auto">
-            <SlowScrollLink
-              href="#download"
-              className="w-full rounded-lg border border-[#0e5a2a]/30 px-4 py-2 text-center text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:w-auto"
-            >
-              Download
-            </SlowScrollLink>
-          </div>
+          <SlowScrollLink
+            href="#download"
+            className="rounded-lg border border-[#0e5a2a]/30 px-3 py-1.5 text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:px-4 sm:py-2"
+          >
+            Download
+          </SlowScrollLink>
         </div>
       </header>
 
@@ -78,20 +78,20 @@ export default function BecomeAProPage() {
           className="object-cover object-[center_34%] scale-[1.28]"
         />
         <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(14,33,20,0.32),rgba(14,33,20,0.60))]" />
-        <p className="absolute left-6 top-8 z-10 rounded-full border border-[#eadfcb]/45 bg-[#eadfcb]/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#f4ebd9] md:left-10 md:top-10">
+        <p className="absolute left-4 top-5 z-10 rounded-full border border-[#eadfcb]/45 bg-[#eadfcb]/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f4ebd9] sm:left-6 sm:top-8 sm:px-4 sm:text-xs sm:tracking-[0.2em] md:left-10 md:top-10">
           Get Started Today
         </p>
 
-        <div className="relative mx-auto flex min-h-[78vh] max-w-7xl items-center px-6 py-20 text-center md:px-10 md:py-24">
-          <div className="relative mx-auto mt-6 max-w-4xl px-5 py-6 md:px-8 md:py-7">
+        <div className="relative mx-auto flex min-h-[70vh] max-w-7xl items-center px-5 py-16 text-center sm:min-h-[78vh] sm:px-6 sm:py-20 md:px-10 md:py-24">
+          <div className="relative mx-auto mt-4 max-w-4xl px-4 py-5 sm:mt-6 sm:px-5 sm:py-6 md:px-8 md:py-7">
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 rounded-[2rem] bg-gradient-to-b from-[#1b2b1f]/18 to-[#1b2b1f]/8 backdrop-blur-[1.5px]"
+              className="pointer-events-none absolute inset-0 rounded-[1.5rem] bg-gradient-to-b from-[#1b2b1f]/18 to-[#1b2b1f]/8 backdrop-blur-[1.5px] sm:rounded-[2rem]"
             />
-            <h1 className="relative mx-auto max-w-4xl text-5xl font-bold leading-tight text-[#f8f0e2] drop-shadow-[0_2px_10px_rgba(0,0,0,0.28)] md:text-6xl">
+            <h1 className="relative mx-auto max-w-4xl text-4xl font-bold leading-[1.1] text-[#f8f0e2] drop-shadow-[0_2px_10px_rgba(0,0,0,0.28)] sm:text-5xl sm:leading-tight md:text-6xl">
               Become a Helpr Services Pro
             </h1>
-            <p className="relative mx-auto mt-5 max-w-3xl text-base font-light leading-8 tracking-[0.01em] text-[#efe3cf] drop-shadow-[0_1px_8px_rgba(0,0,0,0.22)] md:text-lg">
+            <p className="relative mx-auto mt-4 max-w-3xl text-sm font-light leading-[1.7] tracking-[0.01em] text-[#efe3cf] drop-shadow-[0_1px_8px_rgba(0,0,0,0.22)] sm:mt-5 sm:text-base sm:leading-8 md:text-lg">
               Join our trusted team as a service provider. Start completing
               services as soon as today and earn flat rates. Set your own prices
               and request to fill active listings.
@@ -172,9 +172,9 @@ export default function BecomeAProPage() {
       </section>
 
       <footer className="border-t border-[#d8ccb2] bg-[#f7f1e4]">
-        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-10">
-          <div className="flex flex-col gap-5 text-center sm:text-left md:flex-row md:items-center md:justify-between">
-            <div>
+        <div className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-6 sm:py-8 md:px-10">
+          <div className="flex flex-col gap-6 text-center sm:gap-5 sm:text-left md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col items-center gap-0.5 sm:items-start">
               <p className="text-2xl font-bold tracking-[-0.01em] text-[#0e5a2a]">
                 helpr
               </p>
@@ -182,7 +182,7 @@ export default function BecomeAProPage() {
                 Built for professionals who take pride in every service.
               </p>
             </div>
-            <nav className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm font-medium text-[#2f4832] sm:flex sm:flex-wrap sm:items-center">
+            <nav className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm font-medium text-[#2f4832] sm:flex sm:flex-wrap sm:items-center sm:gap-y-2">
               <Link href="/">Home</Link>
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us-for-pros">Customer Support</Link>

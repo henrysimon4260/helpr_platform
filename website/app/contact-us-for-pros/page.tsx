@@ -5,32 +5,32 @@ export default function ContactUsForProsPage() {
   return (
     <main className="min-h-screen bg-[#f6efdf] text-slate-900">
       <header className="border-b border-[#d8ccb2] bg-[#f7f1e4]">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-4 sm:h-20 sm:flex-row sm:items-center sm:justify-between sm:px-6 md:px-10">
-          <Link href="/become-a-pro" className="flex items-end gap-2">
-            <span className="text-3xl font-bold text-[#0e5a2a] sm:text-4xl">helpr</span>
-            <span className="pb-1 text-[11px] tracking-[0.18em] text-[#0e5a2a] sm:text-xs [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:h-20 sm:px-6 md:px-10">
+          <Link href="/become-a-pro" className="flex items-end gap-1.5 sm:gap-2">
+            <span className="text-2xl font-bold tracking-tight text-[#0e5a2a] sm:text-4xl">
+              helpr
+            </span>
+            <span className="pb-0.5 text-[10px] tracking-[0.16em] text-[#0e5a2a] sm:pb-1 sm:text-xs sm:tracking-[0.18em] [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
               for Pros
             </span>
           </Link>
-          <div className="flex w-full items-center sm:w-auto">
-            <Link
-              href="/become-a-pro#download"
-              className="w-full rounded-lg border border-[#0e5a2a]/35 px-4 py-2 text-center text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:w-auto"
-            >
-              Download
-            </Link>
-          </div>
+          <Link
+            href="/become-a-pro#download"
+            className="rounded-lg border border-[#0e5a2a]/35 px-3 py-1.5 text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:px-4 sm:py-2"
+          >
+            Download
+          </Link>
         </div>
       </header>
 
       <section className="relative overflow-hidden bg-[#2f5b35]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(255,255,255,0.16),transparent_44%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(20,48,27,0.32),rgba(20,48,27,0.74))]" />
-        <div className="relative mx-auto max-w-7xl px-6 py-20 md:px-10 md:py-24">
-          <h1 className="max-w-3xl text-4xl font-bold leading-tight text-[#f8f0e2] md:text-5xl">
+        <div className="relative mx-auto max-w-7xl px-5 py-14 sm:px-6 sm:py-20 md:px-10 md:py-24">
+          <h1 className="max-w-3xl text-3xl font-bold leading-[1.15] text-[#f8f0e2] sm:text-4xl sm:leading-tight md:text-5xl">
             Get in Touch With Us
           </h1>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#efe3cf] md:text-lg">
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[#efe3cf] sm:mt-4 sm:text-base md:text-lg">
             We are here to help with account setup, onboarding questions, and
             general platform support.
           </p>
@@ -100,9 +100,9 @@ export default function ContactUsForProsPage() {
         </div>
       </section>
       <footer className="border-t border-[#dbcdb1] bg-[#f5eddc]">
-        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-10">
-          <div className="flex flex-col gap-5 text-center sm:text-left md:flex-row md:items-center md:justify-between">
-            <div>
+        <div className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-6 sm:py-8 md:px-10">
+          <div className="flex flex-col gap-6 text-center sm:gap-5 sm:text-left md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col items-center gap-0.5 sm:items-start">
               <p className="text-2xl font-bold tracking-[-0.01em] text-[#0e5a2a]">
                 helpr
               </p>
@@ -110,7 +110,7 @@ export default function ContactUsForProsPage() {
                 Dedicated support for service professionals.
               </p>
             </div>
-            <nav className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm font-medium text-[#2f4832] sm:flex sm:flex-wrap sm:items-center">
+            <nav className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm font-medium text-[#2f4832] sm:flex sm:flex-wrap sm:items-center sm:gap-y-2">
               <Link href="/">Home</Link>
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us-for-pros">Customer Support</Link>

@@ -31,11 +31,14 @@ export default function Home() {
   return (
     <main className="relative min-h-screen bg-white text-slate-900">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-4 sm:h-20 sm:flex-row sm:items-center sm:justify-between sm:px-6 md:px-10">
-          <Link href="/" className="text-3xl font-bold text-[#0e5a2a] sm:text-4xl">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:h-20 sm:px-6 md:px-10">
+          <Link
+            href="/"
+            className="text-2xl font-bold tracking-tight text-[#0e5a2a] sm:text-4xl"
+          >
             helpr
           </Link>
-          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-4 md:gap-8">
+          <div className="flex items-center gap-3 sm:gap-4 md:gap-8">
             <SlowScrollLink
               href="#download"
               className="text-sm font-bold text-slate-900 sm:text-base"
@@ -44,7 +47,7 @@ export default function Home() {
             </SlowScrollLink>
             <Link
               href="/become-a-pro"
-              className="rounded-lg border border-[#0e5a2a]/35 px-4 py-2 text-sm font-bold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:px-5 sm:text-base"
+              className="rounded-lg border border-[#0e5a2a]/35 px-3 py-1.5 text-sm font-bold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:px-5 sm:py-2 sm:text-base"
             >
               Become a Pro
             </Link>
@@ -52,9 +55,9 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="relative h-[133vh] w-full overflow-hidden border-b border-slate-100 bg-white">
+      <section className="relative h-[115vh] w-full overflow-hidden border-b border-slate-100 bg-white md:h-[133vh]">
         <video
-          className="absolute inset-x-0 -top-[6%] h-[106%] w-full object-cover [object-position:38%_50%]"
+          className="absolute inset-x-0 -top-[3%] h-[103%] w-full object-cover [object-position:50%_50%] md:-top-[6%] md:h-[106%] md:[object-position:38%_50%]"
           autoPlay
           muted
           playsInline
@@ -64,28 +67,28 @@ export default function Home() {
         </video>
 
         <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.6)_45%,rgba(255,255,255,0.92)_100%)] md:block" />
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent_70%,rgba(255,255,255,0.7)_100%)] md:hidden" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-[linear-gradient(to_bottom,transparent_0%,rgba(255,255,255,0.55)_45%,rgba(255,255,255,0.95)_100%)] md:hidden" />
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-screen items-center pb-24 md:pb-32">
-          <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center px-6 md:px-10">
-            <div className="grid w-full items-center gap-12 md:grid-cols-[1.35fr_0.65fr]">
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-[calc(100vh-3.5rem)] items-end pb-10 sm:h-screen sm:items-center sm:pb-20 md:pb-32">
+          <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center px-5 sm:px-6 md:px-10">
+            <div className="grid w-full items-center gap-8 md:grid-cols-[1.35fr_0.65fr] md:gap-12">
               <div aria-hidden="true" className="hidden md:block" />
               <div className="ml-auto w-full max-w-xl">
-                <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#1d5f3a] backdrop-blur">
+                <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#1d5f3a] backdrop-blur sm:px-4 sm:text-[11px] sm:tracking-[0.22em]">
                   Home Services, Simplified
                 </p>
-                <h1 className="mt-6 text-5xl font-bold leading-[1.05] tracking-[-0.015em] text-slate-900 md:text-6xl">
+                <h1 className="mt-4 text-4xl font-bold leading-[1.05] tracking-[-0.015em] text-slate-900 sm:text-5xl sm:mt-6 md:text-6xl">
                   <span className="block whitespace-nowrap text-[#0e5a2a]">Flat rates.</span>
                   <span className="block whitespace-nowrap">Instant booking.</span>
                 </h1>
-                <p className="mt-5 max-w-xl text-base leading-[1.7] text-[#3f5848] md:text-lg">
+                <p className="mt-4 max-w-xl text-sm leading-[1.65] text-[#3f5848] sm:mt-5 sm:text-base md:text-lg md:leading-[1.7]">
                  Moving, Cleaning, Furniture Assembly and more. Transparent pricing
                   and a streamlined experience from start to finish.
                 </p>
-                <div className="mt-9 flex flex-wrap items-center gap-4">
+                <div className="mt-6 flex flex-wrap items-center gap-4 sm:mt-9">
                   <SlowScrollLink
                     href="#download"
-                    className="rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(14,90,42,0.22)] transition hover:-translate-y-0.5 hover:bg-[#0a4a23]"
+                    className="inline-flex w-full items-center justify-center rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(14,90,42,0.22)] transition hover:-translate-y-0.5 hover:bg-[#0a4a23] sm:w-auto"
                   >
                     Download the App
                   </SlowScrollLink>
@@ -148,15 +151,15 @@ export default function Home() {
       </section>
 
       <footer className="bg-[#1f4d2c] text-[#eef5ea]">
-        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-10">
-          <div className="flex flex-col gap-5 text-center sm:text-left md:flex-row md:items-center md:justify-between">
-            <div>
+        <div className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-6 sm:py-8 md:px-10">
+          <div className="flex flex-col gap-6 text-center sm:gap-5 sm:text-left md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col items-center gap-0.5 sm:items-start">
               <p className="text-2xl font-bold tracking-[-0.01em]">helpr</p>
               <p className="text-sm text-[#d5e6d0]">
                 Trusted Home Services Professionals
               </p>
             </div>
-            <nav className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm font-medium text-[#e6f0e0] sm:flex sm:flex-wrap sm:items-center">
+            <nav className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm font-medium text-[#e6f0e0] sm:flex sm:flex-wrap sm:items-center sm:gap-y-2">
               <Link href="/">Home</Link>
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us">Customer Support</Link>
