@@ -31,17 +31,20 @@ export default function Home() {
   return (
     <main className="relative min-h-screen bg-white text-slate-900">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-        <div className="items-center mx-auto flex h-20 w-full max-w-7xl justify-between px-6 md:px-10">
-          <Link href="/" className="text-4xl font-bold text-[#0e5a2a]">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-4 sm:h-20 sm:flex-row sm:items-center sm:justify-between sm:px-6 md:px-10">
+          <Link href="/" className="text-3xl font-bold text-[#0e5a2a] sm:text-4xl">
             helpr
           </Link>
-          <div className="flex items-center gap-4 md:gap-8">
-            <SlowScrollLink href="#download" className="text-base font-bold text-slate-900">
+          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-4 md:gap-8">
+            <SlowScrollLink
+              href="#download"
+              className="text-sm font-bold text-slate-900 sm:text-base"
+            >
               Download
             </SlowScrollLink>
             <Link
               href="/become-a-pro"
-              className="rounded-lg border border-[#0e5a2a]/35 px-5 py-2 text-base font-bold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5"
+              className="rounded-lg border border-[#0e5a2a]/35 px-4 py-2 text-sm font-bold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:px-5 sm:text-base"
             >
               Become a Pro
             </Link>
@@ -150,15 +153,15 @@ export default function Home() {
       </section>
 
       <footer className="bg-[#1f4d2c] text-[#eef5ea]">
-        <div className="mx-auto w-full max-w-7xl px-6 py-8 md:px-10">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-10">
+          <div className="flex flex-col gap-5 text-center sm:text-left md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-2xl font-bold tracking-[-0.01em]">helpr</p>
               <p className="text-sm text-[#d5e6d0]">
                 Trusted Home Services Professionals
               </p>
             </div>
-            <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-medium text-[#e6f0e0]">
+            <nav className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm font-medium text-[#e6f0e0] sm:flex sm:flex-wrap sm:items-center">
               <Link href="/">Home</Link>
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us">Customer Support</Link>

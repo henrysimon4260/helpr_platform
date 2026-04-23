@@ -50,17 +50,17 @@ export default function BecomeAProPage() {
   return (
     <main className="min-h-screen bg-[#f6efdf] text-slate-900">
       <header className="border-b border-[#d8ccb2] bg-[#f7f1e4]">
-        <div className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-6 md:px-10">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-4 sm:h-20 sm:flex-row sm:items-center sm:justify-between sm:px-6 md:px-10">
           <Link href="/become-a-pro" className="flex items-end gap-2">
-            <span className="text-4xl font-bold text-[#0e5a2a]">helpr</span>
-            <span className="pb-1 text-xs tracking-[0.18em] text-[#0e5a2a] [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
+            <span className="text-3xl font-bold text-[#0e5a2a] sm:text-4xl">helpr</span>
+            <span className="pb-1 text-[11px] tracking-[0.18em] text-[#0e5a2a] sm:text-xs [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
               for Pros
             </span>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full items-center sm:w-auto">
             <SlowScrollLink
               href="#download"
-              className="rounded-lg border border-[#0e5a2a]/30 px-4 py-2 text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5"
+              className="w-full rounded-lg border border-[#0e5a2a]/30 px-4 py-2 text-center text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:w-auto"
             >
               Download
             </SlowScrollLink>
@@ -172,8 +172,8 @@ export default function BecomeAProPage() {
       </section>
 
       <footer className="border-t border-[#d8ccb2] bg-[#f7f1e4]">
-        <div className="mx-auto w-full max-w-7xl px-6 py-8 md:px-10">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-10">
+          <div className="flex flex-col gap-5 text-center sm:text-left md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-2xl font-bold tracking-[-0.01em] text-[#0e5a2a]">
                 helpr
@@ -182,7 +182,7 @@ export default function BecomeAProPage() {
                 Built for professionals who take pride in every service.
               </p>
             </div>
-            <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-medium text-[#2f4832]">
+            <nav className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm font-medium text-[#2f4832] sm:flex sm:flex-wrap sm:items-center">
               <Link href="/">Home</Link>
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us-for-pros">Customer Support</Link>

@@ -5,19 +5,20 @@ export default function ContactUsPage() {
   return (
     <main className="min-h-screen bg-[#f2f7f2] text-slate-900">
       <header className="border-b border-[#b5ccb8] bg-[#e8f2e8]">
-        <div className="mx-auto flex h-20 w-full max-w-7xl items-end justify-between px-6 pb-4 md:px-10">
-          <Link href="/" className="flex items-end gap-3">
-            <span className="text-4xl font-bold text-[#0e5a2a]">helpr</span>
-            <span className="mb-1 text-xs tracking-[0.18em] text-[#0e5a2a] [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-4 sm:h-20 sm:flex-row sm:items-end sm:justify-between sm:px-6 sm:pb-4 md:px-10">
+          <Link href="/" className="flex items-end gap-2">
+            <span className="text-3xl font-bold text-[#0e5a2a] sm:text-4xl">helpr</span>
+            <span className="mb-0.5 text-[11px] tracking-[0.18em] text-[#0e5a2a] sm:mb-1 sm:text-xs [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
               customer care
             </span>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full items-center sm:w-auto">
             <Link
               href="/contact-us-for-pros"
-              className="rounded-lg border border-[#0e5a2a]/35 px-4 py-2 text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5"
+              className="w-full rounded-lg border border-[#0e5a2a]/35 px-4 py-2 text-center text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:w-auto"
             >
-              Support for Service Providers
+              <span className="sm:hidden">Support for Pros</span>
+              <span className="hidden sm:inline">Support for Service Providers</span>
             </Link>
           </div>
         </div>
@@ -99,11 +100,27 @@ export default function ContactUsPage() {
           </form>
         </div>
       </section>
-      <section className="border-t border-[#c3d6c4] bg-[#edf5ed]">
-        <div className="mx-auto w-full max-w-7xl px-6 py-6 md:px-10">
-          <LegalDisclaimer className="text-xs leading-5 text-[#4d6652]" />
+      <footer className="border-t border-[#c3d6c4] bg-[#edf5ed]">
+        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-10">
+          <div className="flex flex-col gap-5 text-center sm:text-left md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-2xl font-bold tracking-[-0.01em] text-[#0e5a2a]">
+                helpr
+              </p>
+              <p className="text-sm text-[#4d6652]">
+                Fast customer support for every booking stage.
+              </p>
+            </div>
+            <nav className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm font-medium text-[#2f4832] sm:flex sm:flex-wrap sm:items-center">
+              <Link href="/">Home</Link>
+              <Link href="/become-a-pro">Become a Pro</Link>
+              <Link href="/contact-us">Customer Support</Link>
+              <Link href="/contact-us-for-pros">Support for Pros</Link>
+            </nav>
+          </div>
+          <LegalDisclaimer className="mt-6 border-t border-[#c3d6c4] pt-4 text-[11px] leading-5 text-[#4d6652] [&>p+p]:mt-1" />
         </div>
-      </section>
+      </footer>
     </main>
   );
 }

@@ -5,17 +5,17 @@ export default function ContactUsForProsPage() {
   return (
     <main className="min-h-screen bg-[#f6efdf] text-slate-900">
       <header className="border-b border-[#d8ccb2] bg-[#f7f1e4]">
-        <div className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-6 md:px-10">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-4 sm:h-20 sm:flex-row sm:items-center sm:justify-between sm:px-6 md:px-10">
           <Link href="/become-a-pro" className="flex items-end gap-2">
-            <span className="text-4xl font-bold text-[#0e5a2a]">helpr</span>
-            <span className="pb-1 text-xs tracking-[0.18em] text-[#0e5a2a] [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
+            <span className="text-3xl font-bold text-[#0e5a2a] sm:text-4xl">helpr</span>
+            <span className="pb-1 text-[11px] tracking-[0.18em] text-[#0e5a2a] sm:text-xs [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation_Mono,Courier_New,monospace]">
               for Pros
             </span>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full items-center sm:w-auto">
             <Link
               href="/become-a-pro#download"
-              className="rounded-lg border border-[#0e5a2a]/35 px-4 py-2 text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5"
+              className="w-full rounded-lg border border-[#0e5a2a]/35 px-4 py-2 text-center text-sm font-semibold text-[#0e5a2a] transition hover:bg-[#0e5a2a]/5 sm:w-auto"
             >
               Download
             </Link>
@@ -99,14 +99,30 @@ export default function ContactUsForProsPage() {
           </form>
         </div>
       </section>
-      <section className="border-t border-[#dbcdb1] bg-[#f5eddc]">
-        <div className="mx-auto w-full max-w-7xl px-6 py-6 md:px-10">
+      <footer className="border-t border-[#dbcdb1] bg-[#f5eddc]">
+        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-10">
+          <div className="flex flex-col gap-5 text-center sm:text-left md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-2xl font-bold tracking-[-0.01em] text-[#0e5a2a]">
+                helpr
+              </p>
+              <p className="text-sm text-[#5b6b58]">
+                Dedicated support for service professionals.
+              </p>
+            </div>
+            <nav className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm font-medium text-[#2f4832] sm:flex sm:flex-wrap sm:items-center">
+              <Link href="/">Home</Link>
+              <Link href="/become-a-pro">Become a Pro</Link>
+              <Link href="/contact-us-for-pros">Customer Support</Link>
+              <Link href="/contact-us">Homeowner Support</Link>
+            </nav>
+          </div>
           <LegalDisclaimer
-            className="text-xs leading-5 text-[#5b6b58]"
+            className="mt-6 border-t border-[#dbcdb1] pt-4 text-[11px] leading-5 text-[#5b6b58] [&>p+p]:mt-1"
             includeProOnboardingNotice
           />
         </div>
-      </section>
+      </footer>
     </main>
   );
 }
