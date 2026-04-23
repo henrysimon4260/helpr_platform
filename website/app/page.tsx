@@ -54,7 +54,7 @@ export default function Home() {
 
       <section className="relative h-[133vh] w-full overflow-hidden border-b border-slate-100 bg-white">
         <video
-          className="absolute inset-x-0 -top-[6%] h-[106%] w-full object-cover [object-position:10%_50%]"
+          className="absolute inset-x-0 -top-[6%] h-[106%] w-full object-cover [object-position:38%_50%]"
           autoPlay
           muted
           playsInline
