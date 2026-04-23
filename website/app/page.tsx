@@ -61,15 +61,17 @@ export default function Home() {
           <div className="grid w-full items-center gap-12 md:grid-cols-[1fr_1.05fr]">
             <div className="mx-auto w-full max-w-sm md:max-w-md">
               <div className="relative rounded-[2.5rem] border border-[#cde7d8] bg-gradient-to-b from-[#f6fffa] to-[#edf7f2] p-3 shadow-[0_28px_64px_rgba(16,55,38,0.12)]">
-                <div className="aspect-[9/19] rounded-[2rem] border border-white/90 bg-[linear-gradient(160deg,#f9fffd_0%,#e6f3ec_68%,#dbeee5_100%)] p-5">
-                  <div className="flex h-full flex-col justify-between rounded-[1.6rem] border border-[#cee4d8]/80 bg-white/65 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#3f6f58]">
-                      iPhone Hero Slot
-                    </p>
-                    <p className="text-sm leading-6 text-[#3b5d4c]">
-                      Drop your high-quality iPhone mockup here and this frame is
-                      ready to showcase it.
-                    </p>
+                <div className="aspect-[9/19] rounded-[2rem] border border-white/90 bg-[linear-gradient(160deg,#f9fffd_0%,#e6f3ec_68%,#dbeee5_100%)] p-2">
+                  <div className="h-full overflow-hidden rounded-[1.6rem] border border-[#cee4d8]/80 bg-white/65">
+                    <video
+                      className="h-full w-full object-cover"
+                      autoPlay
+                      muted
+                      playsInline
+                      preload="metadata"
+                    >
+                      <source src="/animations/mockup.mp4" type="video/mp4" />
+                    </video>
                   </div>
                 </div>
               </div>
