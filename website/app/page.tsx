@@ -57,21 +57,27 @@ export default function Home() {
         <div className="absolute -left-24 top-14 h-72 w-72 rounded-full bg-[#89d9b2]/20 blur-3xl" />
         <div className="absolute -right-20 bottom-8 h-64 w-64 rounded-full bg-[#92c7ff]/20 blur-3xl" />
 
-        <div className="relative z-10 mx-auto flex min-h-[82vh] w-full max-w-7xl items-center px-6 py-16 md:px-10 md:py-20">
-          <div className="grid w-full items-center gap-12 md:grid-cols-[1fr_1.05fr]">
-            <div className="mx-auto w-full max-w-sm md:max-w-md">
+        <div className="relative z-10 mx-auto flex min-h-[132vh] w-full max-w-7xl items-start px-6 py-10 md:px-10 md:py-14">
+          <div className="grid w-full items-start gap-12 md:grid-cols-[1.05fr_0.95fr]">
+            <div className="mx-auto w-full max-w-md md:max-w-xl">
               <video
-                className="w-full h-auto"
+                className="h-[130vh] min-h-screen w-full object-cover object-top"
                 autoPlay
                 muted
                 playsInline
                 preload="metadata"
+                style={{
+                  WebkitMaskImage:
+                    "radial-gradient(115% 108% at 50% 42%, black 72%, transparent 100%)",
+                  maskImage:
+                    "radial-gradient(115% 108% at 50% 42%, black 72%, transparent 100%)",
+                }}
               >
                 <source src="/animations/mockup.mp4" type="video/mp4" />
               </video>
             </div>
 
-            <div className="max-w-2xl">
+            <div className="max-w-2xl pt-16 md:pt-24">
               <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1d5f3a]">
                 Home Services, Simplified
               </p>
