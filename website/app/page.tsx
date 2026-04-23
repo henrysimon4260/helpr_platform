@@ -63,14 +63,14 @@ export default function Home() {
           <source src="/animations/select_helpr_mockup.mp4" type="video/mp4" />
         </video>
 
-        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-3/5 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.55)_55%,rgba(255,255,255,0.9)_100%)] md:block" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.6)_45%,rgba(255,255,255,0.92)_100%)] md:block" />
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent_70%,rgba(255,255,255,0.7)_100%)] md:hidden" />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 flex h-screen items-center pb-24 md:pb-32">
           <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center px-6 md:px-10">
-            <div className="grid w-full items-center gap-12 md:grid-cols-[1.05fr_0.95fr]">
+            <div className="grid w-full items-center gap-12 md:grid-cols-[1.35fr_0.65fr]">
               <div aria-hidden="true" className="hidden md:block" />
-              <div className="max-w-2xl">
+              <div className="ml-auto w-full max-w-xl">
                 <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#1d5f3a] backdrop-blur">
                   Home Services, Simplified
                 </p>
