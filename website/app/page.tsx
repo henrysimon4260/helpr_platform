@@ -52,51 +52,45 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="relative overflow-hidden border-b border-slate-100 bg-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(75,176,137,0.14),transparent_42%),radial-gradient(circle_at_84%_76%,rgba(96,155,255,0.12),transparent_40%)]" />
-        <div className="absolute -left-24 top-14 h-72 w-72 rounded-full bg-[#89d9b2]/20 blur-3xl" />
-        <div className="absolute -right-20 bottom-8 h-64 w-64 rounded-full bg-[#92c7ff]/20 blur-3xl" />
+      <section className="relative h-[133vh] w-full overflow-hidden border-b border-slate-100 bg-white">
+        <video
+          className="absolute inset-0 h-full w-full object-cover object-top"
+          autoPlay
+          muted
+          playsInline
+          preload="metadata"
+        >
+          <source src="/animations/select_helpr_mockup.mp4" type="video/mp4" />
+        </video>
 
-        <div className="relative z-10 mx-auto flex min-h-[132vh] w-full max-w-7xl items-start px-6 py-10 md:px-10 md:py-14">
-          <div className="grid w-full items-start gap-12 md:grid-cols-[1.05fr_0.95fr]">
-            <div className="mx-auto w-full max-w-md md:max-w-xl">
-              <video
-                className="h-[130vh] min-h-screen w-full object-cover object-top"
-                autoPlay
-                muted
-                playsInline
-                preload="metadata"
-                style={{
-                  WebkitMaskImage:
-                    "radial-gradient(115% 108% at 50% 42%, black 72%, transparent 100%)",
-                  maskImage:
-                    "radial-gradient(115% 108% at 50% 42%, black 72%, transparent 100%)",
-                }}
-              >
-                <source src="/animations/mockup.mp4" type="video/mp4" />
-              </video>
-            </div>
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-3/5 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.55)_55%,rgba(255,255,255,0.9)_100%)] md:block" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent_70%,rgba(255,255,255,0.7)_100%)] md:hidden" />
 
-            <div className="max-w-2xl pt-16 md:pt-24">
-              <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1d5f3a]">
-                Home Services, Simplified
-              </p>
-              <h1 className="mt-5 text-5xl font-bold leading-tight text-slate-900 md:text-6xl">
-                <span className="text-[#0e5a2a]">Flat rates.</span>
-                <br />
-                Instant booking.
-              </h1>
-              <p className="mt-6 max-w-xl text-base leading-8 text-[#46604f] md:text-lg">
-                Book trusted local professionals quickly with transparent pricing
-                and a streamlined experience from start to finish.
-              </p>
-              <div className="mt-8 flex flex-wrap items-center gap-4">
-                <SlowScrollLink
-                  href="#download"
-                  className="rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#0a4a23]"
-                >
-                  Download the App
-                </SlowScrollLink>
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-screen items-center">
+          <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center px-6 md:px-10">
+            <div className="grid w-full items-center gap-12 md:grid-cols-[1.05fr_0.95fr]">
+              <div aria-hidden="true" className="hidden md:block" />
+              <div className="max-w-2xl">
+                <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1d5f3a] backdrop-blur">
+                  Home Services, Simplified
+                </p>
+                <h1 className="mt-5 text-5xl font-bold leading-tight text-slate-900 md:text-6xl">
+                  <span className="text-[#0e5a2a]">Flat rates.</span>
+                  <br />
+                  Instant booking.
+                </h1>
+                <p className="mt-6 max-w-xl text-base leading-8 text-[#46604f] md:text-lg">
+                  Book trusted local professionals quickly with transparent pricing
+                  and a streamlined experience from start to finish.
+                </p>
+                <div className="mt-8 flex flex-wrap items-center gap-4">
+                  <SlowScrollLink
+                    href="#download"
+                    className="rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#0a4a23]"
+                  >
+                    Download the App
+                  </SlowScrollLink>
+                </div>
               </div>
             </div>
           </div>
