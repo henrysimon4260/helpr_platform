@@ -54,7 +54,7 @@ export default function Home() {
 
       <section className="relative h-[133vh] w-full overflow-hidden border-b border-slate-100 bg-white">
         <video
-          className="absolute inset-0 h-full w-full object-cover object-top"
+          className="absolute inset-0 h-full w-full object-cover [object-position:center_-10%]"
           autoPlay
           muted
           playsInline
@@ -66,27 +66,27 @@ export default function Home() {
         <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-3/5 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.55)_55%,rgba(255,255,255,0.9)_100%)] md:block" />
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent_70%,rgba(255,255,255,0.7)_100%)] md:hidden" />
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-screen items-center">
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-screen items-center pb-24 md:pb-32">
           <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center px-6 md:px-10">
             <div className="grid w-full items-center gap-12 md:grid-cols-[1.05fr_0.95fr]">
               <div aria-hidden="true" className="hidden md:block" />
               <div className="max-w-2xl">
-                <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1d5f3a] backdrop-blur">
+                <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#1d5f3a] backdrop-blur">
                   Home Services, Simplified
                 </p>
-                <h1 className="mt-5 text-5xl font-bold leading-tight text-slate-900 md:text-6xl">
+                <h1 className="mt-6 text-5xl font-bold leading-[1.05] tracking-[-0.015em] text-slate-900 md:text-6xl">
                   <span className="text-[#0e5a2a]">Flat rates.</span>
                   <br />
                   Instant booking.
                 </h1>
-                <p className="mt-6 max-w-xl text-base leading-8 text-[#46604f] md:text-lg">
+                <p className="mt-5 max-w-xl text-base leading-[1.7] text-[#3f5848] md:text-lg">
                   Book trusted local professionals quickly with transparent pricing
                   and a streamlined experience from start to finish.
                 </p>
-                <div className="mt-8 flex flex-wrap items-center gap-4">
+                <div className="mt-9 flex flex-wrap items-center gap-4">
                   <SlowScrollLink
                     href="#download"
-                    className="rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#0a4a23]"
+                    className="rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(14,90,42,0.22)] transition hover:-translate-y-0.5 hover:bg-[#0a4a23]"
                   >
                     Download the App
                   </SlowScrollLink>
