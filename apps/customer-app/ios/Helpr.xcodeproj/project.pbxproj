@@ -7,31 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0D1DEF662C0AD8632FCB1EF2 /* libPods-Helpr.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1CFB43121F75C38DDA54F1A4 /* libPods-Helpr.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		1811D4B81E014DF49720EF84 /* noop-file.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C65EA2606A4456B0394D25 /* noop-file.swift */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		7F2A3B651CCF466AB5237F08 /* noop-file.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F0CD6BAAF74189B2D75797 /* noop-file.swift */; };
+		8B37B21BCE49BB17EA6B8580 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = EF2D415C6A2967013A71F7D8 /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		EF276BA29456A20C77650390 /* libPods-Helpr.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C37441510A3FDFD68A5ED235 /* libPods-Helpr.a */; };
+		BCB8075706A4152B4C0E5C16 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7DA311BE1010C2CE2DE76ED /* ExpoModulesProvider.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
-		F65EEF3A4842E6C0B4A60408 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE21C01213DF3AC315EF2AC /* ExpoModulesProvider.swift */; };
-		FAAED87FDC73693CDA3D3715 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 20AA5CA5AEE2B7971B7EB89D /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* Helpr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Helpr.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Helpr/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Helpr/Info.plist; sourceTree = "<group>"; };
-		20AA5CA5AEE2B7971B7EB89D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Helpr/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		92F0CD6BAAF74189B2D75797 /* noop-file.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = "noop-file.swift"; path = "Helpr/noop-file.swift"; sourceTree = "<group>"; };
+		1CFB43121F75C38DDA54F1A4 /* libPods-Helpr.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Helpr.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		45C65EA2606A4456B0394D25 /* noop-file.swift */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.swift; name = "noop-file.swift"; path = "Helpr/noop-file.swift"; sourceTree = "<group>"; };
+		5D8AB1455931723D6ABB68B6 /* Pods-Helpr.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Helpr.debug.xcconfig"; path = "Target Support Files/Pods-Helpr/Pods-Helpr.debug.xcconfig"; sourceTree = "<group>"; };
+		A7DA311BE1010C2CE2DE76ED /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Helpr/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Helpr/SplashScreen.storyboard; sourceTree = "<group>"; };
-		AC4A0053BA9455273F69568D /* Pods-Helpr.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Helpr.release.xcconfig"; path = "Target Support Files/Pods-Helpr/Pods-Helpr.release.xcconfig"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		C37441510A3FDFD68A5ED235 /* libPods-Helpr.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Helpr.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		D1527875A2EFAB9E8995C2C5 /* Pods-Helpr.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Helpr.debug.xcconfig"; path = "Target Support Files/Pods-Helpr/Pods-Helpr.debug.xcconfig"; sourceTree = "<group>"; };
+		E318E12E8E86E9DF082E8D36 /* Pods-Helpr.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Helpr.release.xcconfig"; path = "Target Support Files/Pods-Helpr/Pods-Helpr.release.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		EF2D415C6A2967013A71F7D8 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Helpr/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Helpr/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Helpr-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Helpr-Bridging-Header.h"; path = "Helpr/Helpr-Bridging-Header.h"; sourceTree = "<group>"; };
-		FBE21C01213DF3AC315EF2AC /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Helpr/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,19 +39,20 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EF276BA29456A20C77650390 /* libPods-Helpr.a in Frameworks */,
+				0D1DEF662C0AD8632FCB1EF2 /* libPods-Helpr.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		022EC1EA6CDAF2A17B5A9FBF /* Helpr */ = {
+		0EAA1F867D670C3B1780D551 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				FBE21C01213DF3AC315EF2AC /* ExpoModulesProvider.swift */,
+				5D8AB1455931723D6ABB68B6 /* Pods-Helpr.debug.xcconfig */,
+				E318E12E8E86E9DF082E8D36 /* Pods-Helpr.release.xcconfig */,
 			);
-			name = Helpr;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 		13B07FAE1A68108700A75B9A /* Helpr */ = {
@@ -63,8 +64,8 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				92F0CD6BAAF74189B2D75797 /* noop-file.swift */,
-				20AA5CA5AEE2B7971B7EB89D /* PrivacyInfo.xcprivacy */,
+				45C65EA2606A4456B0394D25 /* noop-file.swift */,
+				EF2D415C6A2967013A71F7D8 /* PrivacyInfo.xcprivacy */,
 			);
 			name = Helpr;
 			sourceTree = "<group>";
@@ -73,27 +74,9 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				C37441510A3FDFD68A5ED235 /* libPods-Helpr.a */,
+				1CFB43121F75C38DDA54F1A4 /* libPods-Helpr.a */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		45300FA6D31B0AF628B49DD1 /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				022EC1EA6CDAF2A17B5A9FBF /* Helpr */,
-			);
-			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
-		71E3BE8FB6781BC43D444856 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				D1527875A2EFAB9E8995C2C5 /* Pods-Helpr.debug.xcconfig */,
-				AC4A0053BA9455273F69568D /* Pods-Helpr.release.xcconfig */,
-			);
-			name = Pods;
-			path = Pods;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -110,8 +93,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				71E3BE8FB6781BC43D444856 /* Pods */,
-				45300FA6D31B0AF628B49DD1 /* ExpoModulesProviders */,
+				0EAA1F867D670C3B1780D551 /* Pods */,
+				B3ACAB7419E572F1B76E24D1 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -126,6 +109,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		B3ACAB7419E572F1B76E24D1 /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				FC29BCD68F0DADD5F39E9E94 /* Helpr */,
+			);
+			name = ExpoModulesProviders;
+			sourceTree = "<group>";
+		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -133,6 +124,14 @@
 			);
 			name = Supporting;
 			path = Helpr/Supporting;
+			sourceTree = "<group>";
+		};
+		FC29BCD68F0DADD5F39E9E94 /* Helpr */ = {
+			isa = PBXGroup;
+			children = (
+				A7DA311BE1010C2CE2DE76ED /* ExpoModulesProvider.swift */,
+			);
+			name = Helpr;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -143,13 +142,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Helpr" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				16F1C092A456FB357A971DC7 /* [Expo] Configure project */,
+				6F96F1E4635C39F26BC0459E /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				DD0407055D4B18A1B14CC214 /* [CP] Embed Pods Frameworks */,
+				AD3BC0D26FEFEE29FECEB8B9 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -169,9 +168,7 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
-						DevelopmentTeam = RQJ3248595;
 						LastSwiftMigration = 1250;
-						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -201,7 +198,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				FAAED87FDC73693CDA3D3715 /* PrivacyInfo.xcprivacy in Resources */,
+				8B37B21BCE49BB17EA6B8580 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,7 +244,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		16F1C092A456FB357A971DC7 /* [Expo] Configure project */ = {
+		6F96F1E4635C39F26BC0459E /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -329,7 +326,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Helpr/Pods-Helpr-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		DD0407055D4B18A1B14CC214 /* [CP] Embed Pods Frameworks */ = {
+		AD3BC0D26FEFEE29FECEB8B9 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -359,8 +356,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				7F2A3B651CCF466AB5237F08 /* noop-file.swift in Sources */,
-				F65EEF3A4842E6C0B4A60408 /* ExpoModulesProvider.swift in Sources */,
+				1811D4B81E014DF49720EF84 /* noop-file.swift in Sources */,
+				BCB8075706A4152B4C0E5C16 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -369,7 +366,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D1527875A2EFAB9E8995C2C5 /* Pods-Helpr.debug.xcconfig */;
+			baseConfigurationReference = 5D8AB1455931723D6ABB68B6 /* Pods-Helpr.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -398,6 +395,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.helpr.customer-app";
 				PRODUCT_NAME = Helpr;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Helpr/Helpr-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -408,7 +406,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = AC4A0053BA9455273F69568D /* Pods-Helpr.release.xcconfig */;
+			baseConfigurationReference = E318E12E8E86E9DF082E8D36 /* Pods-Helpr.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -432,6 +430,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.helpr.customer-app";
 				PRODUCT_NAME = Helpr;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Helpr/Helpr-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
