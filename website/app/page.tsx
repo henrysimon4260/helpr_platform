@@ -54,7 +54,7 @@ export default function Home() {
 
       <section className="relative h-[133vh] w-full overflow-hidden border-b border-slate-100 bg-white">
         <video
-          className="absolute inset-x-0 -top-[6%] h-[106%] w-full object-cover object-center"
+          className="absolute inset-x-0 -top-[6%] h-[106%] w-full object-cover [object-position:22%_50%]"
           autoPlay
           muted
           playsInline
@@ -75,9 +75,8 @@ export default function Home() {
                   Home Services, Simplified
                 </p>
                 <h1 className="mt-6 text-5xl font-bold leading-[1.05] tracking-[-0.015em] text-slate-900 md:text-6xl">
-                  <span className="text-[#0e5a2a]">Flat rates.</span>
-                  <br />
-                  Instant booking.
+                  <span className="block whitespace-nowrap text-[#0e5a2a]">Flat rates.</span>
+                  <span className="block whitespace-nowrap">Instant booking.</span>
                 </h1>
                 <p className="mt-5 max-w-xl text-base leading-[1.7] text-[#3f5848] md:text-lg">
                   Book trusted local professionals quickly with transparent pricing
