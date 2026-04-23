@@ -79,7 +79,7 @@ export default function Home() {
                   <span className="block whitespace-nowrap">Instant booking.</span>
                 </h1>
                 <p className="mt-5 max-w-xl text-base leading-[1.7] text-[#3f5848] md:text-lg">
-                  Book trusted local professionals quickly with transparent pricing
+                  Book trusted local professionals for moving, cleaning, furniture assembly and more. Transparent pricing
                   and a streamlined experience from start to finish.
                 </p>
                 <div className="mt-9 flex flex-wrap items-center gap-4">
