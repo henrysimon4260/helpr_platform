@@ -81,12 +81,11 @@ export default function Home() {
                 </p>
                 <h1 className="mt-2 text-[1.0625rem] font-bold leading-[1.06] tracking-[-0.02em] text-slate-900 md:mt-4 md:text-4xl md:leading-[1.06] lg:mt-6 lg:text-5xl xl:text-6xl xl:leading-[1.05] 2xl:text-[3.375rem]">
                   <span className="block text-[#0e5a2a] lg:whitespace-nowrap">Flat rates.</span>
-                  <span className="block lg:whitespace-nowrap">Booked instantly.</span>
+                  <span className="block lg:whitespace-nowrap">Book instantly.</span>
                 </h1>
                 <p className="mt-2 text-[10px] leading-[1.4] text-[#3f5848] md:mt-4 md:max-w-xl md:text-sm md:leading-[1.6] lg:mt-5 lg:text-base xl:text-lg xl:leading-[1.68]">
-                  From moving and cleaning to furniture assembly, book vetted
-                  local pros with upfront pricing and a seamless experience,
-                  start to finish.
+                  Moving and Cleaning, Furniture assembly and more. <br/> 
+                  Book vetted pros in one tap with upfront pricing.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2 md:mt-7 lg:mt-9 md:gap-4">
                   <SlowScrollLink
