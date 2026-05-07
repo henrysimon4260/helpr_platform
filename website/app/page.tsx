@@ -54,9 +54,10 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="relative h-[115vh] w-full overflow-hidden border-b border-slate-100 bg-white md:h-[133vh]">
+      {/* Hero: mobile = right-half video crop + compact right-aligned copy; md+ scales up with breakpoints */}
+      <section className="relative h-[min(118svh,920px)] w-full overflow-hidden border-b border-slate-100 bg-white md:h-[128vh] lg:h-[130vh] xl:h-[133vh]">
         <video
-          className="absolute -left-[4%] top-0 h-full w-[76%] object-contain [object-position:0%_50%] md:inset-x-0 md:-top-[6%] md:h-[106%] md:w-full md:object-cover md:[object-position:38%_50%]"
+          className="absolute left-0 top-0 h-full w-[200%] -translate-x-1/2 object-cover object-[56%_50%] md:inset-x-0 md:top-auto md:w-full md:translate-x-0 md:object-cover md:[object-position:38%_50%] md:-top-[3%] md:h-[96%] lg:-top-[4%] lg:h-[101%] xl:-top-[5%] xl:h-[103.5%] 2xl:-top-[6%] 2xl:h-[106%]"
           autoPlay
           muted
           playsInline
@@ -65,30 +66,32 @@ export default function Home() {
           <source src="/animations/select_helpr_mockup.mp4" type="video/mp4" />
         </video>
 
-        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.6)_45%,rgba(255,255,255,0.92)_100%)] md:block" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-[60%] bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.55)_15%,rgba(255,255,255,0.88)_40%,rgba(255,255,255,0.98)_100%)] md:hidden" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.55)_38%,rgba(255,255,255,0.88)_72%,rgba(255,255,255,0.96)_100%)] md:block md:w-[52%] lg:w-[50%] xl:w-1/2" />
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-screen items-center sm:pb-20 md:pb-32">
-          <div className="pointer-events-auto mx-auto flex w-full max-w-7xl items-center px-4 sm:px-6 md:px-10">
-            <div className="grid w-full items-center gap-3 grid-cols-[1fr_1.4fr] sm:grid-cols-1 sm:gap-8 md:grid-cols-[1.35fr_0.65fr] md:gap-12">
-              <div aria-hidden="true" className="block sm:hidden md:block" />
-              <div className="ml-auto w-full max-w-[200px] sm:max-w-xl">
-                <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/85 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#1d5f3a] backdrop-blur sm:px-4 sm:py-1 sm:text-[11px] sm:tracking-[0.22em]">
+        {/* Mobile: soften edge between clipped video (left) and text (right); desktop hidden */}
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-[58%] bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.35)_35%,rgba(255,255,255,0.82)_72%,rgba(255,255,255,0.97)_100%)] md:hidden" />
+
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-full items-center pb-16 pt-28 md:items-center md:pb-28 md:pt-24 lg:pb-[7.25rem] xl:pb-32">
+          <div className="pointer-events-auto mx-auto flex w-full max-w-7xl justify-end px-3 sm:px-5 md:justify-start md:px-8 lg:px-10">
+            <div className="grid w-full items-center md:grid-cols-[1.35fr_0.65fr] md:gap-10 lg:gap-12 xl:gap-14">
+              <div aria-hidden="true" className="hidden md:block" />
+              <div className="ml-auto w-[min(92%,228px)] sm:w-[min(88%,248px)] md:ml-auto md:w-full md:max-w-xl lg:max-w-2xl">
+                <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/90 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.12em] text-[#1d5f3a] backdrop-blur-sm md:bg-white/85 md:px-2.5 md:py-1 md:text-[10px] md:tracking-[0.18em] lg:text-[10.5px] lg:tracking-[0.2em] xl:text-[11px] xl:tracking-[0.22em]">
                   Home Services, On Demand
                 </p>
-                <h1 className="mt-1.5 text-xl font-bold leading-[1.02] tracking-[-0.015em] text-slate-900 sm:mt-6 sm:text-5xl sm:leading-[1.05] md:text-6xl">
-                  <span className="block whitespace-nowrap text-[#0e5a2a]">Flat rates.</span>
-                  <span className="block whitespace-nowrap">Booked instantly.</span>
+                <h1 className="mt-2 text-[1.0625rem] font-bold leading-[1.06] tracking-[-0.02em] text-slate-900 md:mt-4 md:text-4xl md:leading-[1.06] lg:mt-6 lg:text-5xl xl:text-6xl xl:leading-[1.05] 2xl:text-[3.375rem]">
+                  <span className="block text-[#0e5a2a] lg:whitespace-nowrap">Flat rates.</span>
+                  <span className="block lg:whitespace-nowrap">Booked instantly.</span>
                 </h1>
-                <p className="mt-1.5 text-[11px] leading-[1.35] text-[#3f5848] sm:mt-5 sm:max-w-xl sm:text-base sm:leading-[1.65] md:text-lg md:leading-[1.7]">
+                <p className="mt-2 text-[10px] leading-[1.4] text-[#3f5848] md:mt-4 md:max-w-xl md:text-sm md:leading-[1.6] lg:mt-5 lg:text-base xl:text-lg xl:leading-[1.68]">
                   From moving and cleaning to furniture assembly, book vetted
                   local pros with upfront pricing and a seamless experience,
                   start to finish.
                 </p>
-                <div className="mt-2.5 flex flex-wrap items-center gap-2 sm:mt-9 sm:gap-4">
+                <div className="mt-3 flex flex-wrap items-center gap-2 md:mt-7 lg:mt-9 md:gap-4">
                   <SlowScrollLink
                     href="#download"
-                    className="inline-flex items-center justify-center rounded-lg bg-[#0e5a2a] px-3 py-1.5 text-xs font-semibold text-white shadow-[0_6px_14px_rgba(14,90,42,0.25)] transition hover:-translate-y-0.5 hover:bg-[#0a4a23] sm:rounded-xl sm:px-6 sm:py-3 sm:text-sm sm:shadow-[0_10px_24px_rgba(14,90,42,0.22)]"
+                    className="inline-flex items-center justify-center rounded-md bg-[#0e5a2a] px-2.5 py-1.5 text-[10px] font-semibold text-white shadow-[0_4px_12px_rgba(14,90,42,0.22)] transition hover:-translate-y-0.5 hover:bg-[#0a4a23] md:rounded-xl md:px-6 md:py-3 md:text-sm md:shadow-[0_10px_24px_rgba(14,90,42,0.22)]"
                   >
                     Get the App
                   </SlowScrollLink>
@@ -208,7 +211,7 @@ export default function Home() {
 
           <div className="flex flex-col items-center gap-4 md:gap-5">
             <h2 className="max-w-3xl text-4xl font-semibold leading-[1.05] tracking-[-0.02em] text-white md:text-6xl">
-              <span className="text-[#8ae7b8]">Helpr</span>, right in your pocket
+              Download the <span className="text-[#8ae7b8]">Helpr</span> app
             </h2>
             <p className="max-w-xl text-sm leading-7 text-[#cfe4d3] md:text-base md:leading-8">
               Book vetted pros, track every appointment, and manage your home
