@@ -1,8 +1,0 @@
-packages:
-  - apps/*
-  - packages/*
-
-ignoredBuiltDependencies:
-  - unrs-resolver
-
-nodeLinker: hoisted
