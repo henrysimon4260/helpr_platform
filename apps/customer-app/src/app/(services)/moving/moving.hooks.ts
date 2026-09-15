@@ -1,5 +1,5 @@
 import { useStripe } from '@stripe/stripe-react-native';
-import { Audio } from 'expo-av';
+import { Audio } from '../../../lib/audio';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
