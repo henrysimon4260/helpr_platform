@@ -1,0 +1,15 @@
+---
+description: serviceprovider-app allowlists and Expo 54 constraint
+globs: apps/serviceprovider-app/**
+alwaysApply: false
+---
+
+# serviceprovider-app
+
+Expo 54. Do not hop to `apps/customer-app`. Details: [apps/serviceprovider-app/AGENTS.md](apps/serviceprovider-app/AGENTS.md).
+
+- **C** owns `app/landing.tsx`, `app/ServiceDetails.tsx`, `app/past-services.tsx`. Consume statuses from [JOB_CONTRACT.md](JOB_CONTRACT.md).
+- **D** follow-up only: login, signup, account, `AuthContext`, `providerProfile.ts`, OAuth bits of `_layout.tsx`.
+- **E** owns `supabase/functions/` and `api/stripe-redirect.ts`. Not `ServiceDetails.tsx` (C).
+- **F** owns `app/customer-service-chat.tsx`.
+- **A** and **B** never write this tree. Signup may call Connect helpers; only **E** rewrites them.
