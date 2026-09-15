@@ -12,6 +12,7 @@ export { PriceDisplay, type PriceDisplayProps } from './PriceDisplay';
 export { ScheduleButton, type ScheduleButtonProps } from './ScheduleButton';
 export { SignInModal, type SignInModalProps } from './SignInModal';
 export { TogglesSection, type TogglesSectionProps } from './TogglesSection';
+export { ServiceRequestScreen, type ServiceComposerConfig, type QuestionDef } from './composer';
 
 // Re-export PaymentMethodModal from common for backward compatibility
 export { PaymentMethodModal, type PaymentMethodModalProps } from '../common/PaymentMethodModal';

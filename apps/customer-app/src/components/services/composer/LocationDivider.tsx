@@ -1,7 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
 
-import { styles } from './moving.styles';
+import { styles } from './styles';
 
 export const LocationDivider: React.FC = () => (
   <View style={styles.locationDividerContainer}>

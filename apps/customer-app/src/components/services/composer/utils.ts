@@ -1,13 +1,11 @@
 import Constants from 'expo-constants';
 import { LatLng } from 'react-native-maps';
-import { AttachmentAsset } from '../../../components/services/AttachmentThumbnails/types';
-import { MovingAnalysisResult, MovingModalQuestion, MovingQuestionsState, SelectedLocation, ServiceZoneBoundingBox } from './moving.types';
+import { AttachmentAsset } from '../AttachmentThumbnails/types';
+import { SelectedLocation, ServiceZoneBoundingBox } from './types';
 
 // ============================================================
 // Constants
 // ============================================================
-
-export const MOVING_RETURN_PATH = 'moving';
 
 export const ALLOWED_SERVICE_ZONES: ServiceZoneBoundingBox[] = [
   { name: 'Manhattan', minLat: 40.6808, maxLat: 40.8820, minLng: -74.0477, maxLng: -73.9070 },
@@ -305,38 +303,3 @@ export const cloneSelectedLocation = (location: SelectedLocation | null): Select
 
 export const cloneAttachments = (items: AttachmentAsset[]): AttachmentAsset[] =>
   items.map((item) => ({ ...item }));
-
-// ============================================================
-// Question List Builder
-// ============================================================
-
-export const buildQuestionList = (
-  analysis: MovingAnalysisResult,
-  state: MovingQuestionsState
-): MovingModalQuestion[] => {
-  const questions: MovingModalQuestion[] = [];
-
-  if (!analysis.hasApartmentSize && !state.apartmentSize) {
-    questions.push('apartmentSize');
-  }
-  if (!analysis.hasPackingStatus && !state.packingStatus) {
-    questions.push('packingStatus');
-  }
-  if (!analysis.hasTruckInfo && !state.needsTruck) {
-    questions.push('needsTruck');
-  }
-  if (!analysis.hasBoxInfo && !state.boxesNeeded) {
-    questions.push('boxesNeeded');
-  }
-
-  questions.push('uploadPhotos');
-  questions.push('details');
-
-  return questions;
-};
-
-
-
-
-
-

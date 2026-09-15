@@ -60,6 +60,15 @@ export const styles = StyleSheet.create({
     paddingTop: 3,
     paddingBottom: 3,
   },
+  locationSectionSingle: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 24,
+    marginBottom: 5,
+    position: 'relative',
+    paddingTop: 3,
+    paddingBottom: 3,
+    zIndex: 30,
+  },
   locationSectionStart: {
     zIndex: 30,
   },

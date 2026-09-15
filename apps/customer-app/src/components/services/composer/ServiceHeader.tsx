@@ -1,11 +1,11 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 
-import { styles } from './moving.styles';
+import { styles } from './styles';
 
-export const MovingHeader: React.FC = () => (
+export const ServiceHeader: React.FC<{ title: string }> = ({ title }) => (
   <View>
-    <Text style={styles.title}>Moving Details</Text>
+    <Text style={styles.title}>{title}</Text>
     <View style={styles.DividerContainer1}>
       <View style={styles.DividerLine1} />
     </View>

@@ -2,7 +2,7 @@ import React, { forwardRef, useMemo } from 'react';
 import { Image, Platform, StyleSheet, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 
-import { SelectedLocation } from './moving.types';
+import { SelectedLocation } from './types';
 
 export interface MapWithRouteProps {
   startLocation: SelectedLocation | null;
