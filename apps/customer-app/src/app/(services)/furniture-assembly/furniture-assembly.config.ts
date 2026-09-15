@@ -22,7 +22,7 @@ export const furnitureAssemblyConfig: ServiceComposerConfig = {
         { value: 'simple', label: 'Simple Assembly', description: 'Chairs, small tables, or simple shelves' },
         { value: 'complex', label: 'Complex Assembly', description: 'Beds, wardrobes, or multi-piece sets' },
       ],
-      detectInDescription: text => /\b(simple|complex|ikea|bed\s*frame|wardrobe)\b/i.test(text),
+      detectInDescription: text => /\b(simple|complex|moderate)\s+(assembly|furniture)\b/i.test(text),
       toSentence: value =>
         value === 'simple' ? 'Simple furniture assembly.' : value === 'complex' ? 'Complex furniture assembly.' : null,
     },
@@ -44,7 +44,8 @@ export const furnitureAssemblyConfig: ServiceComposerConfig = {
         { value: 'bring', label: 'Yes, bring tools' },
         { value: 'have', label: 'No, I have tools' },
       ],
-      detectInDescription: text => /\b(tools|drill|screwdriver)\b/i.test(text),
+      detectInDescription: text =>
+        /\b((bring|have|provide)\s+(the\s+)?tools|tools\s+(included|provided|on\s+site)|I have (a )?drill)\b/i.test(text),
       toSentence: value =>
         value === 'bring' ? 'Please bring assembly tools.' : value === 'have' ? 'Customer has tools on site.' : null,
     },

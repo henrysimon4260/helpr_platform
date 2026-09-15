@@ -1,5 +1,6 @@
 import { photoAndDetailsQuestions } from '../../../components/services/composer/closingQuestions';
 import { ServiceComposerConfig } from '../../../components/services/composer/types';
+import { descriptionHasPropertySize } from '../../../components/services/composer/utils';
 
 export const homeImprovementConfig: ServiceComposerConfig = {
   title: 'Home Improvement Details',
@@ -23,7 +24,7 @@ export const homeImprovementConfig: ServiceComposerConfig = {
         { value: 'installation', label: 'Installation', description: 'Put in something new' },
         { value: 'renovation', label: 'Renovation', description: 'A larger refresh of a room or area' },
       ],
-      detectInDescription: text => /\b(repair|install|renovat|patch|paint|replace)\b/i.test(text),
+      detectInDescription: text => /\b(repair|installation|renovation|reno)\b/i.test(text),
       toSentence: value =>
         value === 'repair' ? 'Project type: repair.' : value === 'installation' ? 'Project type: installation.' : value === 'renovation' ? 'Project type: renovation.' : null,
     },
@@ -39,8 +40,7 @@ export const homeImprovementConfig: ServiceComposerConfig = {
         { value: '3BR', label: '3 Bedrooms' },
         { value: '4BR+', label: '4+ Bedrooms / house' },
       ],
-      detectInDescription: text =>
-        /\b(\d+)\s*(bedroom|br|room|apt|apartment)\b/i.test(text) || /\b(studio|1br|2br|3br|4br)\b/i.test(text),
+      detectInDescription: text => descriptionHasPropertySize(text),
       toSentence: value => (value ? `Property size: ${value}.` : null),
     },
     {
@@ -52,7 +52,8 @@ export const homeImprovementConfig: ServiceComposerConfig = {
         { value: 'bring', label: 'Yes, bring materials' },
         { value: 'have', label: 'No, I have materials' },
       ],
-      detectInDescription: text => /\b(materials|paint|hardware|supplies)\b/i.test(text),
+      detectInDescription: text =>
+        /\b((bring|have|provide)\s+(materials|paint|hardware|supplies)|materials\s+(included|provided|on\s+site))\b/i.test(text),
       toSentence: value =>
         value === 'bring' ? 'Please bring materials.' : value === 'have' ? 'Customer has materials on site.' : null,
     },

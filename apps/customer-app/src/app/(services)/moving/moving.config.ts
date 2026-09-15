@@ -1,5 +1,6 @@
 import { photoAndDetailsQuestions } from '../../../components/services/composer/closingQuestions';
 import { ServiceComposerConfig } from '../../../components/services/composer/types';
+import { descriptionHasPropertySize } from '../../../components/services/composer/utils';
 
 export const movingConfig: ServiceComposerConfig = {
   title: 'Moving Details',
@@ -47,7 +48,7 @@ export const movingConfig: ServiceComposerConfig = {
         { value: 'yes', label: 'Yes, I need a truck' },
         { value: 'no', label: "No, I don't need a truck" },
       ],
-      detectInDescription: text => /\b(truck|moving truck|rental truck|vehicle|car|van)\b/i.test(text),
+      detectInDescription: text => /\b((moving\s+)?truck|rental truck|box truck|cargo van)\b/i.test(text),
       toSentence: value =>
         value === 'yes' ? 'Moving truck is needed.' : value === 'no' ? 'No moving truck needed.' : null,
     },
@@ -77,10 +78,7 @@ export const movingConfig: ServiceComposerConfig = {
         { value: '3BR', label: '3 Bedrooms' },
         { value: '4BR+', label: '4+ Bedrooms' },
       ],
-      detectInDescription: text =>
-        /\b(\d+)\s*(bedroom|br|room|apt|apartment)\b/i.test(text) ||
-        /\b(studio|1br|2br|3br|4br|5br)\b/i.test(text) ||
-        /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/i.test(text),
+      detectInDescription: text => descriptionHasPropertySize(text),
       toSentence: value => (value ? `Moving from a ${value}.` : null),
     },
     ...photoAndDetailsQuestions,

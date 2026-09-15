@@ -24,7 +24,7 @@ export const wallMountingConfig: ServiceComposerConfig = {
         { value: 'art', label: 'Artwork or mirror' },
         { value: 'other', label: 'Other' },
       ],
-      detectInDescription: text => /\b(tv|television|shelf|shelves|art|mirror|frame|mount)\b/i.test(text),
+      detectInDescription: text => /\b(tv|television|shelf|shelves|artwork|mirror)\b/i.test(text),
       toSentence: value =>
         value === 'tv'
           ? 'Mounting a TV.'

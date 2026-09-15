@@ -298,6 +298,51 @@ export function usePlaceLocations({ showModal, mapRef, mode }: PlaceLocationsPro
     setEndLocation(next.endLocation ?? null);
   }, []);
 
+  const geocodeAddress = useCallback(async (address: string): Promise<SelectedLocation | null> => {
+    const trimmed = address.trim();
+    if (!trimmed) return null;
+
+    try {
+      const results = await Location.geocodeAsync(trimmed);
+      const first = results?.[0];
+      if (first) {
+        return {
+          description: trimmed,
+          coordinate: { latitude: first.latitude, longitude: first.longitude },
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to geocode address for edit prefill:', error);
+    }
+
+    return null;
+  }, []);
+
+  const hydrateFromAddresses = useCallback(async (addresses: { start?: string | null; end?: string | null }) => {
+    const startAddress = addresses.start?.trim();
+    const endAddress = addresses.end?.trim();
+
+    if (startAddress) {
+      const resolved = await geocodeAddress(startAddress);
+      if (resolved) {
+        applyLocation('start', resolved, { showStreetNumberWarning: false });
+      } else {
+        setStartQuery(startAddress);
+        setStartLocation(null);
+      }
+    }
+
+    if (mode === 'dual' && endAddress) {
+      const resolved = await geocodeAddress(endAddress);
+      if (resolved) {
+        applyLocation('end', resolved, { showStreetNumberWarning: false });
+      } else {
+        setEndQuery(endAddress);
+        setEndLocation(null);
+      }
+    }
+  }, [applyLocation, geocodeAddress, mode]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -377,5 +422,6 @@ export function usePlaceLocations({ showModal, mapRef, mode }: PlaceLocationsPro
     startCurrentLocationOption,
     endCurrentLocationOption,
     restoreLocations,
+    hydrateFromAddresses,
   };
 }

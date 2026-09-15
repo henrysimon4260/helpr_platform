@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import MapView from 'react-native-maps';
 
@@ -20,7 +20,7 @@ import { MapWithRoute } from './MapWithRoute';
 import { ServiceHeader } from './ServiceHeader';
 import { ServiceQuestionsModal } from './ServiceQuestionsModal';
 import { styles } from './styles';
-import { ServiceComposerConfig, ServiceFormState, ServiceReturnData } from './types';
+import { EditServicePayload, ServiceComposerConfig, ServiceFormState, ServiceReturnData } from './types';
 import { applyAnswersToDescription, useQuestionFlow } from './useQuestionFlow';
 import { usePaymentManagement } from './usePaymentManagement';
 import { usePlaceLocations } from './usePlaceLocations';
@@ -28,12 +28,26 @@ import { usePriceEstimate } from './usePriceEstimate';
 import { useServiceSubmission } from './useServiceSubmission';
 import { useToggleAnimations } from './useToggleAnimations';
 import { useVoiceInput } from './useVoiceInput';
-import { cloneAttachments, cloneSelectedLocation } from './utils';
+import { cloneAttachments, cloneSelectedLocation, firstRouteParam, formatCurrency } from './utils';
 
 export function ServiceRequestScreen({ config }: { config: ServiceComposerConfig }) {
   const { user, setReturnTo, getReturnTo, clearReturnTo } = useAuth();
   const { showModal } = useModal();
-  const params = useLocalSearchParams<{ editServiceId?: string; editService?: string }>();
+  const params = useLocalSearchParams<{ editServiceId?: string | string[]; editService?: string | string[] }>();
+  const editServiceId = useMemo(() => firstRouteParam(params.editServiceId), [params.editServiceId]);
+  const editingPayload = useMemo<EditServicePayload | null>(() => {
+    const value = firstRouteParam(params.editService);
+    if (!value) return null;
+    try {
+      const parsed = JSON.parse(decodeURIComponent(value));
+      if (parsed && typeof parsed === 'object' && typeof parsed.service_id === 'string') {
+        return parsed as EditServicePayload;
+      }
+    } catch (error) {
+      console.warn('Failed to parse edit payload:', error);
+    }
+    return null;
+  }, [params.editService]);
   const mapRef = useRef<MapView | null>(null);
   const descriptionInputRef = useRef<TextInput | null>(null);
 
@@ -118,7 +132,8 @@ export function ServiceRequestScreen({ config }: { config: ServiceComposerConfig
   const preserveFormForAuth = useCallback(() => {
     const sanitizedEntries: Array<[string, string]> = [];
     Object.entries(params).forEach(([key, value]) => {
-      if (typeof value === 'string' && value.trim()) sanitizedEntries.push([key, value.trim()]);
+      const raw = firstRouteParam(value as string | string[] | undefined);
+      if (typeof raw === 'string' && raw.trim()) sanitizedEntries.push([key, raw.trim()]);
     });
     const payload: ServiceReturnData = {
       formState: collectFormState(),
@@ -143,7 +158,7 @@ export function ServiceRequestScreen({ config }: { config: ServiceComposerConfig
     showModal,
     setShowSignInModal,
     preserveFormForAuth,
-    editServiceId: typeof params.editServiceId === 'string' ? params.editServiceId : undefined,
+    editServiceId,
   });
 
   const handleDescriptionChange = useCallback((text: string) => {
@@ -198,6 +213,51 @@ export function ServiceRequestScreen({ config }: { config: ServiceComposerConfig
       setPendingResumeAction(config.scheduleAction);
     }
   }, [clearReturnTo, config.returnPath, config.scheduleAction, getReturnTo, restoreFormState, user]);
+
+  const hydratedEditIdRef = useRef<string | null>(null);
+  const restoreToggles = toggles.restoreToggles;
+  const restorePrice = priceEstimate.restorePrice;
+  const setPromptingCompleted = questionFlow.setPromptingCompleted;
+  const hydrateFromAddresses = locationManagement.hydrateFromAddresses;
+
+  useEffect(() => {
+    if (!editingPayload || !editServiceId) return;
+    if (hydratedEditIdRef.current === editServiceId) return;
+    hydratedEditIdRef.current = editServiceId;
+
+    const nextIsAuto = (editingPayload.autofill_type ?? 'AutoFill').toLowerCase() !== 'custom';
+    const nextIsPersonal = (editingPayload.payment_method_type ?? 'Personal').toLowerCase() !== 'business';
+    restoreToggles(nextIsAuto, nextIsPersonal);
+
+    restorePrice({
+      priceQuote: typeof editingPayload.price === 'number' && Number.isFinite(editingPayload.price)
+        ? formatCurrency(editingPayload.price)
+        : null,
+      priceNote: null,
+      priceError: null,
+    });
+
+    if (typeof editingPayload.description === 'string') {
+      setDescription(editingPayload.description.trim());
+    }
+
+    setPromptingCompleted(true);
+
+    const startAddress = config.locationMode === 'dual'
+      ? editingPayload.start_location
+      : editingPayload.location ?? editingPayload.start_location;
+    const endAddress = config.locationMode === 'dual' ? editingPayload.end_location : null;
+
+    hydrateFromAddresses({ start: startAddress, end: endAddress }).catch(() => undefined);
+  }, [
+    config.locationMode,
+    editServiceId,
+    editingPayload,
+    hydrateFromAddresses,
+    restorePrice,
+    restoreToggles,
+    setPromptingCompleted,
+  ]);
 
   useEffect(() => {
     if (!user || pendingResumeAction !== config.scheduleAction || serviceSubmission.isSubmitting) return;
@@ -343,6 +403,7 @@ export function ServiceRequestScreen({ config }: { config: ServiceComposerConfig
           setAttachments={setAttachments}
           onBack={questionFlow.handleBack}
           onNext={handleModalNext}
+          isLast={questionFlow.isLast}
           showModal={showModal}
         />
 

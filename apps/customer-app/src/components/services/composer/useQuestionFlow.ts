@@ -146,10 +146,14 @@ export function useQuestionFlow({
     return true;
   }, [answers, currentQuestionId, description, visibleQuestions]);
 
+  const visibleQueue = visibleQuestions(answers, description);
+  const isLast = currentQuestionId != null && visibleQueue[visibleQueue.length - 1]?.id === currentQuestionId;
+
   return {
     visible,
     currentQuestionId,
     promptingCompleted,
+    isLast,
     startPromptingFlow,
     handleBack,
     handleNext,

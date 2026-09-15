@@ -30,6 +30,7 @@ export interface ServiceQuestionsModalProps {
   setAttachments: React.Dispatch<React.SetStateAction<AttachmentAsset[]>>;
   onBack: () => void;
   onNext: () => void;
+  isLast?: boolean;
   showModal: (config: { title: string; message: string }) => void;
 }
 
@@ -43,6 +44,7 @@ export const ServiceQuestionsModal: React.FC<ServiceQuestionsModalProps> = ({
   setAttachments,
   onBack,
   onNext,
+  isLast,
   showModal,
 }) => {
   const animation = useRef(new Animated.Value(0)).current;
@@ -130,7 +132,7 @@ export const ServiceQuestionsModal: React.FC<ServiceQuestionsModalProps> = ({
 
   const isOptional = currentQuestion?.required === false || currentQuestion?.kind === 'photos';
   const isNextDisabled = !isOptional && currentQuestion?.kind !== 'photos' && !currentValue.trim();
-  const isLast = currentQuestionId != null && questions[questions.length - 1]?.id === currentQuestionId;
+  const showDone = isLast ?? (currentQuestionId != null && questions[questions.length - 1]?.id === currentQuestionId);
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={() => {}}>
@@ -232,7 +234,7 @@ export const ServiceQuestionsModal: React.FC<ServiceQuestionsModalProps> = ({
                 onPress={onNext}
                 disabled={isNextDisabled}
               >
-                <Text style={styles.nextButtonText}>{isLast ? 'Done' : 'Next'}</Text>
+                <Text style={styles.nextButtonText}>{showDone ? 'Done' : 'Next'}</Text>
               </Pressable>
             </View>
             {currentQuestion?.kind === 'photos' && (

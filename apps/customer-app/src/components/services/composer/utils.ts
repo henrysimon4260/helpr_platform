@@ -303,3 +303,13 @@ export const cloneSelectedLocation = (location: SelectedLocation | null): Select
 
 export const cloneAttachments = (items: AttachmentAsset[]): AttachmentAsset[] =>
   items.map((item) => ({ ...item }));
+
+export const descriptionHasPropertySize = (text: string): boolean =>
+  /\b(\d+)\s*(bedroom|br|room|apt|apartment|sq\s?ft|square\s?feet)\b/i.test(text) ||
+  /\b(studio|1br|2br|3br|4br|5br)\b/i.test(text) ||
+  /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/i.test(text);
+
+export const firstRouteParam = (value: string | string[] | undefined): string | undefined => {
+  if (Array.isArray(value)) return value[0];
+  return value;
+};

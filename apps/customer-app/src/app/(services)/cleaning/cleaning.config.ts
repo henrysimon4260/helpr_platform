@@ -1,5 +1,6 @@
 import { photoAndDetailsQuestions } from '../../../components/services/composer/closingQuestions';
 import { ServiceComposerConfig } from '../../../components/services/composer/types';
+import { descriptionHasPropertySize } from '../../../components/services/composer/utils';
 
 export const cleaningConfig: ServiceComposerConfig = {
   title: 'Cleaning Details',
@@ -12,6 +13,7 @@ export const cleaningConfig: ServiceComposerConfig = {
   descriptionPlaceholder: "Describe your task... (e.g. 'I need my one bedroom apartment deep cleaned.')",
   pricingSystemPrompt:
     'You are a pricing assistant for cleaning services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) degree of cleaning needed (light/medium/deep), 2) which rooms or entire home, 3) property size. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on property size - Studio: $20-40 (basic) / $40-80 (deep), 1-bed: $30-50 (basic) / $60-100 (deep), 2-bed: $45-70 (basic) / $90-130 (deep), 3-bed: $60-90 (basic) / $120-170 (deep), 4+ bed or house: $80-130 (basic) / $150-250 (deep). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.',
+  priceAdjust: price => ({ price: price * 0.85 }),
   questions: [
     {
       id: 'cleaningType',
@@ -27,6 +29,20 @@ export const cleaningConfig: ServiceComposerConfig = {
         value === 'basic' ? 'Type: Basic cleaning.' : value === 'deep' ? 'Type: Deep cleaning.' : null,
     },
     {
+      id: 'rooms',
+      title: 'What should we clean?',
+      message: 'Entire home or just specific rooms.',
+      kind: 'choice',
+      options: [
+        { value: 'entire', label: 'Entire home' },
+        { value: 'specific', label: 'Specific rooms' },
+      ],
+      detectInDescription: text =>
+        /\b(entire|whole|all rooms|whole (home|house|apartment|apt)|kitchen|bathroom|living room)\b/i.test(text),
+      toSentence: value =>
+        value === 'entire' ? 'Clean the entire home.' : value === 'specific' ? 'Clean specific rooms only.' : null,
+    },
+    {
       id: 'apartmentSize',
       title: 'How big is the space?',
       message: 'Property size is the biggest factor in cleaning price.',
@@ -38,9 +54,7 @@ export const cleaningConfig: ServiceComposerConfig = {
         { value: '3BR', label: '3 Bedrooms' },
         { value: '4BR+', label: '4+ Bedrooms / house' },
       ],
-      detectInDescription: text =>
-        /\b(\d+)\s*(bedroom|br|room|apt|apartment|sq\s?ft|square\s?feet)\b/i.test(text) ||
-        /\b(studio|1br|2br|3br|4br)\b/i.test(text),
+      detectInDescription: text => descriptionHasPropertySize(text),
       toSentence: value => (value ? `Property size: ${value}.` : null),
     },
     {
@@ -52,7 +66,8 @@ export const cleaningConfig: ServiceComposerConfig = {
         { value: 'bring', label: 'Yes, bring cleaning supplies' },
         { value: 'have', label: 'No, I have supplies' },
       ],
-      detectInDescription: text => /\b(supplies|products|bring\s+cleaning)\b/i.test(text),
+      detectInDescription: text =>
+        /\b((bring|have|provide)\s+(cleaning\s+)?(supplies|products)|supplies\s+(included|provided|on\s+site))\b/i.test(text),
       toSentence: value =>
         value === 'bring' ? 'Please bring cleaning supplies.' : value === 'have' ? 'Customer has cleaning supplies.' : null,
     },
