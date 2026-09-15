@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator
 import { SvgXml } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useRouter, useSegments } from 'expo-router';
+import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
@@ -59,6 +59,45 @@ type ServiceRequestRow = {
   proposed_date_time?: string | null;
 };
 
+type FeedView = 'available' | 'in_progress';
+type TimingFilter = 'all' | 'asap' | 'scheduled';
+type ClaimFilter = 'all' | 'autofill' | 'bid';
+
+const OPEN_FEED_STATUSES = new Set([
+  'finding_pros',
+  'pending',
+  'scheduled',
+  'select_service_provider',
+]);
+
+const IN_PROGRESS_FEED_STATUSES = new Set([
+  'confirmed',
+  'helpr_otw',
+  'in_progress',
+]);
+
+const SERVICE_TYPE_OPTIONS = [
+  { id: 'all', label: 'All types' },
+  { id: 'moving', label: 'Moving', match: ['moving'] },
+  { id: 'cleaning', label: 'Cleaning', match: ['cleaning'] },
+  { id: 'furniture', label: 'Furniture', match: ['furniture'] },
+  { id: 'home', label: 'Home improvement', match: ['home'] },
+  { id: 'wall', label: 'Wall mounting', match: ['wall'] },
+  { id: 'custom', label: 'Custom', match: ['custom'] },
+] as const;
+
+const matchesServiceType = (serviceType: string | null | undefined, filterId: string) => {
+  if (filterId === 'all') {
+    return true;
+  }
+  const option = SERVICE_TYPE_OPTIONS.find(item => item.id === filterId);
+  if (!option || option.id === 'all') {
+    return true;
+  }
+  const normalized = (serviceType ?? '').toLowerCase();
+  return option.match.some(token => normalized.includes(token));
+};
+
 const helpIconSvg = `
   <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
     <circle cx="12" cy="12" r="10" fill="none" stroke="#0c4309" stroke-width="2"/>
@@ -76,11 +115,18 @@ const greenArrowSvg = `
 export default function Landing() {
   const router = useRouter();
   const segments = useSegments();
+  const { view: viewParam } = useLocalSearchParams<{ view?: string | string[] }>();
+  const feedView: FeedView = (Array.isArray(viewParam) ? viewParam[0] : viewParam) === 'in_progress'
+    ? 'in_progress'
+    : 'available';
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
   const isDateTimePickerSupported = useMemo(() => Platform.OS === 'ios' || Platform.OS === 'android', []);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [timingFilter, setTimingFilter] = useState<TimingFilter>('all');
+  const [claimFilter, setClaimFilter] = useState<ClaimFilter>('all');
   const [canRenderLottie, setCanRenderLottie] = useState(Platform.OS !== 'web');
   const { user, loading: authLoading } = useAuth();
   const { showModal } = useModal();
@@ -425,6 +471,60 @@ export default function Landing() {
     }
   }, []);
 
+  const inProgressCount = useMemo(
+    () =>
+      services.filter(service => {
+        const status = (service.status ?? '').toLowerCase();
+        return IN_PROGRESS_FEED_STATUSES.has(status) && service.service_provider_id === providerId;
+      }).length,
+    [services, providerId],
+  );
+
+  const filtersActive = typeFilter !== 'all' || timingFilter !== 'all' || (feedView === 'available' && claimFilter !== 'all');
+
+  const scopedServices = useMemo(() => {
+    const statusSet = feedView === 'in_progress' ? IN_PROGRESS_FEED_STATUSES : OPEN_FEED_STATUSES;
+    return services.filter(service => {
+      const status = (service.status ?? '').toLowerCase();
+      if (!statusSet.has(status)) {
+        return false;
+      }
+      if (feedView === 'in_progress' && service.service_provider_id !== providerId) {
+        return false;
+      }
+      return true;
+    });
+  }, [services, feedView, providerId]);
+
+  const filteredServices = useMemo(() => {
+    return scopedServices.filter(service => {
+      if (!matchesServiceType(service.service_type, typeFilter)) {
+        return false;
+      }
+
+      const scheduling = (service.scheduling_type ?? '').toLowerCase();
+      const isAsap = scheduling === 'asap';
+      if (timingFilter === 'asap' && !isAsap) {
+        return false;
+      }
+      if (timingFilter === 'scheduled' && isAsap) {
+        return false;
+      }
+
+      if (feedView === 'available') {
+        const isAutoFill = (service.autofill_type ?? '').toString().toLowerCase() === 'autofill';
+        if (claimFilter === 'autofill' && !isAutoFill) {
+          return false;
+        }
+        if (claimFilter === 'bid' && isAutoFill) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [scopedServices, typeFilter, timingFilter, claimFilter, feedView]);
+
   const sortedServices = useMemo(() => {
     const getComparableTimestamp = (service: ServiceRow) => {
       const candidates = [
@@ -446,7 +546,22 @@ export default function Landing() {
       return Number.MAX_SAFE_INTEGER;
     };
 
-    return [...services].sort((a, b) => {
+    const statusRank = (service: ServiceRow) => {
+      const status = (service.status ?? '').toLowerCase();
+      if (status === 'in_progress') return 0;
+      if (status === 'helpr_otw') return 1;
+      if (status === 'confirmed') return 2;
+      return 3;
+    };
+
+    return [...filteredServices].sort((a, b) => {
+      if (feedView === 'in_progress') {
+        const rankDelta = statusRank(a) - statusRank(b);
+        if (rankDelta !== 0) {
+          return rankDelta;
+        }
+      }
+
       const aType = (a.scheduling_type ?? '').toLowerCase();
       const bType = (b.scheduling_type ?? '').toLowerCase();
       const aIsAsap = aType === 'asap';
@@ -460,7 +575,7 @@ export default function Landing() {
       const bTime = getComparableTimestamp(b);
       return aTime - bTime;
     });
-  }, [services]);
+  }, [filteredServices, feedView]);
 
   const asapServices = useMemo(
     () => sortedServices.filter((service: ServiceRow) => (service.scheduling_type ?? '').toLowerCase() === 'asap'),
@@ -980,6 +1095,10 @@ export default function Landing() {
     const isConfirmed = normalizedStatus === 'confirmed' || normalizedStatus === 'helpr_otw' || normalizedStatus === 'in_progress';
     const statusLabel = normalizedStatus === 'helpr_otw' ? 'On the Way' : normalizedStatus === 'in_progress' ? 'In Progress' : 'Confirmed';
     const isAutoFill = (service.autofill_type ?? '').toString().toLowerCase() === 'autofill';
+    const customer = service.customer_id ? customerData[service.customer_id] : undefined;
+    const customerName = customer
+      ? [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim()
+      : '';
     
     // Check if scheduled job is within 24 hours
     const isWithin24Hours = schedulingType !== 'asap' && service.scheduled_date_time && !isConfirmed && (() => {
@@ -1020,6 +1139,9 @@ export default function Landing() {
                   <Text style={styles.confirmedPillText}>{statusLabel}</Text>
                 </View>
               )}
+              {isConfirmed && customerName ? (
+                <Text style={styles.customerNameText} numberOfLines={1}>{customerName}</Text>
+              ) : null}
 
             </View>
             <View style={styles.cardActionRow}>
@@ -1121,16 +1243,28 @@ export default function Landing() {
   };
 
   const handleMenuPress = () => {
-    if (Platform.OS === 'web') {
-      setIsMenuOpen((v) => !v);
-      return;
-    }
-    if (lottieRef.current) {
-      if (isMenuOpen) lottieRef.current.play(24, 0);
-      else lottieRef.current.play(0, 24);
-    }
     setIsMenuOpen((v) => !v);
   };
+
+  const clearFilters = useCallback(() => {
+    setTypeFilter('all');
+    setTimingFilter('all');
+    setClaimFilter('all');
+  }, []);
+
+  const openAvailableFeed = useCallback(() => {
+    setIsMenuOpen(false);
+    if (feedView !== 'available') {
+      router.replace('/landing' as any);
+    }
+  }, [feedView, router]);
+
+  const openInProgressFeed = useCallback(() => {
+    setIsMenuOpen(false);
+    if (feedView !== 'in_progress') {
+      router.push({ pathname: '/landing' as any, params: { view: 'in_progress' } });
+    }
+  }, [feedView, router]);
 
   const handleHelpPress = () => {
     if (Platform.OS === 'web') {
@@ -1200,13 +1334,75 @@ export default function Landing() {
     }
   }, [segments]);
 
+  const emptyCopy = (() => {
+    if (feedView === 'in_progress') {
+      return filtersActive ? 'No in-progress jobs match these filters' : 'No jobs in progress';
+    }
+    return filtersActive ? 'No jobs match these filters' : 'No Jobs Available';
+  })();
+
+  const renderFilterChip = (
+    label: string,
+    selected: boolean,
+    onPress: () => void,
+  ) => (
+    <Pressable
+      key={label}
+      style={[styles.filterChip, selected ? styles.filterChipSelected : null]}
+      onPress={onPress}
+    >
+      <Text style={[styles.filterChipText, selected ? styles.filterChipTextSelected : null]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" backgroundColor="#0c4309" />
+      {feedView === 'in_progress' ? (
+        <Pressable style={styles.backButton} onPress={openAvailableFeed}>
+          <Image
+            source={require('../assets/icons/backButton.png')}
+            style={styles.backButtonIcon}
+          />
+        </Pressable>
+      ) : null}
       <View style={styles.header}>
-        <Text style={styles.title}>Available Services</Text>
+        <Text style={styles.title}>{feedView === 'in_progress' ? 'In Progress' : 'Available Services'}</Text>
       </View>
       <View style={styles.GreenHeaderBar} />
+      <View style={styles.filterBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {renderFilterChip('All', timingFilter === 'all', () => setTimingFilter('all'))}
+          {renderFilterChip('ASAP', timingFilter === 'asap', () => setTimingFilter('asap'))}
+          {renderFilterChip('Scheduled', timingFilter === 'scheduled', () => setTimingFilter('scheduled'))}
+          {feedView === 'available' ? (
+            <>
+              {renderFilterChip('AutoFill', claimFilter === 'autofill', () => setClaimFilter(claimFilter === 'autofill' ? 'all' : 'autofill'))}
+              {renderFilterChip('Bid', claimFilter === 'bid', () => setClaimFilter(claimFilter === 'bid' ? 'all' : 'bid'))}
+            </>
+          ) : null}
+        </ScrollView>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {SERVICE_TYPE_OPTIONS.map(option =>
+            renderFilterChip(option.label, typeFilter === option.id, () => setTypeFilter(option.id)),
+          )}
+        </ScrollView>
+        {filtersActive ? (
+          <Pressable style={styles.clearFiltersButton} onPress={clearFilters}>
+            <Text style={styles.clearFiltersText}>Clear filters</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <View style={styles.contentContainer}>
         {servicesLoading ? (
           <View style={styles.loadingContainer}>
@@ -1222,7 +1418,7 @@ export default function Landing() {
           </View>
         ) : sortedServices.length === 0 ? (
           <View style={styles.noServicesContainer}>
-            <Text style={styles.noServicesText}>No Jobs Available</Text>
+            <Text style={styles.noServicesText}>{emptyCopy}</Text>
           </View>
         ) : (
           <ScrollView
@@ -1443,28 +1639,25 @@ export default function Landing() {
           <>
           <Pressable
             style={styles.dismissOverlay}
-            onPress={() => {
-              if (Platform.OS !== 'web' && lottieRef.current) {
-                lottieRef.current.play(24, 0);
-              }
-              setIsMenuOpen(false);
-            }}
+            onPress={() => setIsMenuOpen(false)}
           />
           <View style={styles.menuOverlay}>
             <View style={styles.menuContainer}>
-              <Pressable 
-                style={styles.menuItem} 
-                onPress={() => {
-                  setIsMenuOpen(false);
-                  navigate('account');
-                }}
+              <Pressable
+                style={[styles.menuItem, feedView === 'in_progress' ? styles.menuItemActive : null]}
+                onPress={openInProgressFeed}
               >
                 <View style={styles.menuItemRow}>
-                  <Text style={styles.menuItemText}>Account</Text>
+                  <Text style={styles.menuItemText}>In Progress</Text>
+                  {inProgressCount > 0 ? (
+                    <View style={styles.menuBadge}>
+                      <Text style={styles.menuBadgeText}>{inProgressCount}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </Pressable>
-              <Pressable 
-                style={styles.menuItem} 
+              <Pressable
+                style={styles.menuItem}
                 onPress={() => {
                   setIsMenuOpen(false);
                   navigate('past-services');
@@ -1472,6 +1665,17 @@ export default function Landing() {
               >
                 <View style={styles.menuItemRow}>
                   <Text style={styles.menuItemText}>Past Services</Text>
+                </View>
+              </Pressable>
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setIsMenuOpen(false);
+                  navigate('account');
+                }}
+              >
+                <View style={styles.menuItemRow}>
+                  <Text style={styles.menuItemText}>Account</Text>
                 </View>
               </Pressable>
             </View>
@@ -1538,7 +1742,69 @@ const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 24,
+    paddingTop: 8,
+  },
+  filterBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+    backgroundColor: '#E5DCC9',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 8,
+    gap: 8,
+  },
+  filterChip: {
+    backgroundColor: '#FFF8E8',
+    borderColor: '#C0B9A6',
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginRight: 8,
+  },
+  filterChipSelected: {
+    backgroundColor: '#0c4309',
+    borderColor: '#0c4309',
+  },
+  filterChipText: {
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterChipTextSelected: {
+    color: '#FFF8E8',
+  },
+  clearFiltersButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
+  clearFiltersText: {
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 58,
+    left: 30,
+    zIndex: 10,
+  },
+  backButtonIcon: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
+  },
+  customerNameText: {
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
   },
   loadingContainer: {
     flex: 1,
@@ -2227,12 +2493,14 @@ const styles = StyleSheet.create({
     marginBottom: 125,
   },
   menuItem: {
-    backgroundColor: 'transparent',
-    paddingVertical: 17,
-    paddingHorizontal: 25,
-    borderRadius: 8,
-    marginVertical: 2,
+    backgroundColor: '#FFF8E8',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    marginVertical: 4,
     minWidth: 200,
+    borderWidth: 1,
+    borderColor: '#C0B9A6',
     shadowColor: '#000000',
     shadowOffset: {
       width: 0,
@@ -2241,6 +2509,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  menuItemActive: {
+    backgroundColor: '#F5E7D0',
+    borderColor: '#0c4309',
   },
   helpMenuItem: {
     backgroundColor: 'transparent',
@@ -2264,10 +2536,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   menuItemText: {
-    color: 'transparent',
+    color: '#0c4309',
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     flex: 1,
+  },
+  menuBadge: {
+    backgroundColor: '#0c4309',
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  menuBadgeText: {
+    color: '#FFF8E8',
+    fontSize: 12,
+    fontWeight: '700',
   },
   confirmedBidValue: {
     fontSize: 18,
