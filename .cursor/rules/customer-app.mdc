@@ -1,0 +1,16 @@
+---
+description: customer-app allowlists and Expo 57 constraint
+globs: apps/customer-app/**
+alwaysApply: false
+---
+
+# customer-app
+
+Expo 57. Do not hop to `apps/serviceprovider-app`. Details: [apps/customer-app/AGENTS.md](apps/customer-app/AGENTS.md).
+
+- **A** owns `src/app/(services)/` and `src/components/services/`. Inserts stay `status: 'finding_pros'`.
+- **B** owns `src/app/(booking-flow)/`, `landing.hooks.ts`, `selectProModalTracker.ts`, `viewedCompletedServices.ts`.
+- **D** owns `(auth)/`, `account.tsx`, `AuthContext.tsx`, `components/auth/`.
+- **E** follow-up only: payment modals, `paymentMethods.ts`, StripeProvider in `_layout.tsx`. Not `select-helpr.tsx` (B).
+- **F** owns `src/app/(home)/customer-service-chat.tsx`.
+- **C** never writes this tree.
