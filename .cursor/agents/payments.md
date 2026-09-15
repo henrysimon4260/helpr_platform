@@ -20,6 +20,6 @@ Read [AGENTS.md](AGENTS.md), [apps/serviceprovider-app/AGENTS.md](apps/servicepr
 - `apps/customer-app/src/lib/paymentMethods.ts`
 - StripeProvider in `apps/customer-app/src/app/_layout.tsx`
 
-**Does:** Recover or recreate `create-payment-intent` and `complete-service`, Connect / direct deposit. Publish shapes in `JOB_CONTRACT.md` before changing call sites.
+**Does:** Maintain deployed `create-payment-intent` and `complete-service` (now in git), Connect / direct deposit. Publish shapes in `JOB_CONTRACT.md` before changing call sites.
 
 **Does not:** Edit `select-helpr.tsx` (B) or `ServiceDetails.tsx` (C) in the same session as the functions. Do not redesign booking or landing UI.

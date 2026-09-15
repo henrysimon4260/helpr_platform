@@ -58,7 +58,7 @@ Same lane, two prompts, never one prompt for both trees. Before the provider fol
 
 ### E — Payments
 
-Recover or recreate `create-payment-intent` and `complete-service`, plus Connect / direct deposit. Publish the request/response contract first. Agent B keeps `select-helpr.tsx`; Agent C keeps `ServiceDetails.tsx`. E does not edit those call sites in the same session as the functions.
+`create-payment-intent` and `complete-service` are deployed and in git under `supabase/functions/`. Maintain those bodies and Connect / direct deposit. Publish shape changes in `JOB_CONTRACT.md` first. Agent B keeps `select-helpr.tsx`; Agent C keeps `ServiceDetails.tsx`. E does not edit those call sites in the same session as the functions.
 
 **Does not:** Redesign booking or landing UI.
 

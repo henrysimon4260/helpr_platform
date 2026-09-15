@@ -17,7 +17,7 @@ Use these spellings exactly. Do not substitute aliases (`helpr_otw`, not `on_the
 | `confirmed` | Customer app (B) on select-a-pro. Provider app (C) on AutoFill claim. | Assigns `service_provider_id`, copies bid into `price`, copies `proposed_date_time` into `scheduled_date_time` when present. |
 | `helpr_otw` | Provider app (C) | From `confirmed` via Service Details (“I'm on the way”). |
 | `in_progress` | Provider app (C) | From `helpr_otw` via Service Details (“Start Service”). |
-| `completed` | Edge function `complete-service` (invoked by C). Provider may update the row only if the function is missing and the contract says so. | From `in_progress` (“Complete Service”). Today C also invokes the function; the function should be the writer of record once recovered. |
+| `completed` | Edge function `complete-service` (invoked by C). | From `in_progress` (“Complete Service”). The function writes this status after capture/transfer. |
 
 There is no `cancelled` status yet. Do not add one in a screen. Agent B specifies it here first (who may set it, from which statuses, and how the other app treats those rows). Then C implements against that paragraph.
 
@@ -59,11 +59,13 @@ Shared columns used today: `id`, `service_id`, `customer_id`, `service_provider_
 
 Bodies live under `apps/serviceprovider-app/supabase/functions/` (Agent E). Call sites stay with B and C.
 
-`create-payment-intent` and `complete-service` are invoked in app code and missing from git. Recreate them against these shapes; do not change the shapes in a screen first.
+`create-payment-intent` and `complete-service` are deployed (ACTIVE) and checked into `apps/serviceprovider-app/supabase/functions/`. Do not change request/response shapes in a screen first.
+
+Other live functions (`save-payment-method`, Plaid/ACH, `sync-stripe-balance`, …) are still deploy-only until a later E feature checks them in.
 
 ### `create-payment-intent`
 
-Invoked by customer `select-helpr.tsx` (B).
+Invoked by customer `select-helpr.tsx` (B). Source: `apps/serviceprovider-app/supabase/functions/create-payment-intent/index.ts`.
 
 **Request:**
 
@@ -73,23 +75,22 @@ Invoked by customer `select-helpr.tsx` (B).
   "currency": "usd",
   "payment_method_id": "",
   "service_id": "",
-  "customer_id": ""
+  "customer_id": "",
+  "customer_email": ""
 }
 ```
 
-`amount` is integer cents (base bid + 3% processing + 1% platform).
+`amount` is integer cents. `customer_email` is optional if `customer_id` can be resolved.
 
-**Response (any one of these is accepted today):**
+**Response:** `{ "clientSecret", "status", "paymentIntentId" }`
 
-- `{ "status": "succeeded" }` — already captured server-side; B confirms the job.
-- `{ "clientSecret" }` or `{ "client_secret" }` — B confirms the PaymentSheet, then writes `confirmed` and `payment_status: 'paid'`.
-- Nested under `data` with the same keys.
+B treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet, then writes `confirmed` and `payment_status: 'paid'`.
 
-**Error:** `{ "error": { "message": "" } }` or `{ "message": "" }`.
+**Error:** `{ "error": "" }`
 
 ### `complete-service`
 
-Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `completed`.
+Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `completed`. Source: `apps/serviceprovider-app/supabase/functions/complete-service/index.ts`. Writer of `service.status = 'completed'`.
 
 **Request:**
 
@@ -101,9 +102,11 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 }
 ```
 
-**Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0 }`
+`platformFeePercent` and `skipCustomerCharge` are accepted by the client today; the deployed body requires an existing paid `payment_intent_id` and uses its own fee math (1% platform + 2.9% + $0.30).
 
-**Error:** `{ "success": false, "error": "" }` or a functions invoke error. C surfaces the error and must not invent a different completion path without updating this contract.
+**Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, ... }`
+
+**Error:** `{ "success": false, "error": "" }` (HTTP 200 so the client can read it) or a functions invoke error. C must not invent a different completion path without updating this contract.
 
 ### `create-connect-account`
 
