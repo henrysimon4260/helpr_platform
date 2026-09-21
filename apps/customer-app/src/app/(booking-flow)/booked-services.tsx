@@ -803,6 +803,7 @@ export default function BookedServices() {
         'home improvement': '/(services)/home-improvement',
         'running errands': '/(services)/custom-service',
         'wall mounting': '/(services)/wall-mounting',
+        'wall-mounting': '/(services)/wall-mounting',
         'custom': '/(services)/custom-service',
       };
 
