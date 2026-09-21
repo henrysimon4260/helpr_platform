@@ -17,7 +17,7 @@ Use these spellings exactly. Do not substitute aliases (`helpr_otw`, not `on_the
 | `confirmed` | Customer app (B) on select-a-pro. Provider app (C) on AutoFill claim. | Assigns `service_provider_id`, copies bid into `price`, copies `proposed_date_time` into `scheduled_date_time` when present. |
 | `helpr_otw` | Provider app (C) | From `confirmed` via Service Details (“I'm on the way”). |
 | `in_progress` | Provider app (C) | From `helpr_otw` via Service Details (“Start Service”). |
-| `completed` | Edge function `complete-service` (invoked by C). | From `in_progress` (“Complete Service”). The function writes this status after capture/transfer. |
+| `completed` | Edge function `complete-service` (invoked by C), using the service role. | From `in_progress` (“Complete Service”). The function writes this status after capture/transfer. `anon` and `authenticated` cannot set or clear `completed` (schema trigger + RLS). |
 
 There is no `cancelled` status yet. Do not add one in a screen. Agent B specifies it here first (who may set it, from which statuses, and how the other app treats those rows). Then C implements against that paragraph.
 
@@ -84,7 +84,9 @@ Invoked by customer `select-helpr.tsx` (B). Source: `apps/serviceprovider-app/su
 
 **Response:** `{ "clientSecret", "status", "paymentIntentId" }`
 
-B treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet, then writes `confirmed` and `payment_status: 'paid'`.
+B treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet, then writes `confirmed` (assignee, price, scheduled time). It must not write `payment_status` or `payment_intent_id`. Those columns are service-role only; a client update that includes them is rejected.
+
+`create-payment-intent` does not persist `payment_status` / `payment_intent_id` yet. Until the payments lane writes them with the service role, the select-a-pro path that still sends `payment_status: 'paid'` fails closed. Capture timing and fee math are unchanged.
 
 **Error:** `{ "error": "" }`
 
