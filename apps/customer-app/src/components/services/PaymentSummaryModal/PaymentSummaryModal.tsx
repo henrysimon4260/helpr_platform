@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 
+import { PLATFORM_FEE_RATE, PROCESSING_FEE_RATE, quoteBookingFees } from './fees';
 import { styles } from './styles';
 import { PaymentSummaryModalProps } from './types';
 
@@ -102,11 +103,13 @@ export const PaymentSummaryModal: React.FC<PaymentSummaryModalProps> = ({
     }
   };
 
-  // Fee calculations
-  const basePrice = price;
-  const processingFee = Math.round(price * 0.03 * 100) / 100; // 3% payment processing
-  const platformFee = Math.round(price * 0.01 * 100) / 100; // 1% platform fee
-  const total = Math.round((basePrice + processingFee + platformFee) * 100) / 100;
+  const feeQuote = quoteBookingFees(price);
+  const basePrice = feeQuote ? feeQuote.baseCents / 100 : 0;
+  const processingFee = feeQuote ? feeQuote.processingFeeCents / 100 : 0;
+  const platformFee = feeQuote ? feeQuote.platformFeeCents / 100 : 0;
+  const total = feeQuote ? feeQuote.chargeCents / 100 : 0;
+  const processingPercent = Math.round(PROCESSING_FEE_RATE * 100);
+  const platformPercent = Math.round(PLATFORM_FEE_RATE * 100);
 
   return (
     <Modal visible={visible} animationType="none" transparent onRequestClose={handleClose}>
@@ -200,12 +203,12 @@ export const PaymentSummaryModal: React.FC<PaymentSummaryModalProps> = ({
                   <View style={styles.dividerLine} />
                   
                   <View style={styles.summaryRow}>
-                    <Text style={styles.feeLabel}>Payment Processing (3%)</Text>
+                    <Text style={styles.feeLabel}>Payment Processing ({processingPercent}%)</Text>
                     <Text style={styles.feeValue}>{formatPrice(processingFee)}</Text>
                   </View>
                   
                   <View style={styles.summaryRow}>
-                    <Text style={styles.feeLabel}>Platform Fee (1%)</Text>
+                    <Text style={styles.feeLabel}>Platform Fee ({platformPercent}%)</Text>
                     <Text style={styles.feeValue}>{formatPrice(platformFee)}</Text>
                   </View>
                   
