@@ -1,0 +1,4 @@
+# select-helpr and AutoFill call this with supabase.functions.invoke, which
+# sends the signed-in user's JWT. The handler still rejects any caller getUser()
+# does not accept, so a publishable key or anon JWT cannot charge.
+verify_jwt = true
