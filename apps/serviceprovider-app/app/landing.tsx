@@ -6,6 +6,7 @@ import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
+import { buildAutoFillConfirmUpdate, chargeAutoFillJob, voidUnclaimedAutoFillCharge } from '../src/lib/autofillCharge';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
@@ -49,6 +50,8 @@ type ServiceRow = {
   autofill_type?: string | null;
   description?: string | null;
   service_provider_id?: string | null;
+  payment_intent_id?: string | null;
+  payment_status?: string | null;
 };
 
 type ServiceRequestRow = {
@@ -121,6 +124,7 @@ export default function Landing() {
     : 'available';
   const lottieRef = useRef<any>(null);
   const helpLottieRef = useRef<any>(null);
+  const autoFillClaimLock = useRef<Set<string>>(new Set());
   const isDateTimePickerSupported = useMemo(() => Platform.OS === 'ios' || Platform.OS === 'android', []);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
@@ -659,166 +663,233 @@ export default function Landing() {
         ? options.proposedDateTime?.trim() || null
         : null;
 
-      const { data, error } = await supabase
-        .from('service_fill_request')
-        .insert({
-          service_provider_id: providerId,
-          service_id: service.service_id,
-          bid: numericBid,
-          proposed_date_time: proposedDateTime,
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Failed to create service request:', error);
-        showModal({
-          title: 'Unable to request job',
-          message: 'Please try again in a moment.',
-        });
-        return false;
+      const isAutoFill = (service.autofill_type ?? '').toString().toLowerCase() === 'autofill';
+      if (isAutoFill) {
+        if (autoFillClaimLock.current.has(service.service_id)) {
+          return false;
+        }
+        autoFillClaimLock.current.add(service.service_id);
       }
 
-      const newRow = data as ServiceRequestRow;
-      const combinedRow: ServiceRequestRow = {
-        ...newRow,
-        proposed_date_time: proposedDateTime ?? newRow.proposed_date_time ?? null,
-      };
+      try {
+        const { data, error } = await supabase
+          .from('service_fill_request')
+          .insert({
+            service_provider_id: providerId,
+            service_id: service.service_id,
+            bid: numericBid,
+            proposed_date_time: proposedDateTime,
+          })
+          .select()
+          .single();
 
-      const isAutoFill = (service.autofill_type ?? '').toString().toLowerCase() === 'autofill';
+        if (error) {
+          console.error('Failed to create service request:', error);
+          showModal({
+            title: 'Unable to request job',
+            message: 'Please try again in a moment.',
+          });
+          return false;
+        }
 
-      if (isAutoFill) {
-        try {
-          const { data: assignmentRows, error: assignError } = await supabase
-            .from('service')
-            .update({
-              service_provider_id: providerId,
-              status: 'confirmed',
-              price: numericBid,
-              scheduling_type: 'scheduled',
-              scheduled_date_time: proposedDateTime ?? service.scheduled_date_time ?? null,
-            })
-            .eq('service_id', service.service_id)
-            .in('status', ['finding_pros', 'select_service_provider'])
-            .is('service_provider_id', null)
-            .select('service_id');
+        const newRow = data as ServiceRequestRow;
+        const combinedRow: ServiceRequestRow = {
+          ...newRow,
+          proposed_date_time: proposedDateTime ?? newRow.proposed_date_time ?? null,
+        };
 
-          if (assignError) {
-            throw assignError;
-          }
+        if (isAutoFill) {
+          let chargedPaymentIntentId: string | null = null;
 
-          if (assignmentRows && assignmentRows.length > 0) {
+          const releaseOwnFillRequest = async () => {
             await supabase
               .from('service_fill_request')
               .delete()
-              .eq('service_id', service.service_id);
+              .eq('service_id', service.service_id)
+              .eq('service_provider_id', providerId);
+          };
 
-            setServiceRequests(prev => {
-              const next = { ...prev };
-              delete next[service.service_id];
-              return next;
+          try {
+            if (!service.customer_id) {
+              await releaseOwnFillRequest();
+              showModal({
+                title: 'AutoFill not confirmed',
+                message: 'This job has no customer account, so it was not confirmed.',
+              });
+              return false;
+            }
+
+            const charge = await chargeAutoFillJob({
+              serviceId: service.service_id,
+              customerId: service.customer_id,
             });
 
-            setCustomBids(prev => {
-              const next = { ...prev };
-              delete next[service.service_id];
-              return next;
+            if (!charge.ok) {
+              await releaseOwnFillRequest();
+              showModal({
+                title: 'AutoFill not confirmed',
+                message: charge.message,
+              });
+              return false;
+            }
+
+            chargedPaymentIntentId = charge.paymentIntentId;
+            const updateData = buildAutoFillConfirmUpdate({
+              providerId,
+              price: numericBid,
+              paymentIntentId: charge.paymentIntentId,
+              scheduledDateTime: proposedDateTime ?? service.scheduled_date_time ?? null,
+              schedulingType: service.scheduling_type,
             });
 
-            setServices(prev => prev.map(existing =>
-              existing.service_id === service.service_id
+            if (!updateData) {
+              const released = await voidUnclaimedAutoFillCharge({
+                serviceId: service.service_id,
+                paymentIntentId: charge.paymentIntentId,
+              });
+              await releaseOwnFillRequest();
+              showModal({
+                title: 'AutoFill not confirmed',
+                message: released.ok
+                  ? 'Payment could not be linked to this job, so it was not confirmed.'
+                  : 'Payment could not be linked to this job, and the card charge could not be released automatically. Contact support before trying again.',
+              });
+              return false;
+            }
+
+            const { data: assignmentRows, error: assignError } = await supabase
+              .from('service')
+              .update(updateData)
+              .eq('service_id', service.service_id)
+              .in('status', ['finding_pros', 'select_service_provider'])
+              .is('service_provider_id', null)
+              .select('service_id');
+
+            if (assignError) {
+              throw assignError;
+            }
+
+            if (assignmentRows && assignmentRows.length > 0) {
+              await supabase
+                .from('service_fill_request')
+                .delete()
+                .eq('service_id', service.service_id);
+
+              setServiceRequests(prev => {
+                const next = { ...prev };
+                delete next[service.service_id];
+                return next;
+              });
+
+              setCustomBids(prev => {
+                const next = { ...prev };
+                delete next[service.service_id];
+                return next;
+              });
+
+              setServices(prev => prev.map(existing =>
+                existing.service_id === service.service_id
+                  ? {
+                      ...existing,
+                      ...updateData,
+                    }
+                  : existing,
+              ));
+
+              setSelectedService(prev => (prev && prev.service_id === service.service_id
                 ? {
-                    ...existing,
-                    status: 'confirmed',
-                    service_provider_id: providerId,
-                    price: numericBid,
-                    scheduling_type: 'scheduled',
-                    scheduled_date_time: proposedDateTime ?? existing.scheduled_date_time ?? null,
+                    ...prev,
+                    ...updateData,
                   }
-                : existing,
-            ));
+                : prev));
 
-            setSelectedService(prev => (prev && prev.service_id === service.service_id
-              ? {
-                  ...prev,
-                  status: 'confirmed',
-                  service_provider_id: providerId,
-                  price: numericBid,
-                  scheduling_type: 'scheduled',
-                  scheduled_date_time: proposedDateTime ?? prev.scheduled_date_time ?? null,
-                }
-              : prev));
+              try {
+                await fetchServices();
+              } catch (refreshError) {
+                console.error('AutoFill confirmed but the feed refresh failed:', refreshError);
+              }
 
-            await fetchServices();
+              showModal({
+                title: 'Job confirmed',
+                message: 'Head to Service Details for next steps.',
+              });
+              return true;
+            }
+
+            const released = await voidUnclaimedAutoFillCharge({
+              serviceId: service.service_id,
+              paymentIntentId: charge.paymentIntentId,
+            });
+            await releaseOwnFillRequest();
 
             showModal({
-              title: 'Job confirmed',
-              message: 'Head to Service Details for next steps.',
+              title: released.ok ? 'Job filled' : 'AutoFill not confirmed',
+              message: released.ok
+                ? 'Another Helpr was just assigned to this AutoFill job.'
+                : 'Another Helpr was just assigned, and the card charge could not be released automatically. Contact support before trying again.',
             });
-            return true;
+            return false;
+          } catch (assignError) {
+            console.error('AutoFill assignment failed:', assignError);
+            let released = true;
+            if (chargedPaymentIntentId) {
+              const voidResult = await voidUnclaimedAutoFillCharge({
+                serviceId: service.service_id,
+                paymentIntentId: chargedPaymentIntentId,
+              });
+              released = voidResult.ok;
+            }
+            await releaseOwnFillRequest();
+
+            showModal({
+              title: 'AutoFill not confirmed',
+              message: released
+                ? 'We were unable to claim this job automatically. Please try again.'
+                : 'We were unable to claim this job, and the card charge could not be released automatically. Contact support before trying again.',
+            });
+            return false;
           }
+        }
 
-          await supabase
-            .from('service_fill_request')
-            .delete()
-            .eq('service_id', service.service_id)
-            .eq('service_provider_id', providerId);
+        setServiceRequests(prev => ({
+          ...prev,
+          [service.service_id]: combinedRow,
+        }));
 
-          showModal({
-            title: 'Job filled',
-            message: 'Another Helpr was just assigned to this AutoFill job.',
-          });
-          return false;
-        } catch (assignError) {
-          console.error('AutoFill assignment failed:', assignError);
-          await supabase
-            .from('service_fill_request')
-            .delete()
-            .eq('service_id', service.service_id)
-            .eq('service_provider_id', providerId);
+        setCustomBids(prev => ({
+          ...prev,
+          [service.service_id]: bidValue ?? numericBid.toFixed(2),
+        }));
 
-          showModal({
-            title: 'AutoFill unavailable',
-            message: 'We were unable to claim this job automatically. Please try again.',
-          });
-          return false;
+        const currentStatus = (service.status ?? '').toLowerCase();
+        if (currentStatus === 'finding_pros') {
+          try {
+            const { data: updatedRows, error: statusUpdateError } = await supabase
+              .from('service')
+              .update({ status: 'select_service_provider' })
+              .eq('service_id', service.service_id)
+              .eq('status', 'finding_pros')
+              .select('service_id');
+
+            if (statusUpdateError) {
+              console.error('Failed to update service status to select_service_provider:', statusUpdateError);
+            } else if (updatedRows && updatedRows.length > 0) {
+              setServices(prev => prev.map(existing => existing.service_id === service.service_id
+                ? { ...existing, status: 'select_service_provider' }
+                : existing,
+              ));
+            }
+          } catch (statusError) {
+            console.error('Unexpected error while updating service status:', statusError);
+          }
+        }
+
+        return true;
+      } finally {
+        if (isAutoFill) {
+          autoFillClaimLock.current.delete(service.service_id);
         }
       }
-
-      setServiceRequests(prev => ({
-        ...prev,
-        [service.service_id]: combinedRow,
-      }));
-
-      setCustomBids(prev => ({
-        ...prev,
-        [service.service_id]: bidValue ?? numericBid.toFixed(2),
-      }));
-
-      const currentStatus = (service.status ?? '').toLowerCase();
-      if (currentStatus === 'finding_pros') {
-        try {
-          const { data: updatedRows, error: statusUpdateError } = await supabase
-            .from('service')
-            .update({ status: 'select_service_provider' })
-            .eq('service_id', service.service_id)
-            .eq('status', 'finding_pros')
-            .select('service_id');
-
-          if (statusUpdateError) {
-            console.error('Failed to update service status to select_service_provider:', statusUpdateError);
-          } else if (updatedRows && updatedRows.length > 0) {
-            setServices(prev => prev.map(existing => existing.service_id === service.service_id
-              ? { ...existing, status: 'select_service_provider' }
-              : existing,
-            ));
-          }
-        } catch (statusError) {
-          console.error('Unexpected error while updating service status:', statusError);
-        }
-      }
-
-      return true;
     },
     [providerId, showModal, getEffectiveBidForService, supabase, setServiceRequests, setCustomBids, setServices, setSelectedService, fetchServices],
   );
