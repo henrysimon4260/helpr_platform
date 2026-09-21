@@ -1,0 +1,4 @@
+# Quotes require a Supabase JWT. The anon key is enough to preview a price
+# before sign-in. Authenticated callers are checked again inside the function.
+# The OpenAI key is the function secret OPENAI_API_KEY, never EXPO_PUBLIC_*.
+verify_jwt = true

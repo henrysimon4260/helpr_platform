@@ -12,6 +12,7 @@ import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { supabase } from '../../lib/supabase';
+import { requestServiceQuote } from './requestServiceQuote';
 
 type PlaceSuggestion = {
   id: string;
@@ -1359,69 +1360,22 @@ export default function furnitureAssembly() {
       setPriceNote(null);
       setPriceError(null);
 
-      if (!openAiApiKey) {
-        setIsPriceLoading(false);
-        setPriceError('Price estimate unavailable (missing OpenAI key).');
-        return;
-      }
-
       try {
-        const startDetails = start
-          ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-        const endDetails = end
-          ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-
-        const requestBody = {
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a pricing assistant for furniture assembly services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) complexity of assembly (simple/moderate/complex), number of furniture pieces, 2) types of furniture items to assemble, 3) number and size of furniture pieces. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (30-300 range). IMPORTANT: Scale prices based on item complexity and quantity - Small item (chair, small table): $30-60 (simple) / $60-100 (complex), Medium item (desk, bookshelf): $50-90 (simple) / $90-150 (complex), Large item (bed frame, wardrobe): $80-130 (simple) / $130-200 (complex), Multiple items or very large (entertainment center, sectional): $120-180 (simple) / $180-300 (complex). Always increase price proportionally with more items and complexity. Provide competitive, budget-friendly estimates.',
-            },
-            {
-              role: 'user',
-              content: [
-                `Task description: ${taskDescription}`,
-                `Start location: ${startDetails}`,
-                `End location: ${endDetails}`,
-              ].join('\n'),
-            },
-          ],
-        };
-
-        console.log('🔍 Fetching price estimate with description:', taskDescription);
-        console.log('📝 Full request:', JSON.stringify(requestBody, null, 2));
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify(requestBody),
+        const quote = await requestServiceQuote({
+          serviceType: 'furniture-assembly',
+          description: taskDescription,
+          location: start?.description ?? end?.description ?? null,
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || 'Failed to fetch price estimate');
+        if (!quote.ok) {
+          throw new Error(quote.message);
         }
-
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-
-        if (typeof content !== 'string' || content.trim().length === 0) {
-          throw new Error('Missing completion content');
-        }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(content);
-        } catch (error) {
-          throw new Error('Unable to parse price estimate');
+        const parsed: any = quote.kind === 'price'
+          ? { price: quote.price }
+          : quote.kind === 'safety'
+            ? { safety_concern: true, safety_message: quote.message }
+            : { needs_clarification: true, clarification_prompt: quote.prompt };
+        if (quote.kind === 'price' && quote.note) {
+          setPriceNote(quote.note);
         }
 
         // Check for safety concerns first
@@ -1447,11 +1401,7 @@ export default function furnitureAssembly() {
           throw new Error('Invalid price value');
         }
 
-        // Apply 15% discount to make pricing more competitive
-        const discountedPrice = price * 0.85;
-        const sanitizedPrice = Math.max(0, Math.round(discountedPrice));
-
-        setPriceQuote(formatCurrency(sanitizedPrice));
+        setPriceQuote(formatCurrency(Math.max(0, Math.round(price))));
       } catch (error) {
         console.warn('Failed to fetch price estimate', error);
         setPriceError('Unable to estimate price right now.');
@@ -1459,7 +1409,7 @@ export default function furnitureAssembly() {
         setIsPriceLoading(false);
       }
     },
-    [openAiApiKey],
+    [],
   );
 
   const checkForPropertySize = useCallback((text: string) => {
@@ -1876,11 +1826,7 @@ export default function furnitureAssembly() {
       return;
     }
 
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
-
-    if (sanitizedPrice === null) {
+    if (!priceQuote) {
       showModal({
         title: 'Estimate needed',
         message: 'Request a quick price estimate before scheduling your furniture assembly service.',
@@ -1936,10 +1882,40 @@ export default function furnitureAssembly() {
     const toolsInfo = toolsNeeded ? `. Tools to bring: ${toolsNeeded}` : '';
     const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
     
-    const normalizedDescription = `${trimmedDescription}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
+    const builtDescription = `${trimmedDescription}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
+    const normalizedDescription = checkIfDescriptionAlreadyEnhanced(trimmedDescription)
+      ? trimmedDescription
+      : builtDescription;
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
+
+    const detailsUnchanged = isEditing
+      && normalizedDescription === (editingPayload?.description ?? '').trim()
+      && (location?.description ?? '').trim() === (editingPayload?.location ?? '').trim();
+    let sanitizedPrice: number | null = null;
+    if (!detailsUnchanged) {
+      const quote = await requestServiceQuote({
+        serviceType: 'furniture-assembly',
+        description: normalizedDescription,
+        location: location.description,
+      });
+      if (!quote.ok || quote.kind !== 'price') {
+        const message = !quote.ok
+          ? quote.message
+          : quote.kind === 'safety'
+            ? quote.message
+            : quote.kind === 'clarification'
+              ? quote.prompt
+              : 'Unable to estimate price right now.';
+        showModal({
+          title: quote.ok && quote.kind === 'safety' ? 'Safety Concern' : 'Estimate needed',
+          message,
+        });
+        return;
+      }
+      sanitizedPrice = quote.price;
+    }
 
     try {
       setIsSubmitting(true);
@@ -1947,7 +1923,7 @@ export default function furnitureAssembly() {
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
           location: location.description,
-          price: sanitizedPrice,
+          ...(sanitizedPrice !== null ? { price: sanitizedPrice } : {}),
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
           description: normalizedDescription,
@@ -1990,7 +1966,7 @@ export default function furnitureAssembly() {
         status: 'finding_pros',
         scheduling_type: null,
         location: location.description,
-        price: sanitizedPrice,
+        ...(sanitizedPrice !== null ? { price: sanitizedPrice } : {}),
         start_datetime: null,
         end_datetime: null,
         payment_method_type: paymentMethodType,
@@ -2027,6 +2003,7 @@ export default function furnitureAssembly() {
     location,
     isAuto,
     isEditing,
+    editingPayload,
     isPersonal,
     isSubmitting,
     priceQuote,

@@ -12,6 +12,7 @@ import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { supabase } from '../../lib/supabase';
+import { requestServiceQuote } from './requestServiceQuote';
 
 type PlaceSuggestion = {
   id: string;
@@ -1299,64 +1300,23 @@ export default function customService() {
       setPriceNote(null);
       setPriceError(null);
 
-      if (!openAiApiKey) {
-        setIsPriceLoading(false);
-        setPriceError('Price estimate unavailable (missing OpenAI key).');
-        return;
-      }
-
       try {
-        const startDetails = start
-          ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-        const endDetails = end
-          ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            response_format: { type: 'json_object' },
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You are a pricing assistant for custom service requests. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Carefully analyze the task description for the exact scope of work. Use your best judgment to determine if essential details are missing - dynamically adjust what you ask for based on the type of task described. If the description is too vague or missing critical details for that specific type of work, set needs_clarification to true with a clarification_prompt asking for the specific missing information. If the request involves: dangerous activities, illegal activities, licensed professional work (electrical/plumbing/HVAC), hazardous materials, extreme physical risk, or appears priced well above $800, set safety_concern to true. For complete, suitable descriptions, provide price in USD (50-800 range): simple tasks $50-150, medium complexity $150-300, complex tasks $300-800. Provide optimistic, budget-friendly estimates.',
-              },
-              {
-                role: 'user',
-                content: [
-                  `Task description: ${taskDescription}`,
-                  `Start location: ${startDetails}`,
-                  `End location: ${endDetails}`,
-                ].join('\n'),
-              },
-            ],
-          }),
+        const quote = await requestServiceQuote({
+          serviceType: 'customService',
+          description: taskDescription,
+          startLocation: start?.description ?? null,
+          endLocation: end?.description ?? null,
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || 'Failed to fetch price estimate');
+        if (!quote.ok) {
+          throw new Error(quote.message);
         }
-
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-
-        if (typeof content !== 'string' || content.trim().length === 0) {
-          throw new Error('Missing completion content');
-        }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(content);
-        } catch (error) {
-          throw new Error('Unable to parse price estimate');
+        const parsed: any = quote.kind === 'price'
+          ? { price: quote.price }
+          : quote.kind === 'safety'
+            ? { safety_concern: true, safety_message: quote.message }
+            : { needs_clarification: true, clarification_prompt: quote.prompt };
+        if (quote.kind === 'price' && quote.note) {
+          setPriceNote(quote.note);
         }
 
         // Check for safety concerns first
@@ -1385,9 +1345,7 @@ export default function customService() {
           throw new Error('Invalid price value');
         }
 
-        const sanitizedPrice = Math.max(0, Math.round(price));
-
-        setPriceQuote(formatCurrency(sanitizedPrice));
+        setPriceQuote(formatCurrency(Math.max(0, Math.round(price))));
       } catch (error) {
         console.warn('Failed to fetch price estimate', error);
         setPriceError('Unable to estimate price right now.');
@@ -1395,7 +1353,7 @@ export default function customService() {
         setIsPriceLoading(false);
       }
     },
-    [openAiApiKey],
+    [],
   );
 
   const handleDescriptionSubmit = useCallback(() => {
@@ -1653,11 +1611,7 @@ export default function customService() {
       return;
     }
 
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
-
-    if (sanitizedPrice === null) {
+    if (!priceQuote) {
       showModal({
         title: 'Estimate needed',
         message: 'Request a quick price estimate before scheduling your customService service.',
@@ -1728,6 +1682,35 @@ export default function customService() {
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
 
+    const detailsUnchanged = isEditing
+      && normalizedDescription === (editingPayload?.description ?? '').trim()
+      && startLocation.description.trim() === (editingPayload?.start_location ?? '').trim()
+      && endLocation.description.trim() === (editingPayload?.end_location ?? '').trim();
+    let sanitizedPrice: number | null = null;
+    if (!detailsUnchanged) {
+      const quote = await requestServiceQuote({
+        serviceType: 'customService',
+        description: normalizedDescription,
+        startLocation: startLocation.description,
+        endLocation: endLocation.description,
+      });
+      if (!quote.ok || quote.kind !== 'price') {
+        const message = !quote.ok
+          ? quote.message
+          : quote.kind === 'safety'
+            ? quote.message
+            : quote.kind === 'clarification'
+              ? quote.prompt
+              : 'Unable to estimate price right now.';
+        showModal({
+          title: quote.ok && quote.kind === 'safety' ? 'Safety Concern' : 'Estimate needed',
+          message,
+        });
+        return;
+      }
+      sanitizedPrice = quote.price;
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -1735,7 +1718,7 @@ export default function customService() {
         const updatePayload: Record<string, unknown> = {
           start_location: startLocation.description,
           end_location: endLocation.description,
-          price: sanitizedPrice,
+          ...(sanitizedPrice !== null ? { price: sanitizedPrice } : {}),
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
           description: normalizedDescription,
@@ -1780,7 +1763,7 @@ export default function customService() {
         location: null,
         start_location: startLocation.description,
         end_location: endLocation.description,
-        price: sanitizedPrice,
+        ...(sanitizedPrice !== null ? { price: sanitizedPrice } : {}),
         start_datetime: null,
         end_datetime: null,
         payment_method_type: paymentMethodType,
@@ -1817,6 +1800,7 @@ export default function customService() {
     endLocation,
     isAuto,
     isEditing,
+    editingPayload,
     isPersonal,
     isSubmitting,
     priceQuote,
