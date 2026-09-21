@@ -10,6 +10,21 @@ import {
   unclaimedPaymentRelease,
 } from '../_shared/autofillPayment.ts'
 import {
+  CHARGE_AMOUNT_MISMATCH,
+  CHARGE_NOT_CHARGEABLE,
+  CHARGE_NOT_CONFIGURED,
+  CHARGE_PAYMENT_METHOD_FORBIDDEN,
+  CHARGE_SIGN_IN,
+  CHARGE_UNAVAILABLE,
+  callerOwnsServiceCustomer,
+  currencyAccepted,
+  evaluateCustomerCharge,
+  parseBearerToken,
+  rejectedClientOverride,
+  stripePaymentMethodCustomerAllowed,
+  type CustomerChargeApproval,
+} from '../_shared/chargeAuthorization.ts'
+import {
   PaymentIntentCreateError,
   autofillStoredIntentAction,
   chargeReuseDecision,
@@ -74,25 +89,33 @@ async function attachPaymentMethodToCustomer(
   }
 }
 
-async function requireUserId(req: Request): Promise<string | null> {
+type AuthUser =
+  | { ok: true; userId: string; email: string | null }
+  | { ok: false; status: 401 | 500; error: string }
+
+async function requireAuthUser(req: Request): Promise<AuthUser> {
   if (!supabaseServiceKey) {
-    return null
+    console.error('Cannot authorize payment: SUPABASE_SERVICE_ROLE_KEY is not set')
+    return { ok: false, status: 500, error: CHARGE_NOT_CONFIGURED }
   }
 
-  const header = req.headers.get('Authorization') ?? ''
-  const jwt = header.replace(/^Bearer\s+/i, '').trim()
+  const jwt = parseBearerToken(req.headers.get('Authorization'))
   if (!jwt) {
-    return null
+    return { ok: false, status: 401, error: CHARGE_SIGN_IN }
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
   const { data, error } = await supabase.auth.getUser(jwt)
   if (error || !data.user?.id) {
-    console.error('AutoFill charge rejected: caller is not signed in', error)
-    return null
+    console.error('Payment rejected: caller is not signed in', error)
+    return { ok: false, status: 401, error: CHARGE_SIGN_IN }
   }
 
-  return data.user.id
+  return {
+    ok: true,
+    userId: data.user.id,
+    email: typeof data.user.email === 'string' ? data.user.email : null,
+  }
 }
 
 async function findAuthUserIdsByEmail(email: string): Promise<string[]> {
@@ -126,22 +149,17 @@ type ResolvedAutoFillCharge = {
 }
 
 async function resolveAutoFillCharge(
-  req: Request,
+  providerId: string,
   serviceId: string,
   customerId: string,
 ): Promise<{ ok: true; charge: ResolvedAutoFillCharge } | { ok: false; response: Response }> {
-  if (!serviceId || !customerId) {
+  if (!serviceId || !customerId || !providerId) {
     return { ok: false, response: jsonResponse({ error: AUTOFILL_NOT_OPEN }, 400) }
   }
 
   if (!supabaseServiceKey) {
     console.error('Cannot resolve AutoFill payment method: SUPABASE_SERVICE_ROLE_KEY is not set')
     return { ok: false, response: jsonResponse({ error: AUTOFILL_CHARGE_FAILED }, 500) }
-  }
-
-  const providerId = await requireUserId(req)
-  if (!providerId) {
-    return { ok: false, response: jsonResponse({ error: AUTOFILL_SIGN_IN }, 401) }
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -377,6 +395,156 @@ async function claimPaymentIntentId(
   return { kind: 'failed' }
 }
 
+async function paymentMethodOnStripeCustomer(
+  stripe: Stripe,
+  paymentMethodId: string,
+  stripeCustomerId: string,
+): Promise<'ok' | 'foreign' | 'unavailable'> {
+  try {
+    const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId)
+    const attached = typeof paymentMethod.customer === 'string'
+      ? paymentMethod.customer
+      : paymentMethod.customer?.id ?? null
+    return stripePaymentMethodCustomerAllowed(attached, stripeCustomerId) ? 'ok' : 'foreign'
+  } catch (error) {
+    console.error('Failed to read payment method before charge:', error)
+    return 'unavailable'
+  }
+}
+
+async function reuseStoredCustomerCharge(
+  stripe: Stripe,
+  serviceId: string,
+  storedPaymentIntentId: string | null,
+  amountCents: number,
+): Promise<Response> {
+  if (!storedPaymentIntentId) {
+    return jsonResponse({ error: CHARGE_NOT_CHARGEABLE }, 400)
+  }
+
+  try {
+    const paymentIntent = await stripe.paymentIntents.retrieve(storedPaymentIntentId)
+    const snapshot = toSnapshot(paymentIntent)
+    const metadataServiceId = paymentIntent.metadata?.service_id
+    if (
+      chargeReuseDecision(snapshot) !== 'reuse'
+      || snapshot.amount !== amountCents
+      || (metadataServiceId && metadataServiceId !== serviceId)
+    ) {
+      return jsonResponse({ error: CHARGE_NOT_CHARGEABLE }, 400)
+    }
+
+    return jsonResponse({
+      clientSecret: paymentIntent.client_secret,
+      status: paymentIntent.status,
+      paymentIntentId: paymentIntent.id,
+    }, 200)
+  } catch (error) {
+    console.error('Failed to reuse stored payment intent:', error)
+    return jsonResponse({ error: CHARGE_NOT_CHARGEABLE }, 400)
+  }
+}
+
+async function resolveCustomerCharge(
+  auth: { userId: string; email: string | null },
+  body: {
+    service_id?: unknown
+    amount?: unknown
+    currency?: unknown
+    payment_method_id?: unknown
+    customer_id?: unknown
+    customer_email?: unknown
+    service_provider_id?: unknown
+  },
+): Promise<{ ok: true; charge: CustomerChargeApproval } | { ok: false; response: Response }> {
+  const serviceId = typeof body.service_id === 'string' ? body.service_id : ''
+  if (!idempotencyKeySegment(serviceId)) {
+    return { ok: false, response: jsonResponse({ error: CHARGE_NOT_CHARGEABLE }, 400) }
+  }
+
+  if (!supabaseServiceKey) {
+    return { ok: false, response: jsonResponse({ error: CHARGE_NOT_CONFIGURED }, 500) }
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+  const { data: service, error: serviceError } = await supabase
+    .from('service')
+    .select('service_id, customer_id, status, service_provider_id, price, payment_intent_id')
+    .eq('service_id', serviceId)
+    .maybeSingle()
+
+  if (serviceError) {
+    console.error('Customer charge rejected: service lookup failed', serviceError)
+    return { ok: false, response: jsonResponse({ error: CHARGE_UNAVAILABLE }, 500) }
+  }
+
+  const serviceCustomerId = typeof service?.customer_id === 'string' ? service.customer_id : null
+  let customerEmail: string | null = null
+  if (serviceCustomerId) {
+    const { data: customer, error: customerError } = await supabase
+      .from('customer')
+      .select('email')
+      .eq('customer_id', serviceCustomerId)
+      .maybeSingle()
+    if (customerError) {
+      console.error('Customer charge rejected: customer lookup failed', customerError)
+      return { ok: false, response: jsonResponse({ error: CHARGE_UNAVAILABLE }, 500) }
+    }
+    customerEmail = typeof customer?.email === 'string' ? customer.email : null
+  }
+
+  const ownsService = callerOwnsServiceCustomer({
+    authUserId: auth.userId,
+    authEmail: auth.email,
+    serviceCustomerId,
+    customerEmail,
+  })
+
+  let fillRequests: Array<{ service_provider_id?: string | null; bid: unknown }> = []
+  let paymentMethods: Array<{ stripe_pm_id?: unknown; user_id?: unknown }> = []
+  if (ownsService && serviceCustomerId) {
+    const { data: fills, error: fillError } = await supabase
+      .from('service_fill_request')
+      .select('service_provider_id, bid')
+      .eq('service_id', serviceId)
+    if (fillError) {
+      console.error('Customer charge rejected: fill request lookup failed', fillError)
+      return { ok: false, response: jsonResponse({ error: CHARGE_UNAVAILABLE }, 500) }
+    }
+    fillRequests = fills ?? []
+
+    const paymentMethodId = typeof body.payment_method_id === 'string' ? body.payment_method_id.trim() : ''
+    if (paymentMethodId) {
+      const ownerIds = Array.from(new Set([auth.userId, serviceCustomerId]))
+      const { data: methods, error: methodError } = await supabase
+        .from('payment_methods')
+        .select('stripe_pm_id, user_id')
+        .eq('stripe_pm_id', paymentMethodId)
+        .in('user_id', ownerIds)
+      if (methodError) {
+        console.error('Customer charge rejected: payment method lookup failed', methodError)
+        return { ok: false, response: jsonResponse({ error: CHARGE_UNAVAILABLE }, 500) }
+      }
+      paymentMethods = methods ?? []
+    }
+  }
+
+  const decision = evaluateCustomerCharge({
+    authUserId: auth.userId,
+    authEmail: auth.email,
+    service,
+    customerEmail,
+    fillRequests,
+    paymentMethods,
+    body,
+  })
+  if (!decision.ok) {
+    return { ok: false, response: jsonResponse({ error: decision.error }, decision.status) }
+  }
+
+  return { ok: true, charge: decision }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -385,9 +553,26 @@ Deno.serve(async (req) => {
   let useSavedPaymentMethod = false
 
   try {
+    const body = await req.json()
+    useSavedPaymentMethod = body.use_saved_payment_method === true
+
+    const auth = await requireAuthUser(req)
+    if (!auth.ok) {
+      const error = auth.status === 401 && useSavedPaymentMethod ? AUTOFILL_SIGN_IN : auth.error
+      return jsonResponse({ error }, auth.status)
+    }
+
+    if (!currencyAccepted(body.currency)) {
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_CHARGE_FAILED : CHARGE_NOT_CHARGEABLE,
+      }, 400)
+    }
+
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY')
     if (!stripeSecretKey) {
-      return jsonResponse({ error: 'Stripe is not configured on the server' }, 500)
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_CHARGE_FAILED : 'Stripe is not configured on the server',
+      }, 500)
     }
 
     const stripe = new Stripe(stripeSecretKey, {
@@ -395,73 +580,96 @@ Deno.serve(async (req) => {
       httpClient: Stripe.createFetchHttpClient(),
     })
 
-    const body = await req.json()
     let amount = body.amount
-    const currency = body.currency
     let paymentMethodId = body.payment_method_id
-    const serviceId = body.service_id
-    const customerId = body.customer_id
+    let serviceId = body.service_id
+    let customerId = body.customer_id
     let customerEmail = body.customer_email
-    useSavedPaymentMethod = body.use_saved_payment_method === true
     let autofillProviderId: string | null = null
     let storedPaymentIntentId: string | null = null
+    let reuseOnly = false
 
     if (useSavedPaymentMethod) {
-      const resolved = await resolveAutoFillCharge(req, serviceId, customerId)
+      const resolved = await resolveAutoFillCharge(auth.userId, serviceId, customerId)
       if (!resolved.ok) {
         return resolved.response
+      }
+      const override = rejectedClientOverride({
+        clientAmount: body.amount,
+        serverAmountCents: resolved.charge.amount,
+        clientPaymentMethodId: body.payment_method_id,
+        serverPaymentMethodId: resolved.charge.paymentMethodId,
+      })
+      if (override) {
+        return jsonResponse({ error: override.error }, override.status)
       }
       amount = resolved.charge.amount
       paymentMethodId = resolved.charge.paymentMethodId
       customerEmail = resolved.charge.email
       autofillProviderId = resolved.charge.providerId
       storedPaymentIntentId = resolved.charge.storedPaymentIntentId
+    } else {
+      const resolved = await resolveCustomerCharge(auth, body)
+      if (!resolved.ok) {
+        return resolved.response
+      }
+      amount = resolved.charge.amountCents
+      paymentMethodId = resolved.charge.paymentMethodId
+      serviceId = body.service_id
+      customerId = resolved.charge.customerId
+      customerEmail = resolved.charge.email
+      storedPaymentIntentId = resolved.charge.storedPaymentIntentId
+      reuseOnly = resolved.charge.reuseOnly
     }
 
-    if (!amount || !paymentMethodId) {
-      return jsonResponse({ error: 'Missing required parameters: amount and payment_method_id' }, 400)
-    }
-
-    if (typeof amount !== 'number' || amount <= 0) {
-      return jsonResponse({ error: 'Amount must be a positive integer (in cents)' }, 400)
-    }
-
-    // Resolve customer email: use provided email, or look it up from DB
-    let email = customerEmail
-    if (!email && customerId && supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey)
-      const { data } = await supabase
-        .from('customer')
-        .select('email')
-        .eq('customer_id', customerId)
-        .maybeSingle()
-      email = data?.email ?? null
-    }
-
-    if (!email) {
+    if (
+      typeof amount !== 'number'
+      || !Number.isInteger(amount)
+      || amount <= 0
+      || typeof paymentMethodId !== 'string'
+      || paymentMethodId.length === 0
+    ) {
       return jsonResponse({
-        error: useSavedPaymentMethod
-          ? AUTOFILL_NO_PAYMENT_METHOD
-          : 'Unable to resolve customer email. Provide customer_email or a valid customer_id.',
+        error: useSavedPaymentMethod ? AUTOFILL_CHARGE_FAILED : CHARGE_NOT_CHARGEABLE,
       }, 400)
     }
 
-    console.log('Creating payment intent:', { amount, currency, service_id: serviceId, useSavedPaymentMethod })
-
-    // Find or create a Stripe Customer so the PM can be attached & reused
-    const stripeCustomerId = await findOrCreateStripeCustomer(stripe, email)
-    console.log('Stripe customer:', stripeCustomerId)
-
-    // Attach the payment method to the customer (idempotent)
-    await attachPaymentMethodToCustomer(stripe, paymentMethodId, stripeCustomerId)
-
-    const roundedAmount = Math.round(amount)
-    const normalizedCurrency = typeof currency === 'string' && currency ? currency : 'usd'
-    const idempotentServiceId = typeof serviceId === 'string' ? idempotencyKeySegment(serviceId) : null
-
-    if (serviceId && !idempotentServiceId) {
-      return jsonResponse({ error: 'service_id is not valid for an idempotent charge' }, 400)
+    const email = typeof customerEmail === 'string' ? customerEmail.trim() : ''
+    if (!email) {
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_NO_PAYMENT_METHOD : CHARGE_NOT_CHARGEABLE,
+      }, 400)
     }
+
+    const roundedAmount = amount
+    const normalizedCurrency = 'usd'
+    const idempotentServiceId = typeof serviceId === 'string' ? idempotencyKeySegment(serviceId) : null
+    if (!idempotentServiceId) {
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_NOT_OPEN : CHARGE_NOT_CHARGEABLE,
+      }, 400)
+    }
+
+    if (reuseOnly) {
+      return reuseStoredCustomerCharge(stripe, idempotentServiceId, storedPaymentIntentId, roundedAmount)
+    }
+
+    console.log('Creating payment intent:', { amount, service_id: serviceId, useSavedPaymentMethod })
+
+    const stripeCustomerId = await findOrCreateStripeCustomer(stripe, email)
+    const paymentMethodBinding = await paymentMethodOnStripeCustomer(stripe, paymentMethodId, stripeCustomerId)
+    if (paymentMethodBinding === 'foreign') {
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_CHARGE_FAILED : CHARGE_PAYMENT_METHOD_FORBIDDEN,
+      }, useSavedPaymentMethod ? 400 : 403)
+    }
+    if (paymentMethodBinding === 'unavailable') {
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_CHARGE_FAILED : CHARGE_UNAVAILABLE,
+      }, useSavedPaymentMethod ? 400 : 500)
+    }
+
+    await attachPaymentMethodToCustomer(stripe, paymentMethodId, stripeCustomerId)
 
     if (!useSavedPaymentMethod && idempotentServiceId && supabaseServiceKey && !storedPaymentIntentId) {
       const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -566,8 +774,9 @@ Deno.serve(async (req) => {
         })
         paymentIntent = await stripe.paymentIntents.retrieve(snapshot.id)
       } else {
-        // No service id: nothing stable to key. Callers that confirm a job always send one.
-        paymentIntent = await stripe.paymentIntents.create(chargeParams)
+        return jsonResponse({
+          error: useSavedPaymentMethod ? AUTOFILL_NOT_OPEN : CHARGE_NOT_CHARGEABLE,
+        }, 400)
       }
     } catch (chargeError) {
       console.error('Error creating payment intent:', chargeError)
@@ -599,6 +808,13 @@ Deno.serve(async (req) => {
     }
 
     console.log('Payment intent created:', paymentIntent.id, 'status:', paymentIntent.status)
+
+    if (paymentIntent.amount !== roundedAmount) {
+      console.error('Refusing a payment intent whose amount does not match the server total:', paymentIntent.id)
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_CHARGE_FAILED : CHARGE_AMOUNT_MISMATCH,
+      }, 400)
+    }
 
     if (useSavedPaymentMethod && paymentIntent.status !== 'succeeded') {
       console.error('AutoFill payment intent did not succeed:', paymentIntent.id, paymentIntent.status)
@@ -658,6 +874,11 @@ Deno.serve(async (req) => {
     }, 200)
   } catch (error) {
     console.error('Error creating payment intent:', error)
+    if (!parseBearerToken(req.headers.get('Authorization'))) {
+      return jsonResponse({
+        error: useSavedPaymentMethod ? AUTOFILL_SIGN_IN : CHARGE_SIGN_IN,
+      }, 401)
+    }
     if (useSavedPaymentMethod) {
       return jsonResponse({ error: AUTOFILL_CHARGE_FAILED }, 400)
     }

@@ -67,6 +67,8 @@ Other live functions (`save-payment-method`, Plaid/ACH, `sync-stripe-balance`, �
 
 Invoked by customer `select-helpr.tsx` (B) and, for AutoFill, by provider `landing.tsx`. Source: `apps/serviceprovider-app/supabase/functions/create-payment-intent/index.ts`.
 
+**Auth (both paths):** `Authorization: Bearer <user access token>`. `supabase.functions.invoke` from a signed-in client sends this. The handler calls `auth.getUser(jwt)` and does not trust `user_metadata`. Missing or invalid token → **401**. Missing server configuration → **500**. No charge is created. `verify_jwt` stays true for this function.
+
 **Request:**
 
 ```json
@@ -77,15 +79,30 @@ Invoked by customer `select-helpr.tsx` (B) and, for AutoFill, by provider `landi
   "service_id": "",
   "customer_id": "",
   "customer_email": "",
+  "service_provider_id": "",
   "use_saved_payment_method": false
 }
 ```
 
-`amount` is integer cents. `customer_email` is optional if `customer_id` can be resolved.
+`amount`, when sent, is integer cents. It is checked against the server total. It is never the amount Stripe is asked to charge. `currency` must be omitted or `usd`. `customer_email` is optional and, if sent, must match the customer row. `service_provider_id` is optional; select-helpr does not send it yet.
 
-Customer select-a-pro sends `amount`, `payment_method_id`, `service_id`, and `customer_id`. `use_saved_payment_method` stays omitted or false. On that path the function still confirms the PaymentIntent and, when `service_id` is present, writes `payment_intent_id` onto the `service` row. It does not set `payment_status` or `service.status`. The write is retried. It only fills `payment_intent_id` when the column is empty or already that id. If a different reusable PaymentIntent is already stored, the extra PaymentIntent is refunded or canceled and the stored id is returned. If the service row is gone after the charge, the PaymentIntent is refunded or canceled and the call returns an error.
+Customer select-a-pro sends `amount`, `payment_method_id`, `service_id`, and `customer_id`, and the signed-in customer's JWT. `use_saved_payment_method` stays omitted or false.
 
-**AutoFill (`use_saved_payment_method: true`):** provider `landing.tsx` calls this after inserting the fill request. Omit `amount` and `payment_method_id`. Required: `service_id`, `customer_id`, and the provider's JWT. The function checks the job is still open AutoFill (`finding_pros` or `select_service_provider`, no `service_provider_id`), reads that provider's fill-request `bid`, and charges the same total as select-helpr (bid + 3% processing + 1% platform, in cents). It loads the customer's saved card from `payment_methods` (auth user for `customer.email`, else `customer_id`) and confirms off-session. It returns success only when `status` is `succeeded`. Any other status is canceled and returned as an error. This path does **not** write `payment_intent_id`; the winning claim update is the writer.
+**Customer confirm authorization:**
+
+- `service_id` is required. The service row must exist.
+- The JWT user must own that service: `auth.users.id` equals `service.customer_id`, or the auth user's email matches `customer.email` for that `service.customer_id` (case-insensitive). Otherwise **403**.
+- Client `customer_id`, if sent, must equal `service.customer_id`. The charge uses the service's customer id and that row's email. A client email or customer id is not a way to point the charge at someone else. Mismatch → **400**.
+- `payment_method_id` must be a `payment_methods.stripe_pm_id` whose `user_id` is the auth user or that `customer_id`. On Stripe, the PaymentMethod must be unattached or already attached to the Stripe customer for that booking email. Otherwise **403**. A new charge is not created.
+- Amount is computed on the server with the same cents rule as today (`bookingChargeCents`: base + 3% processing + 1% platform). While any fill request has a usable `bid`, that bid is the base — not `service.price`, which is still the customer's estimate until accept copies the bid. If the client sends `amount`, it must equal one of those server totals or the call is **400** and nothing is charged. If several bids produce different totals, the client `amount` or `service_provider_id` has to select exactly one; otherwise **400**. After accept, when fill requests are gone, `service.price` is the copied bid and a retry uses `bookingChargeCents(service.price)`.
+- A new PaymentIntent is created only while the job is open and unassigned (`finding_pros`, `pending`, `scheduled`, or `select_service_provider`, and no `service_provider_id`). A later call for an assigned or already-confirmed job returns the stored PaymentIntent when it is reusable and the server amount matches. It does not create another charge.
+- There is no charge without a `service_id`.
+
+On that path the function still confirms the PaymentIntent and writes `payment_intent_id` onto the `service` row. It does not set `payment_status` or `service.status`. The write is retried. It only fills `payment_intent_id` when the column is empty or already that id. If a different reusable PaymentIntent is already stored, the extra PaymentIntent is refunded or canceled and the stored id is returned. If the service row is gone after the charge, the PaymentIntent is refunded or canceled and the call returns an error.
+
+**Fee note (not changed here):** this charge total is bid + 3% + 1%. `complete-service` still computes the transfer from `service.price` as 1% platform + 2.9% + $0.30. Those formulas are not unified in this contract.
+
+**AutoFill (`use_saved_payment_method: true`):** provider `landing.tsx` calls this after inserting the fill request. Omit `amount` and `payment_method_id`. Required: `service_id`, `customer_id`, and the provider's JWT. The function checks the job is still open AutoFill (`finding_pros` or `select_service_provider`, no `service_provider_id`), reads that provider's fill-request `bid`, and charges the same total as select-helpr (bid + 3% processing + 1% platform, in cents). It loads the customer's saved card from `payment_methods` (auth user for `customer.email`, else `customer_id`) and confirms off-session. If the client also sends `amount` or `payment_method_id`, those values must match the server amount and saved card or the call is rejected (**400** / **403**) and the server values are not overridden. It returns success only when `status` is `succeeded`. Any other status is canceled and returned as an error. This path does **not** write `payment_intent_id`; the winning claim update is the writer.
 
 **Idempotency:** A retry or double-tap must not create a second charge for the same confirm.
 
@@ -96,7 +113,7 @@ Customer select-a-pro sends `amount`, `payment_method_id`, `service_id`, and `cu
 
 Customer `select-helpr.tsx` ignores an overlapping confirm tap. It treats `status === 'succeeded'` or `processing` as already charged, or uses `clientSecret` for PaymentSheet, then writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together. It does not mark the row paid when the PaymentIntent id is missing. If that booking update fails after a charge, the customer taps confirm again and the function reuses the PaymentIntent. Provider AutoFill writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together, and only after `status === 'succeeded'` and a non-empty `paymentIntentId`. AutoFill does not mark the row confirmed or paid when the PaymentIntent id is missing.
 
-**Error:** `{ "error": "" }`
+**Error:** `{ "error": "" }` with HTTP 401 (not signed in), 403 (caller does not own the booking, or the payment method is not theirs), 400 (amount, customer, or booking does not match), or 500 (server cannot verify the charge). A 401/403/400 from this check does not create a PaymentIntent.
 
 ### `void-unclaimed-payment`
 
