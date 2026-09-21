@@ -1,7 +1,8 @@
-# This function needs to be publicly accessible because it's called
-# during signup BEFORE the user has an auth account
-verify_jwt = false
+# Provider signup and ensureServiceProviderProfile call this with
+# supabase.functions.invoke after the provider is signed in, which sends
+# that user's JWT. The handler still rejects any caller getUser() does not
+# accept, so an anon or publishable JWT cannot create a Connect account.
+verify_jwt = true
 
 # Import Map for Deno
 import_map = "./import_map.json"
-

@@ -190,11 +190,29 @@ A charge that cannot cover a 1-cent transfer does not create a transfer and does
 
 ### `create-connect-account`
 
-Exists. Signup / provider profile (D) may call it; only E rewrites it.
+Invoked by provider signup and `ensureServiceProviderProfile` (D). Source: `apps/serviceprovider-app/supabase/functions/create-connect-account/index.ts`. Only E rewrites the function. This change does not edit those screens.
 
-**Request (both casings accepted):** `email`, `firstName` / `first_name`, `lastName` / `last_name`, `refreshUrl` / `refresh_url`, `returnUrl` / `return_url`.
+**Auth:** `Authorization: Bearer <user access token>`. `supabase.functions.invoke` from a signed-in provider sends this. The handler calls `auth.getUser(jwt)` and does not trust `user_metadata`. Missing or invalid token → **401**. An anon or publishable JWT is not a provider session; `getUser()` rejects it. Missing server configuration → **500**. No Stripe account is created. `verify_jwt` is true.
+
+The Connect account is bound to that signed-in provider:
+
+- Stripe `email` and metadata `provider_id` come from `getUser()`, not from an unverified body.
+- The provider id is `auth.users.id` when that id has a `service_provider` row, or when no row exists yet.
+- A legacy row whose `email` matches the `getUser()` email is used only when this auth user has no provider row of their own.
+- Client `email`, if sent, must match the auth email (case-insensitive). Otherwise **400**.
+- Client `providerId` / `service_provider_id` / `serviceProviderId`, if sent, must be the auth user id or that resolved provider id. Otherwise **403**. A conflicting pair of ids is **400**.
+- A failed or ambiguous provider lookup → **500**. The function does not create an account when it cannot verify the caller.
+- If that provider already has a live `stripe_account_id`, the call returns **409** and does not create another account. A stored id that Stripe reports missing is cleared, and creation can continue. Any other Stripe lookup failure returns **500** and does not create an account.
+
+Signup currently calls this before `signUp`, with no user JWT. That call is rejected with **401** until identity (D) invokes it with the provider session. This function does not create the auth user. `ensureServiceProviderProfile` already invokes it with the signed-in session.
+
+**Request (both casings accepted):** `email` (optional; must match the signed-in provider when present), `firstName` / `first_name`, `lastName` / `last_name`, `refreshUrl` / `refresh_url`, `returnUrl` / `return_url`, optional `dob`, `address`, and `ssn_last_4`.
+
+`ssn_last_4`, when sent, must be exactly four digits. It is passed to Stripe as `individual.ssn_last_4` only. It is not written to the database and not written to logs. A full SSN field is rejected. The request body is not logged.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
+
+**Error:** `{ "success": false, "error": "" }` with HTTP 401 (not signed in), 403 (provider id is not the caller), 400 (email, provider id, or SSN last 4 does not match the rules), 409 (this provider already has a Connect account), or 500 (server cannot verify the caller). A 401, 403, 400, or 500 from this check does not create a Stripe account. The new account id is still stored by the caller, not by this function.
 
 ## Adding something new
 
