@@ -1,0 +1,5 @@
+# ServiceDetails calls this with supabase.functions.invoke, which sends the
+# signed-in provider's JWT. The handler still rejects any caller getUser()
+# does not accept, and rejects a signed-in user who is not the assigned
+# provider, so an anon JWT or another account cannot capture or transfer.
+verify_jwt = true
