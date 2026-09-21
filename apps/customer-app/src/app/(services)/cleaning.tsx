@@ -12,6 +12,7 @@ import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { supabase } from '../../lib/supabase';
+import { requestServiceQuote } from './requestServiceQuote';
 
 type PlaceSuggestion = {
   id: string;
@@ -1359,69 +1360,22 @@ export default function cleaning() {
       setPriceNote(null);
       setPriceError(null);
 
-      if (!openAiApiKey) {
-        setIsPriceLoading(false);
-        setPriceError('Price estimate unavailable (missing OpenAI key).');
-        return;
-      }
-
       try {
-        const startDetails = start
-          ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-        const endDetails = end
-          ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-
-        const requestBody = {
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a pricing assistant for cleaning services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) degree of cleaning needed (light/medium/deep), 2) which rooms or entire home, 3) property size. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on property size - Studio: $20-40 (basic) / $40-80 (deep), 1-bed: $30-50 (basic) / $60-100 (deep), 2-bed: $45-70 (basic) / $90-130 (deep), 3-bed: $60-90 (basic) / $120-170 (deep), 4+ bed or house: $80-130 (basic) / $150-250 (deep). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.',
-            },
-            {
-              role: 'user',
-              content: [
-                `Task description: ${taskDescription}`,
-                `Start location: ${startDetails}`,
-                `End location: ${endDetails}`,
-              ].join('\n'),
-            },
-          ],
-        };
-
-        console.log('🔍 Fetching price estimate with description:', taskDescription);
-        console.log('📝 Full request:', JSON.stringify(requestBody, null, 2));
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify(requestBody),
+        const quote = await requestServiceQuote({
+          serviceType: 'cleaning',
+          description: taskDescription,
+          location: start?.description ?? end?.description ?? null,
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || 'Failed to fetch price estimate');
+        if (!quote.ok) {
+          throw new Error(quote.message);
         }
-
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-
-        if (typeof content !== 'string' || content.trim().length === 0) {
-          throw new Error('Missing completion content');
-        }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(content);
-        } catch (error) {
-          throw new Error('Unable to parse price estimate');
+        const parsed: any = quote.kind === 'price'
+          ? { price: quote.price }
+          : quote.kind === 'safety'
+            ? { safety_concern: true, safety_message: quote.message }
+            : { needs_clarification: true, clarification_prompt: quote.prompt };
+        if (quote.kind === 'price' && quote.note) {
+          setPriceNote(quote.note);
         }
 
         // Check for safety concerns first
@@ -1447,11 +1401,7 @@ export default function cleaning() {
           throw new Error('Invalid price value');
         }
 
-        // Apply 15% discount to make pricing more competitive
-        const discountedPrice = price * 0.85;
-        const sanitizedPrice = Math.max(0, Math.round(discountedPrice));
-
-        setPriceQuote(formatCurrency(sanitizedPrice));
+        setPriceQuote(formatCurrency(Math.max(0, Math.round(price))));
       } catch (error) {
         console.warn('Failed to fetch price estimate', error);
         setPriceError('Unable to estimate price right now.');
@@ -1459,7 +1409,7 @@ export default function cleaning() {
         setIsPriceLoading(false);
       }
     },
-    [openAiApiKey],
+    [],
   );
 
   const checkForPropertySize = useCallback((text: string) => {
@@ -1895,11 +1845,7 @@ export default function cleaning() {
       return;
     }
 
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
-
-    if (sanitizedPrice === null) {
+    if (!priceQuote) {
       showModal({
         title: 'Estimate needed',
         message: 'Request a quick price estimate before scheduling your cleaning service.',
@@ -1955,10 +1901,40 @@ export default function cleaning() {
     const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
     const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
     
-    const normalizedDescription = `${trimmedDescription}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+    const builtDescription = `${trimmedDescription}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+    const normalizedDescription = checkIfDescriptionAlreadyEnhanced(trimmedDescription)
+      ? trimmedDescription
+      : builtDescription;
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
+
+    const detailsUnchanged = isEditing
+      && normalizedDescription === (editingPayload?.description ?? '').trim()
+      && (location?.description ?? '').trim() === (editingPayload?.location ?? '').trim();
+    let sanitizedPrice: number | null = null;
+    if (!detailsUnchanged) {
+      const quote = await requestServiceQuote({
+        serviceType: 'cleaning',
+        description: normalizedDescription,
+        location: location.description,
+      });
+      if (!quote.ok || quote.kind !== 'price') {
+        const message = !quote.ok
+          ? quote.message
+          : quote.kind === 'safety'
+            ? quote.message
+            : quote.kind === 'clarification'
+              ? quote.prompt
+              : 'Unable to estimate price right now.';
+        showModal({
+          title: quote.ok && quote.kind === 'safety' ? 'Safety Concern' : 'Estimate needed',
+          message,
+        });
+        return;
+      }
+      sanitizedPrice = quote.price;
+    }
 
     try {
       setIsSubmitting(true);
@@ -1966,7 +1942,7 @@ export default function cleaning() {
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
           location: location.description,
-          price: sanitizedPrice,
+          ...(sanitizedPrice !== null ? { price: sanitizedPrice } : {}),
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
           description: normalizedDescription,
@@ -2009,7 +1985,7 @@ export default function cleaning() {
         status: 'finding_pros',
         scheduling_type: null,
         location: location.description,
-        price: sanitizedPrice,
+        ...(sanitizedPrice !== null ? { price: sanitizedPrice } : {}),
         start_datetime: null,
         end_datetime: null,
         payment_method_type: paymentMethodType,
@@ -2046,6 +2022,7 @@ export default function cleaning() {
     location,
     isAuto,
     isEditing,
+    editingPayload,
     isPersonal,
     isSubmitting,
     priceQuote,

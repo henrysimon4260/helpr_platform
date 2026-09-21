@@ -26,12 +26,14 @@ Autocomplete on the moving screen depends on the Google Places REST API. Provide
 
 `app.config.ts` reads the value at build time and exposes it through `Constants.expoConfig.extra.googlePlacesApiKey`. If the key is missing, the moving screen falls back to manual entry only.
 
-### OpenAI (pricing + voice mode)
+### OpenAI (voice mode)
 
-Price estimates and the new speech-to-text workflow call the OpenAI API. Supply a key the same way:
+Speech-to-text still calls OpenAI from the app. Supply a key the same way:
 
 ```bash
 EXPO_PUBLIC_OPENAI_API_KEY=your-openai-key
 ```
 
-or set `OPENAI_API_KEY` in your shell before running Expo. The value is surfaced at runtime via `Constants.expoConfig.extra.openAiApiKey` and falls back to environment variables. Without it, price estimation and transcription will show a friendly warning and skip the API call.
+or set `OPENAI_API_KEY` in your shell before running Expo. The value is surfaced at runtime via `Constants.expoConfig.extra.openAiApiKey`. Without it, transcription shows a friendly warning and skips the API call.
+
+Price quotes do not use this key. Composers call the `quote-service-price` edge function, which reads the server secret `OPENAI_API_KEY`. The charged `service.price` has to match that quote.
