@@ -9,6 +9,7 @@ import { useModal } from '../../context/ModalContext';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
 import { supabase } from '../../lib/supabase';
 import { clearViewedCompletedServices, hasViewedCompletedService } from '../../lib/viewedCompletedServices';
+import { canEditRequest } from './editRequestEligibility';
 
 type ServiceRow = {
   service_id: string;
@@ -615,6 +616,7 @@ export default function BookedServices() {
     const providerInitials = `${providerFirstName ? providerFirstName.charAt(0) : ''}${providerLastName ? providerLastName.charAt(0) : ''}`.toUpperCase() || 'H';
     const profileImageUrl = profile?.profile_picture_url ?? null;
     const isAssigned = isConfirmed || isHelprOtw || isInProgress || isCompleted;
+    const canEdit = canEditRequest(service);
 
     const fillRequestCount = fillRequestCounts[service.service_id] || 0;
     const showFindingProsPill = isFindingPros || (fillRequestCount > 0 && !isAssigned);
@@ -685,12 +687,19 @@ export default function BookedServices() {
               </View>
             ) : null}
             <View style={styles.cardActionRow}>
-              <Pressable style={styles.editRequestGroup} onPress={() => handleEditRequest(service)}>
-                <View style={styles.editRequestIconWrapper}>
-                  <SvgXml xml={EDIT_REQUEST_ICON_XML} width={16} height={16} />
-                </View>
-                <Text style={styles.editRequestText}>Edit Request</Text>
-              </Pressable>
+              {canEdit ? (
+                <Pressable
+                  style={styles.editRequestGroup}
+                  onPress={() => handleEditRequest(service)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit Request"
+                >
+                  <View style={styles.editRequestIconWrapper}>
+                    <SvgXml xml={EDIT_REQUEST_ICON_XML} width={16} height={16} />
+                  </View>
+                  <Text style={styles.editRequestText}>Edit Request</Text>
+                </Pressable>
+              ) : null}
               <View style={styles.locationGroup}>
                 <Image
                   source={require('../../assets/icons/ConfirmLocationIcon.png')}
@@ -789,6 +798,14 @@ export default function BookedServices() {
 
   const handleEditRequest = useCallback((service: ServiceRow) => {
     if (!service) {
+      return;
+    }
+
+    if (!canEditRequest(service)) {
+      showModal({
+        title: 'Unable to edit',
+        message: 'This request can no longer be edited.',
+      });
       return;
     }
 
