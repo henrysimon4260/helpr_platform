@@ -83,13 +83,18 @@ Invoked by customer `select-helpr.tsx` (B) and, for AutoFill, by provider `landi
 
 `amount` is integer cents. `customer_email` is optional if `customer_id` can be resolved.
 
-Customer select-a-pro sends `amount`, `payment_method_id`, `service_id`, and `customer_id`. `use_saved_payment_method` stays omitted or false. On that path the function still confirms the PaymentIntent and, when `service_id` is present, writes `payment_intent_id` onto the `service` row. It does not set `payment_status` or `service.status`.
+Customer select-a-pro sends `amount`, `payment_method_id`, `service_id`, and `customer_id`. `use_saved_payment_method` stays omitted or false. On that path the function still confirms the PaymentIntent and, when `service_id` is present, writes `payment_intent_id` onto the `service` row. It does not set `payment_status` or `service.status`. The write is retried. It only fills `payment_intent_id` when the column is empty or already that id. If a different reusable PaymentIntent is already stored, the extra PaymentIntent is refunded or canceled and the stored id is returned. If the service row is gone after the charge, the PaymentIntent is refunded or canceled and the call returns an error.
 
 **AutoFill (`use_saved_payment_method: true`):** provider `landing.tsx` calls this after inserting the fill request. Omit `amount` and `payment_method_id`. Required: `service_id`, `customer_id`, and the provider's JWT. The function checks the job is still open AutoFill (`finding_pros` or `select_service_provider`, no `service_provider_id`), reads that provider's fill-request `bid`, and charges the same total as select-helpr (bid + 3% processing + 1% platform, in cents). It loads the customer's saved card from `payment_methods` (auth user for `customer.email`, else `customer_id`) and confirms off-session. It returns success only when `status` is `succeeded`. Any other status is canceled and returned as an error. This path does **not** write `payment_intent_id`; the winning claim update is the writer.
 
+**Idempotency:** A retry or double-tap must not create a second charge for the same confirm.
+
+- Customer confirm: Stripe Idempotency-Key `helpr-confirm-{service_id}`. If `service.payment_intent_id` is reusable, or a succeeded PaymentIntent with metadata `service_id` is reusable and its `charge_path` is not `autofill`, that PaymentIntent is returned. Reusable statuses are `succeeded`, `processing`, `requires_capture`, `requires_action`, and `requires_confirmation`, and the charge is not fully refunded. A canceled or fully refunded PaymentIntent is replaced under `helpr-confirm-{service_id}-after-{prior_id}`. A card decline (`requires_payment_method`) stays on the original key for 20 seconds so a double-tap cannot start another charge, then a later retry may use the `-after-` key.
+- AutoFill: key `helpr-autofill-{service_id}-{provider_id}` where `provider_id` is the signed-in provider. The same reuse and replace rules apply to that provider's charge only. A reusable PaymentIntent already stored for a different provider does not get a second charge; the call returns the not-open error. This path still does not write `payment_intent_id`.
+
 **Response:** `{ "clientSecret", "status", "paymentIntentId" }`
 
-Customer `select-helpr.tsx` treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet, then writes `confirmed` and `payment_status: 'paid'`. On that path the function has already stored `payment_intent_id`. Provider AutoFill writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together, and only after `status === 'succeeded'` and a non-empty `paymentIntentId`. AutoFill does not mark the row confirmed or paid when the PaymentIntent id is missing.
+Customer `select-helpr.tsx` ignores an overlapping confirm tap. It treats `status === 'succeeded'` or `processing` as already charged, or uses `clientSecret` for PaymentSheet, then writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together. It does not mark the row paid when the PaymentIntent id is missing. If that booking update fails after a charge, the customer taps confirm again and the function reuses the PaymentIntent. Provider AutoFill writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together, and only after `status === 'succeeded'` and a non-empty `paymentIntentId`. AutoFill does not mark the row confirmed or paid when the PaymentIntent id is missing.
 
 **Error:** `{ "error": "" }`
 
@@ -99,7 +104,7 @@ Invoked by provider `landing.tsx` when an AutoFill charge succeeded but the clai
 
 **Request:** `{ "paymentIntentId": "", "service_id": "" }`
 
-Refunds a succeeded PaymentIntent, or cancels one that is not captured, only when Stripe metadata `service_id` matches and `service.payment_intent_id` is not already that id on a workable status (`confirmed`, `helpr_otw`, `in_progress`, `completed`). If the unconfirmed row still holds this id, it is cleared.
+Refunds a succeeded PaymentIntent, or cancels one that is not captured, only when Stripe metadata `service_id` matches and `service.payment_intent_id` is not already that id on a workable status (`confirmed`, `helpr_otw`, `in_progress`, `completed`). If the unconfirmed row still holds this id, it is cleared. A charge created in the last 20 seconds is not voided when its metadata `provider_id` is the caller and the job is still unassigned (`finding_pros`, `pending`, `scheduled`, or `select_service_provider`). That window keeps a same-provider double-tap from refunding the only charge before the claim update saves it. A lost race against a different provider is still voided.
 
 **Success:** `{ "voided": true }`
 

@@ -5,6 +5,7 @@ import {
   isAlreadyRefunded,
   unclaimedPaymentRelease,
 } from '../_shared/autofillPayment.ts'
+import { shouldDeferSameProviderVoid } from '../_shared/paymentIntentIdempotency.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
 
     const { data: service, error: serviceError } = await supabase
       .from('service')
-      .select('service_id, status, payment_intent_id, payment_status')
+      .select('service_id, status, payment_intent_id, payment_status, service_provider_id')
       .eq('service_id', serviceId)
       .maybeSingle()
 
@@ -87,6 +88,20 @@ Deno.serve(async (req) => {
     }
     if (!paymentIntent.metadata?.service_id) {
       return jsonResponse({ voided: false, error: 'This charge cannot be released automatically.' }, 400)
+    }
+
+    if (shouldDeferSameProviderVoid({
+      metadataProviderId: paymentIntent.metadata?.provider_id ?? null,
+      callerId: userData.user.id,
+      serviceProviderId: service.service_provider_id ?? null,
+      status: service.status,
+      createdUnix: paymentIntent.created,
+      nowUnix: Math.floor(Date.now() / 1000),
+    })) {
+      return jsonResponse({
+        voided: false,
+        error: 'This charge is still being confirmed.',
+      }, 409)
     }
 
     const release = unclaimedPaymentRelease(paymentIntent.status)

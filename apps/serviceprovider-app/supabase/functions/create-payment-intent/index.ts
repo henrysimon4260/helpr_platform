@@ -3,10 +3,23 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import {
   authUserIdsForEmail,
   bookingChargeCents,
+  isAlreadyRefunded,
   parseBidDollars,
   pickSavedPaymentMethodId,
   readStripePaymentIntentId,
+  unclaimedPaymentRelease,
 } from '../_shared/autofillPayment.ts'
+import {
+  PaymentIntentCreateError,
+  autofillStoredIntentAction,
+  chargeReuseDecision,
+  idempotencyKeySegment,
+  isFullyRefunded,
+  pickReusablePaymentIntent,
+  preferredPaymentIntentId,
+  resolveIdempotentPaymentIntent,
+  type PaymentIntentSnapshot,
+} from '../_shared/paymentIntentIdempotency.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -108,6 +121,8 @@ type ResolvedAutoFillCharge = {
   amount: number
   paymentMethodId: string
   email: string
+  providerId: string
+  storedPaymentIntentId: string | null
 }
 
 async function resolveAutoFillCharge(
@@ -132,7 +147,7 @@ async function resolveAutoFillCharge(
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
   const { data: service, error: serviceError } = await supabase
     .from('service')
-    .select('service_id, customer_id, status, service_provider_id, autofill_type')
+    .select('service_id, customer_id, status, service_provider_id, autofill_type, payment_intent_id')
     .eq('service_id', serviceId)
     .maybeSingle()
 
@@ -206,10 +221,160 @@ async function resolveAutoFillCharge(
     return { ok: false, response: jsonResponse({ error: AUTOFILL_NO_PAYMENT_METHOD }, 400) }
   }
 
+  const storedPaymentIntentId = typeof service.payment_intent_id === 'string' && service.payment_intent_id.length > 0
+    ? service.payment_intent_id
+    : null
+
   return {
     ok: true,
-    charge: { amount, paymentMethodId, email },
+    charge: { amount, paymentMethodId, email, providerId, storedPaymentIntentId },
   }
+}
+
+function toSnapshot(paymentIntent: Stripe.PaymentIntent): PaymentIntentSnapshot {
+  return {
+    id: paymentIntent.id,
+    status: paymentIntent.status,
+    created: paymentIntent.created,
+    amount: paymentIntent.amount,
+    amount_refunded: paymentIntent.amount_refunded,
+    amount_received: paymentIntent.amount_received,
+    client_secret: paymentIntent.client_secret,
+    chargePath: paymentIntent.metadata?.charge_path ?? null,
+    metadataProviderId: paymentIntent.metadata?.provider_id ?? null,
+  }
+}
+
+function stripeErrorToCreateError(error: unknown): PaymentIntentCreateError {
+  const record = error as { type?: unknown; raw?: { type?: unknown }; message?: unknown }
+  const type = record?.type ?? record?.raw?.type
+  const message = error instanceof Error
+    ? error.message
+    : typeof record?.message === 'string'
+      ? record.message
+      : 'Failed to create payment intent'
+  return new PaymentIntentCreateError(
+    message,
+    readStripePaymentIntentId(error),
+    type === 'idempotency_error',
+  )
+}
+
+async function releaseUnattachedPaymentIntent(stripe: Stripe, paymentIntentId: string): Promise<boolean> {
+  try {
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
+    if (isFullyRefunded(toSnapshot(paymentIntent))) {
+      return true
+    }
+
+    const release = unclaimedPaymentRelease(paymentIntent.status)
+    if (release === 'none') {
+      return true
+    }
+    if (release === 'refund') {
+      try {
+        await stripe.refunds.create(
+          { payment_intent: paymentIntentId },
+          { idempotencyKey: `helpr-release-${paymentIntentId}` },
+        )
+      } catch (refundError) {
+        if (!isAlreadyRefunded(refundError)) {
+          throw refundError
+        }
+      }
+      return true
+    }
+    if (release === 'cancel') {
+      await stripe.paymentIntents.cancel(paymentIntentId)
+      return true
+    }
+
+    console.error('Cannot release payment intent in status', paymentIntent.id, paymentIntent.status)
+    return false
+  } catch (error) {
+    console.error('Failed to release duplicate payment intent:', error)
+    return false
+  }
+}
+
+type PersistClaim =
+  | { kind: 'saved'; paymentIntentId: string }
+  | { kind: 'use_stored'; paymentIntentId: string }
+  | { kind: 'missing' }
+  | { kind: 'failed' }
+
+async function claimPaymentIntentId(
+  stripe: Stripe,
+  serviceId: string,
+  paymentIntentId: string,
+): Promise<PersistClaim> {
+  if (!supabaseServiceKey) {
+    return { kind: 'failed' }
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const { data, error } = await supabase
+      .from('service')
+      .update({ payment_intent_id: paymentIntentId })
+      .eq('service_id', serviceId)
+      .or(`payment_intent_id.is.null,payment_intent_id.eq.${paymentIntentId}`)
+      .select('service_id, payment_intent_id')
+
+    if (error) {
+      console.error('Failed to persist payment_intent_id on service:', error)
+      continue
+    }
+
+    if (data && data.length > 0) {
+      return { kind: 'saved', paymentIntentId }
+    }
+
+    const { data: row, error: readError } = await supabase
+      .from('service')
+      .select('service_id, payment_intent_id')
+      .eq('service_id', serviceId)
+      .maybeSingle()
+
+    if (readError) {
+      console.error('Failed to reread service after payment intent persist:', readError)
+      continue
+    }
+
+    if (!row) {
+      return { kind: 'missing' }
+    }
+
+    const stored = typeof row.payment_intent_id === 'string' && row.payment_intent_id.length > 0
+      ? row.payment_intent_id
+      : null
+    if (!stored || stored === paymentIntentId) {
+      continue
+    }
+
+    try {
+      const storedIntent = await stripe.paymentIntents.retrieve(stored)
+      if (chargeReuseDecision(toSnapshot(storedIntent)) === 'reuse') {
+        return { kind: 'use_stored', paymentIntentId: stored }
+      }
+    } catch (retrieveError) {
+      console.error('Failed to retrieve stored payment intent:', retrieveError)
+    }
+
+    const { error: overwriteError } = await supabase
+      .from('service')
+      .update({ payment_intent_id: paymentIntentId })
+      .eq('service_id', serviceId)
+      .eq('payment_intent_id', stored)
+
+    if (!overwriteError) {
+      return { kind: 'saved', paymentIntentId }
+    }
+    console.error('Failed to replace unusable payment_intent_id:', overwriteError)
+  }
+
+  return { kind: 'failed' }
 }
 
 Deno.serve(async (req) => {
@@ -238,6 +403,8 @@ Deno.serve(async (req) => {
     const customerId = body.customer_id
     let customerEmail = body.customer_email
     useSavedPaymentMethod = body.use_saved_payment_method === true
+    let autofillProviderId: string | null = null
+    let storedPaymentIntentId: string | null = null
 
     if (useSavedPaymentMethod) {
       const resolved = await resolveAutoFillCharge(req, serviceId, customerId)
@@ -247,6 +414,8 @@ Deno.serve(async (req) => {
       amount = resolved.charge.amount
       paymentMethodId = resolved.charge.paymentMethodId
       customerEmail = resolved.charge.email
+      autofillProviderId = resolved.charge.providerId
+      storedPaymentIntentId = resolved.charge.storedPaymentIntentId
     }
 
     if (!amount || !paymentMethodId) {
@@ -286,32 +455,138 @@ Deno.serve(async (req) => {
     // Attach the payment method to the customer (idempotent)
     await attachPaymentMethodToCustomer(stripe, paymentMethodId, stripeCustomerId)
 
-    // Confirm server-side so the PM stays attached to the customer context.
-    // AutoFill charges off-session: the customer is not present to complete 3DS.
-    // If 3DS is required on a customer-present charge, status is requires_action.
+    const roundedAmount = Math.round(amount)
+    const normalizedCurrency = typeof currency === 'string' && currency ? currency : 'usd'
+    const idempotentServiceId = typeof serviceId === 'string' ? idempotencyKeySegment(serviceId) : null
+
+    if (serviceId && !idempotentServiceId) {
+      return jsonResponse({ error: 'service_id is not valid for an idempotent charge' }, 400)
+    }
+
+    if (!useSavedPaymentMethod && idempotentServiceId && supabaseServiceKey && !storedPaymentIntentId) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey)
+      const { data: serviceRow, error: serviceError } = await supabase
+        .from('service')
+        .select('payment_intent_id')
+        .eq('service_id', idempotentServiceId)
+        .maybeSingle()
+      if (serviceError) {
+        console.error('Failed to read service payment_intent_id before charge:', serviceError)
+      } else if (typeof serviceRow?.payment_intent_id === 'string' && serviceRow.payment_intent_id.length > 0) {
+        storedPaymentIntentId = serviceRow.payment_intent_id
+      }
+    }
+
+    if (useSavedPaymentMethod && storedPaymentIntentId) {
+      try {
+        const storedIntent = await stripe.paymentIntents.retrieve(storedPaymentIntentId)
+        const action = autofillStoredIntentAction({
+          providerId: autofillProviderId ?? '',
+          metadataProviderId: storedIntent.metadata?.provider_id ?? null,
+          decision: chargeReuseDecision(toSnapshot(storedIntent)),
+        })
+        if (action === 'conflict') {
+          return jsonResponse({ error: AUTOFILL_NOT_OPEN }, 400)
+        }
+        if (action === 'ignore') {
+          storedPaymentIntentId = null
+        }
+      } catch (retrieveError) {
+        console.error('Failed to read stored AutoFill payment intent:', retrieveError)
+        storedPaymentIntentId = null
+      }
+    }
+
+    const chargeParams = {
+      amount: roundedAmount,
+      currency: normalizedCurrency,
+      customer: stripeCustomerId,
+      payment_method: paymentMethodId,
+      confirm: true,
+      ...(useSavedPaymentMethod ? { off_session: true } : {}),
+      return_url: 'helpr://payment-complete',
+      metadata: {
+        ...(idempotentServiceId && { service_id: idempotentServiceId }),
+        ...(customerId && { customer_id: customerId }),
+        charge_path: useSavedPaymentMethod ? 'autofill' : 'confirm',
+        ...(useSavedPaymentMethod && autofillProviderId ? { provider_id: autofillProviderId } : {}),
+      },
+    }
+
     let paymentIntent: Stripe.PaymentIntent
     try {
-      paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount),
-        currency: currency || 'usd',
-        customer: stripeCustomerId,
-        payment_method: paymentMethodId,
-        confirm: true,
-        ...(useSavedPaymentMethod ? { off_session: true } : {}),
-        return_url: 'helpr://payment-complete',
-        metadata: {
-          ...(serviceId && { service_id: serviceId }),
-          ...(customerId && { customer_id: customerId }),
-          ...(useSavedPaymentMethod ? { charge_path: 'autofill' } : {}),
-        },
-      })
+      if (idempotentServiceId) {
+        const snapshot = await resolveIdempotentPaymentIntent({
+          serviceId: idempotentServiceId,
+          providerId: autofillProviderId,
+          storedPaymentIntentId,
+          useSavedPaymentMethod,
+          nowUnix: Math.floor(Date.now() / 1000),
+          resolver: {
+            async retrieve(id) {
+              try {
+                return toSnapshot(await stripe.paymentIntents.retrieve(id))
+              } catch (retrieveError) {
+                console.error('Failed to retrieve payment intent:', retrieveError)
+                return null
+              }
+            },
+            async searchReusable() {
+              let query = `metadata['service_id']:'${idempotentServiceId}' AND status:'succeeded'`
+              if (useSavedPaymentMethod) {
+                const providerSegment = idempotencyKeySegment(autofillProviderId)
+                if (!providerSegment) return null
+                query += ` AND metadata['provider_id']:'${providerSegment}'`
+              }
+              try {
+                const result = await stripe.paymentIntents.search({ query, limit: 10 })
+                const snapshots = result.data
+                  .map(toSnapshot)
+                  .filter((snapshot) => {
+                    if (useSavedPaymentMethod) {
+                      return snapshot.metadataProviderId === autofillProviderId
+                    }
+                    return snapshot.chargePath !== 'autofill'
+                  })
+                return pickReusablePaymentIntent(snapshots, roundedAmount)
+              } catch (searchError) {
+                console.error('PaymentIntent search failed:', searchError)
+                return null
+              }
+            },
+            async create(idempotencyKey) {
+              try {
+                const created = await stripe.paymentIntents.create(chargeParams, { idempotencyKey })
+                return toSnapshot(created)
+              } catch (createError) {
+                throw stripeErrorToCreateError(createError)
+              }
+            },
+          },
+        })
+        paymentIntent = await stripe.paymentIntents.retrieve(snapshot.id)
+      } else {
+        // No service id: nothing stable to key. Callers that confirm a job always send one.
+        paymentIntent = await stripe.paymentIntents.create(chargeParams)
+      }
     } catch (chargeError) {
       console.error('Error creating payment intent:', chargeError)
+      const orphanId = chargeError instanceof PaymentIntentCreateError
+        ? chargeError.paymentIntentId
+        : readStripePaymentIntentId(chargeError)
       if (useSavedPaymentMethod) {
-        const orphanId = readStripePaymentIntentId(chargeError)
         if (orphanId) {
           try {
-            await stripe.paymentIntents.cancel(orphanId)
+            const orphan = await stripe.paymentIntents.retrieve(orphanId)
+            // Leave a fresh card decline in place so a concurrent retry reuses it.
+            // 3DS and other incomplete off-session attempts cannot be finished by the provider.
+            if (
+              orphan.status === 'requires_action'
+              || orphan.status === 'requires_confirmation'
+              || orphan.status === 'requires_capture'
+            ) {
+              await stripe.paymentIntents.cancel(orphanId)
+            }
           } catch (cancelError) {
             console.error('Failed to cancel incomplete AutoFill payment intent:', cancelError)
           }
@@ -328,7 +603,9 @@ Deno.serve(async (req) => {
     if (useSavedPaymentMethod && paymentIntent.status !== 'succeeded') {
       console.error('AutoFill payment intent did not succeed:', paymentIntent.id, paymentIntent.status)
       try {
-        await stripe.paymentIntents.cancel(paymentIntent.id)
+        if (paymentIntent.status !== 'processing') {
+          await stripe.paymentIntents.cancel(paymentIntent.id)
+        }
       } catch (cancelError) {
         console.error('Failed to cancel incomplete AutoFill payment intent:', cancelError)
       }
@@ -338,17 +615,37 @@ Deno.serve(async (req) => {
     // Normal select-helpr charges persist the id immediately.
     // AutoFill defers that write until the claim update wins, so a losing
     // claim cannot overwrite the winner's payment_intent_id.
-    if (!useSavedPaymentMethod && serviceId && supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey)
-      const { error: persistError } = await supabase
-        .from('service')
-        .update({ payment_intent_id: paymentIntent.id })
-        .eq('service_id', serviceId)
-
-      if (persistError) {
-        console.error('Failed to persist payment_intent_id on service:', persistError)
+    if (!useSavedPaymentMethod && idempotentServiceId) {
+      const claim = await claimPaymentIntentId(stripe, idempotentServiceId, paymentIntent.id)
+      if (claim.kind === 'use_stored') {
+        const choice = preferredPaymentIntentId({
+          createdId: paymentIntent.id,
+          storedId: claim.paymentIntentId,
+          storedReusable: true,
+        })
+        if (choice.releaseId) {
+          const released = await releaseUnattachedPaymentIntent(stripe, choice.releaseId)
+          if (!released) {
+            console.error('Duplicate payment intent could not be released:', choice.releaseId)
+            return jsonResponse({
+              error: 'A duplicate charge could not be released. Try again before confirming.',
+              paymentIntentId: choice.returnId,
+            }, 500)
+          }
+        }
+        paymentIntent = await stripe.paymentIntents.retrieve(choice.returnId)
+      } else if (claim.kind === 'missing') {
+        const released = await releaseUnattachedPaymentIntent(stripe, paymentIntent.id)
+        console.error('Charged a missing service; release', released ? 'succeeded' : 'failed', paymentIntent.id)
+        return jsonResponse({
+          error: released
+            ? 'This job no longer exists, so the charge was reversed.'
+            : 'This job no longer exists, and the charge could not be reversed. Contact support before trying again.',
+        }, 400)
+      } else if (claim.kind === 'failed') {
+        console.error('Charge succeeded but payment_intent_id was not saved for', idempotentServiceId, paymentIntent.id)
       } else {
-        console.log('Persisted payment_intent_id on service', serviceId)
+        console.log('Persisted payment_intent_id on service', idempotentServiceId)
       }
     } else if (!useSavedPaymentMethod && serviceId && !supabaseServiceKey) {
       console.error('Cannot persist payment_intent_id: SUPABASE_SERVICE_ROLE_KEY is not set')
