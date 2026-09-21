@@ -130,6 +130,24 @@ Deno.serve(async (req) => {
 
     console.log('Payment intent created:', paymentIntent.id, 'status:', paymentIntent.status)
 
+    // Persist at charge time so complete-service can capture/transfer.
+    // payment_status stays unset until select-helpr confirms the booking.
+    if (service_id && supabaseServiceKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey)
+      const { error: persistError } = await supabase
+        .from('service')
+        .update({ payment_intent_id: paymentIntent.id })
+        .eq('service_id', service_id)
+
+      if (persistError) {
+        console.error('Failed to persist payment_intent_id on service:', persistError)
+      } else {
+        console.log('Persisted payment_intent_id on service', service_id)
+      }
+    } else if (service_id && !supabaseServiceKey) {
+      console.error('Cannot persist payment_intent_id: SUPABASE_SERVICE_ROLE_KEY is not set')
+    }
+
     return new Response(
       JSON.stringify({
         clientSecret: paymentIntent.client_secret,

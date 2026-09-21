@@ -84,7 +84,9 @@ Invoked by customer `select-helpr.tsx` (B). Source: `apps/serviceprovider-app/su
 
 **Response:** `{ "clientSecret", "status", "paymentIntentId" }`
 
-B treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet, then writes `confirmed` and `payment_status: 'paid'`.
+**Charge persistence:** `service.payment_intent_id` is the Stripe PaymentIntent id (`pi_...`) that `complete-service` reads. It is not a new column. When `service_id` is present, `create-payment-intent` writes that id onto the `service` row before returning. It does not set `payment_status` or `service.status`. If that write fails, the function still returns `paymentIntentId` so the client can store the same value.
+
+Customer `select-helpr.tsx` treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet. On success it writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together. It does not mark the row paid when the PaymentIntent id is missing.
 
 **Error:** `{ "error": "" }`
 

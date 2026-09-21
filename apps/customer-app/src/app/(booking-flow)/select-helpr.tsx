@@ -9,6 +9,7 @@ import type { ProviderSummary } from '../../components/services/PaymentSummaryMo
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
+import { readPaymentIntentId } from '../../lib/readPaymentIntentId';
 import { supabase } from '../../lib/supabase';
 
 type ServiceFillRequestRow = {
@@ -491,6 +492,8 @@ const SelectHelpr = () => {
       const paymentStatus = paymentIntentData?.status 
         || paymentIntentData?.data?.status;
 
+      let confirmedPaymentIntentId: string | undefined;
+
       // Check if payment was already completed server-side (off_session)
       if (paymentStatus === 'succeeded') {
         console.log('Payment already succeeded server-side');
@@ -498,7 +501,7 @@ const SelectHelpr = () => {
       } else if (clientSecret) {
         // Need to confirm payment client-side
         console.log('Confirming payment with client secret');
-        const { error: confirmError } = await confirmPayment(clientSecret, {
+        const { error: confirmError, paymentIntent } = await confirmPayment(clientSecret, {
           paymentMethodType: 'Card',
           paymentMethodData: {
             paymentMethodId: paymentMethod.stripePaymentMethodId,
@@ -513,6 +516,8 @@ const SelectHelpr = () => {
           });
           return;
         }
+
+        confirmedPaymentIntentId = paymentIntent?.id;
       } else if (paymentIntentData?.error) {
         // Edge function returned an error
         console.error('Edge function error:', paymentIntentData.error);
@@ -527,6 +532,17 @@ const SelectHelpr = () => {
         showModal({
           title: 'Payment Failed',
           message: 'Unexpected response from payment server.',
+        });
+        return;
+      }
+
+      const paymentIntentId = readPaymentIntentId(paymentIntentData, confirmedPaymentIntentId);
+
+      if (!paymentIntentId) {
+        console.error('Payment succeeded but payment intent id was missing:', paymentIntentData);
+        showModal({
+          title: 'Payment Failed',
+          message: 'Payment could not be linked to this booking. Please contact support before trying again.',
         });
         return;
       }
@@ -549,11 +565,13 @@ const SelectHelpr = () => {
         price: number;
         scheduled_date_time?: string;
         payment_status: string;
+        payment_intent_id: string;
       } = {
         service_provider_id: selectedRequest.service_provider_id,
         status: 'confirmed',
         price: selectedRequest.bid,
         payment_status: 'paid',
+        payment_intent_id: paymentIntentId,
       };
 
       if (fillRequestData?.proposed_date_time) {
