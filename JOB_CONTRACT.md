@@ -126,6 +126,16 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 
 `platformFeePercent` and `skipCustomerCharge` are accepted by the client today; the deployed body requires an existing paid `payment_intent_id` and uses its own fee math (1% platform + 2.9% + $0.30).
 
+**Idempotency:** A retry must not create a second Stripe transfer for the same service.
+
+- Before `transfers.create`, load `platform_transactions` for `service_id`. If no `stripe_transfer_id` is stored, list Stripe transfers in group `service_{serviceId}`. A stored id or any existing transfer (including a reversed one) is reused. The service is marked `completed`. Provider `balance` is not credited again.
+- Otherwise insert a claim row (`status: payout_pending`, no transfer id) and create the transfer with Idempotency-Key `helpr-transfer-{serviceId}`. The claim is written before the transfer. A failed claim aborts before Stripe is called.
+- Save `stripe_transfer_id` with `status: transfer_recorded` immediately after Stripe returns. That write is returned as an error if it fails. A retry then finds the transfer and does not create another.
+- Credit `service_provider.balance` once, and only when that row moves from `transfer_recorded` to `completed`. A finished `completed` row is never moved back to `transfer_recorded`.
+- `platform_transactions.service_id` is unique (one payout ledger row per service). Overlapping calls share the Stripe idempotency key, so they still settle as one transfer when the unique index is not in place yet.
+
+Ledger `status` values written here: `payout_pending`, `transfer_recorded`, `completed`. These are not `service.status`.
+
 **Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, ... }`
 
 **Error:** `{ "success": false, "error": "" }` (HTTP 200 so the client can read it) or a functions invoke error. C must not invent a different completion path without updating this contract.
