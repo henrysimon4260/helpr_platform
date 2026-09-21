@@ -141,12 +141,11 @@ export const homeImprovementServiceConfig: SingleLocationServiceConfig = {
   pricingSystemPrompt: "You are a pricing assistant for home improvement services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) type of home improvement work (repair/installation/renovation), 2) specific areas or rooms requiring work, 3) scope and complexity of the project. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on scope and complexity of the project - Studio: $20-40 (repair) / $40-80 (renovation), 1-bed: $30-50 (repair) / $60-100 (renovation), 2-bed: $45-70 (repair) / $90-130 (renovation), 3-bed: $60-90 (repair) / $120-170 (renovation), 4+ bed or house: $80-130 (repair) / $150-250 (renovation). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.",
 };
 
-// Wall mounting still writes service_type "cleaning" (HLP-12). This collapse keeps that payload.
 export const wallMountingServiceConfig: SingleLocationServiceConfig = {
   returnPath: '/(services)/wall-mounting',
-  resumeAction: 'schedule-cleaning',
-  serviceType: 'cleaning',
-  servicePhrase: 'cleaning',
+  resumeAction: 'schedule-wall-mounting',
+  serviceType: 'wall-mounting',
+  servicePhrase: 'wall mounting',
   screenTitle: 'Wall Mounting Details',
   locationPlaceholder: 'Service Location',
   descriptionPlaceholder: "Describe your task...                                         (e.g.  'I need my one bedroom apartment deep cleaned.')",
