@@ -25,6 +25,17 @@ There is no `cancelled` status yet. Do not add one in a screen. Agent B specifie
 
 `finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
 
+### Customer edit
+
+Edit Request may reopen a composer only while the job is still open and unassigned:
+
+- `status` is `finding_pros`, `pending`, `scheduled`, or `select_service_provider`, and
+- `service_provider_id` is null.
+
+`confirmed` assigns `service_provider_id`. From that point on (`confirmed`, `helpr_otw`, `in_progress`, `completed`) the customer app hides Edit Request and refuses the navigation if it is invoked anyway. Any other status is not editable, including a customer-cancelled job. Do not change `status` from the edit screen.
+
+A provider unassign that sets `finding_pros` and clears `service_provider_id` makes Edit Request available again. Bids on `select_service_provider` are not an assignment; the job stays editable until a provider is selected.
+
 ## `service_fill_request`
 
 A bid / interest row. One provider per service until deleted.
