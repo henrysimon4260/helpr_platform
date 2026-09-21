@@ -141,9 +141,18 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 }
 ```
 
-`platformFeePercent` and `skipCustomerCharge` are accepted by the client today; the deployed body requires an existing paid `payment_intent_id` and uses its own fee math (1% platform + 2.9% + $0.30).
+`platformFeePercent` and `skipCustomerCharge` are accepted by the client today; the deployed body requires an existing paid `payment_intent_id` and uses its own fee math (1% platform + 2.9% + $0.30). This authorization check does not change that fee math.
 
-**Idempotency:** A retry must not create a second Stripe transfer for the same service.
+**Auth:** `Authorization: Bearer <user access token>`. Provider `ServiceDetails.tsx` calls `supabase.functions.invoke('complete-service', ...)`, which sends the signed-in provider's JWT. The handler calls `auth.getUser(jwt)` and does not trust `user_metadata`. Missing or invalid token → **401**. Missing server configuration → **500**. No capture or transfer runs. `verify_jwt` stays true. An anon or publishable JWT is not a provider session; `getUser()` rejects it.
+
+The caller must be the assigned provider on that service:
+
+- `auth.users.id` equals `service.service_provider_id` (the provider app stores the auth user id as `service_provider.service_provider_id`), or
+- this auth user has no `service_provider` row of their own, and the assigned row's `email` matches the auth user's email from `getUser()` (legacy account mapping).
+
+Otherwise **403**. A client body cannot name a different provider. A 401, 403, or 500 from this check does not capture the PaymentIntent, create a transfer, or write `service.status`.
+
+**Idempotency:** A retry must not create a second Stripe transfer for the same service. The assigned provider is the only caller who reaches this path.
 
 - Before `transfers.create`, load `platform_transactions` for `service_id`. If no `stripe_transfer_id` is stored, list Stripe transfers in group `service_{serviceId}`. A stored id or any existing transfer (including a reversed one) is reused. The service is marked `completed`. Provider `balance` is not credited again.
 - Otherwise insert a claim row (`status: payout_pending`, no transfer id) and create the transfer with Idempotency-Key `helpr-transfer-{serviceId}`. The claim is written before the transfer. A failed claim aborts before Stripe is called.
@@ -155,7 +164,7 @@ Ledger `status` values written here: `payout_pending`, `transfer_recorded`, `com
 
 **Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, ... }`
 
-**Error:** `{ "success": false, "error": "" }` (HTTP 200 so the client can read it) or a functions invoke error. C must not invent a different completion path without updating this contract.
+**Error:** `{ "success": false, "error": "" }` with HTTP 401 (not signed in), 403 (caller is not the assigned provider), or 500 (server cannot verify the caller). Other payout failures stay HTTP 200 so the client can read `error`. C must not invent a different completion path without updating this contract. A 401 or 403 is an invoke error; C does not write `completed` on that path.
 
 ### `create-connect-account`
 

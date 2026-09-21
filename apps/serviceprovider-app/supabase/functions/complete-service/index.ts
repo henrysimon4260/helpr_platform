@@ -1,6 +1,13 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@12.0.0?target=deno';
+import { parseBearerToken } from '../_shared/chargeAuthorization.ts';
+import {
+  COMPLETE_NOT_CONFIGURED,
+  COMPLETE_SIGN_IN,
+  authorizeAssignedProvider,
+  type ProviderAccountRef,
+} from '../_shared/completeServiceAuthorization.ts';
 import {
   PAYOUT_LEDGER_COMPLETED,
   PAYOUT_LEDGER_PENDING,
@@ -18,20 +25,49 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const PROVIDER_PAYOUT_COLUMNS = 'service_provider_id, email, stripe_account_id, first_name, last_name, balance';
+
+type ProviderPayoutRow = ProviderAccountRef & {
+  stripe_account_id?: string | null;
+  balance?: number | null;
+};
+
+function completionResponse(body: Record<string, unknown>, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
-  try {
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    );
+  let callerVerified = false;
 
-    const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
-      apiVersion: '2023-10-16',
-    });
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error('Cannot authorize complete-service: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set');
+      return completionResponse({ success: false, error: COMPLETE_NOT_CONFIGURED }, 500);
+    }
+
+    const jwt = parseBearerToken(req.headers.get('Authorization'));
+    if (!jwt) {
+      return completionResponse({ success: false, error: COMPLETE_SIGN_IN }, 401);
+    }
+
+    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
+    const { data: userData, error: userError } = await supabaseClient.auth.getUser(jwt);
+    if (userError || !userData.user?.id) {
+      console.error('complete-service rejected: caller is not signed in', userError);
+      return completionResponse({ success: false, error: COMPLETE_SIGN_IN }, 401);
+    }
+    callerVerified = true;
+    const authUserId = userData.user.id;
+    const authEmail = typeof userData.user.email === 'string' ? userData.user.email : null;
 
     const { serviceId, platformFeePercent, skipCustomerCharge } = await req.json();
 
@@ -51,6 +87,31 @@ serve(async (req) => {
       throw new Error('Service not found');
     }
 
+    const assignedProviderId = typeof service.service_provider_id === 'string'
+      ? service.service_provider_id
+      : null;
+    const providerAccess = await loadAssignedProviderAccess(supabaseClient, {
+      authUserId,
+      assignedProviderId,
+    });
+    const decision = authorizeAssignedProvider({
+      authUserId,
+      authEmail,
+      assignedProviderId,
+      accountForAuthId: providerAccess.accountForAuthId,
+      assignedAccount: providerAccess.assignedAccount,
+      accountLookupFailed: providerAccess.accountLookupFailed,
+      assignedLookupFailed: providerAccess.assignedLookupFailed,
+    });
+    if (!decision.ok) {
+      console.error('complete-service rejected before payout', {
+        serviceId,
+        authUserId,
+        status: decision.status,
+      });
+      return completionResponse({ success: false, error: decision.error }, decision.status);
+    }
+
     if (!service.customer_id || !service.service_provider_id || !service.price) {
       throw new Error('Service is missing required fields (customer_id, service_provider_id, or price)');
     }
@@ -60,15 +121,22 @@ serve(async (req) => {
       throw new Error('Payment must be authorized through customer app first. No payment intent found.');
     }
 
-    const { data: provider, error: providerError } = await supabaseClient
-      .from('service_provider')
-      .select('stripe_account_id, first_name, last_name, balance')
-      .eq('service_provider_id', service.service_provider_id)
-      .single();
-
-    if (providerError || !provider) {
-      throw new Error('Provider not found');
+    let provider: ProviderPayoutRow | null = providerAccess.assignedAccount;
+    if (!provider) {
+      const { data, error: providerError } = await supabaseClient
+        .from('service_provider')
+        .select(PROVIDER_PAYOUT_COLUMNS)
+        .eq('service_provider_id', service.service_provider_id)
+        .single();
+      if (providerError || !data) {
+        throw new Error('Provider not found');
+      }
+      provider = data as ProviderPayoutRow;
     }
+
+    const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
+      apiVersion: '2023-10-16',
+    });
 
     const baseServiceAmount = Math.round(service.price * 100);
     const servicePriceForCalc = service.price;
@@ -196,29 +264,27 @@ serve(async (req) => {
 
     const ledger = await readPayoutLedger(supabaseClient, serviceId);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        already_processed: !payout.created,
-        charge_id: chargeId ?? ledger?.stripe_charge_id ?? null,
-        transfer_id: payout.transferId,
-        payment_intent_id: service.payment_intent_id,
-        total_amount_charged: totalAmountPaid / 100,
-        service_price: service.price,
-        platform_fee: platformFeeInCents / 100,
-        processing_fee: processingFeeInCents / 100,
-        provider_amount: providerAmountDollars,
-        new_balance: freshProvider?.balance ?? provider.balance ?? 0,
-        message: payout.created
-          ? 'Service completed - payment captured to platform, then transferred to provider'
-          : 'Payment already processed',
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      },
-    );
+    return completionResponse({
+      success: true,
+      already_processed: !payout.created,
+      charge_id: chargeId ?? ledger?.stripe_charge_id ?? null,
+      transfer_id: payout.transferId,
+      payment_intent_id: service.payment_intent_id,
+      total_amount_charged: totalAmountPaid / 100,
+      service_price: service.price,
+      platform_fee: platformFeeInCents / 100,
+      processing_fee: processingFeeInCents / 100,
+      provider_amount: providerAmountDollars,
+      new_balance: freshProvider?.balance ?? provider.balance ?? 0,
+      message: payout.created
+        ? 'Service completed - payment captured to platform, then transferred to provider'
+        : 'Payment already processed',
+    }, 200);
   } catch (error) {
+    if (!callerVerified) {
+      console.error('complete-service rejected before the caller was verified', error);
+      return completionResponse({ success: false, error: COMPLETE_SIGN_IN }, 401);
+    }
     console.error('Service completion error:', error);
 
     let userMessage = 'Unknown error occurred';
@@ -228,18 +294,59 @@ serve(async (req) => {
       userMessage = error;
     }
 
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: userMessage,
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      },
-    );
+    return completionResponse({
+      success: false,
+      error: userMessage,
+    }, 200);
   }
 });
+
+async function loadAssignedProviderAccess(supabaseClient, input: {
+  authUserId: string;
+  assignedProviderId: string | null;
+}): Promise<{
+  accountForAuthId: ProviderAccountRef | null;
+  assignedAccount: ProviderPayoutRow | null;
+  accountLookupFailed: boolean;
+  assignedLookupFailed: boolean;
+}> {
+  if (!input.assignedProviderId || input.authUserId === input.assignedProviderId) {
+    return {
+      accountForAuthId: null,
+      assignedAccount: null,
+      accountLookupFailed: false,
+      assignedLookupFailed: false,
+    };
+  }
+
+  const own = await supabaseClient
+    .from('service_provider')
+    .select('service_provider_id, email')
+    .eq('service_provider_id', input.authUserId)
+    .maybeSingle();
+
+  if (own.error || own.data?.service_provider_id) {
+    return {
+      accountForAuthId: own.data ?? null,
+      assignedAccount: null,
+      accountLookupFailed: Boolean(own.error),
+      assignedLookupFailed: false,
+    };
+  }
+
+  const assigned = await supabaseClient
+    .from('service_provider')
+    .select(PROVIDER_PAYOUT_COLUMNS)
+    .eq('service_provider_id', input.assignedProviderId)
+    .maybeSingle();
+
+  return {
+    accountForAuthId: null,
+    assignedAccount: (assigned.data ?? null) as ProviderPayoutRow | null,
+    accountLookupFailed: false,
+    assignedLookupFailed: Boolean(assigned.error),
+  };
+}
 
 async function readPayoutLedger(supabaseClient, serviceId: string): Promise<PayoutLedger | null> {
   const { data, error } = await supabaseClient
