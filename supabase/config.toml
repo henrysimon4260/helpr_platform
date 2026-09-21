@@ -1,0 +1,6 @@
+# Shared platform schema. Edge function source stays in
+# apps/serviceprovider-app/supabase/functions (payments lane).
+project_id = "helpr"
+
+[db]
+major_version = 15
