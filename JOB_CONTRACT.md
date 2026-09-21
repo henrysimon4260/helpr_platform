@@ -38,7 +38,7 @@ A bid / interest row. One provider per service until deleted.
 
 **Insert:** Provider (C) when requesting a job. AutoFill jobs still insert a row, then immediately assign or roll back.
 
-**Accept:** Customer (B) selects a provider, or C AutoFill wins the claim. On accept: set `service` to `confirmed`, copy `bid` / `proposed_date_time`, then delete **all** fill requests for that `service_id`.
+**Accept:** Customer (B) selects a provider, or C AutoFill wins the claim. On accept: set `service` to `confirmed`, copy `bid` / `proposed_date_time`, then delete **all** fill requests for that `service_id`. AutoFill must leave `scheduling_type` as the customer set it: `asap` stays `asap`, and `scheduled` is written only when the job was already `scheduled`. Copying `proposed_date_time` into `scheduled_date_time` does not change `scheduling_type`. When the claim update already includes `payment_intent_id` and `payment_status` from a charge, those fields stay on the same write.
 
 **Delete:**
 

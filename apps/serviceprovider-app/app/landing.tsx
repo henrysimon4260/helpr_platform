@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { applyPreservedSchedulingType } from '../src/lib/autofillScheduling';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
@@ -689,15 +690,19 @@ export default function Landing() {
 
       if (isAutoFill) {
         try {
+          const claimUpdate = applyPreservedSchedulingType(
+            {
+              service_provider_id: providerId,
+              status: 'confirmed' as const,
+              price: numericBid,
+              scheduled_date_time: proposedDateTime ?? service.scheduled_date_time ?? null,
+            },
+            service.scheduling_type,
+          );
+
           const { data: assignmentRows, error: assignError } = await supabase
             .from('service')
-            .update({
-              service_provider_id: providerId,
-              status: 'confirmed',
-              price: numericBid,
-              scheduling_type: 'scheduled',
-              scheduled_date_time: proposedDateTime ?? service.scheduled_date_time ?? null,
-            })
+            .update(claimUpdate)
             .eq('service_id', service.service_id)
             .in('status', ['finding_pros', 'select_service_provider'])
             .is('service_provider_id', null)
@@ -729,10 +734,7 @@ export default function Landing() {
               existing.service_id === service.service_id
                 ? {
                     ...existing,
-                    status: 'confirmed',
-                    service_provider_id: providerId,
-                    price: numericBid,
-                    scheduling_type: 'scheduled',
+                    ...claimUpdate,
                     scheduled_date_time: proposedDateTime ?? existing.scheduled_date_time ?? null,
                   }
                 : existing,
@@ -741,10 +743,7 @@ export default function Landing() {
             setSelectedService(prev => (prev && prev.service_id === service.service_id
               ? {
                   ...prev,
-                  status: 'confirmed',
-                  service_provider_id: providerId,
-                  price: numericBid,
-                  scheduling_type: 'scheduled',
+                  ...claimUpdate,
                   scheduled_date_time: proposedDateTime ?? prev.scheduled_date_time ?? null,
                 }
               : prev));
