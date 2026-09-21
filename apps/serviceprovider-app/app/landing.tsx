@@ -739,6 +739,7 @@ export default function Landing() {
               price: numericBid,
               paymentIntentId: charge.paymentIntentId,
               scheduledDateTime: proposedDateTime ?? service.scheduled_date_time ?? null,
+              schedulingType: service.scheduling_type,
             });
 
             if (!updateData) {
@@ -790,13 +791,7 @@ export default function Landing() {
                 existing.service_id === service.service_id
                   ? {
                       ...existing,
-                      status: 'confirmed',
-                      service_provider_id: providerId,
-                      price: numericBid,
-                      scheduling_type: 'scheduled',
-                      scheduled_date_time: updateData.scheduled_date_time,
-                      payment_status: 'paid',
-                      payment_intent_id: updateData.payment_intent_id,
+                      ...updateData,
                     }
                   : existing,
               ));
@@ -804,13 +799,7 @@ export default function Landing() {
               setSelectedService(prev => (prev && prev.service_id === service.service_id
                 ? {
                     ...prev,
-                    status: 'confirmed',
-                    service_provider_id: providerId,
-                    price: numericBid,
-                    scheduling_type: 'scheduled',
-                    scheduled_date_time: updateData.scheduled_date_time,
-                    payment_status: 'paid',
-                    payment_intent_id: updateData.payment_intent_id,
+                    ...updateData,
                   }
                 : prev));
 

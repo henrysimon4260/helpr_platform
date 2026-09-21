@@ -13,10 +13,10 @@ export type AutoFillConfirmUpdate = {
   service_provider_id: string;
   status: 'confirmed';
   price: number;
-  scheduling_type: 'scheduled';
   scheduled_date_time: string | null;
   payment_status: 'paid';
   payment_intent_id: string;
+  scheduling_type?: string;
 };
 
 const WORKABLE_STATUSES = new Set(['confirmed', 'helpr_otw', 'in_progress', 'completed']);
@@ -100,14 +100,31 @@ export function readPaymentStatus(paymentIntentData: PaymentIntentResponse): str
 }
 
 /**
+ * Customer's scheduling_type, unchanged. Blank values are omitted so a claim
+ * does not invent `scheduled` for an ASAP (or untyped) job.
+ */
+export function preservedSchedulingType(
+  existing: string | null | undefined,
+): string | undefined {
+  if (typeof existing !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = existing.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
  * Confirm payload for an AutoFill claim. Null unless a real PaymentIntent id exists,
  * so the caller cannot mark the job confirmed unpaid.
+ * `asap` stays `asap`. `scheduled` is written only when the job was already scheduled.
  */
 export function buildAutoFillConfirmUpdate(input: {
   providerId: string;
   price: number;
   paymentIntentId: string | null | undefined;
   scheduledDateTime: string | null;
+  schedulingType?: string | null;
 }): AutoFillConfirmUpdate | null {
   if (typeof input.paymentIntentId !== 'string' || input.paymentIntentId.length === 0) {
     return null;
@@ -117,14 +134,16 @@ export function buildAutoFillConfirmUpdate(input: {
     return null;
   }
 
+  const schedulingType = preservedSchedulingType(input.schedulingType);
+
   return {
     service_provider_id: input.providerId,
     status: 'confirmed',
     price: input.price,
-    scheduling_type: 'scheduled',
     scheduled_date_time: input.scheduledDateTime,
     payment_status: 'paid',
     payment_intent_id: input.paymentIntentId,
+    ...(schedulingType ? { scheduling_type: schedulingType } : {}),
   };
 }
 

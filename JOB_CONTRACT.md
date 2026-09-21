@@ -38,7 +38,7 @@ A bid / interest row. One provider per service until deleted.
 
 **Insert:** Provider (C) when requesting a job. AutoFill jobs still insert a row, then immediately assign or roll back.
 
-**Accept:** Customer (B) selects a provider, or C AutoFill wins the claim. On accept: set `service` to `confirmed`, copy `bid` / `proposed_date_time`, then delete **all** fill requests for that `service_id`. AutoFill charges first via `create-payment-intent` (`use_saved_payment_method: true`). The winning claim update also writes `payment_status: 'paid'` and `payment_intent_id`. If the charge fails, or the claim loses the race, the job is not confirmed and that provider’s fill request is removed. A lost race refunds or cancels the PaymentIntent through `void-unclaimed-payment`.
+**Accept:** Customer (B) selects a provider, or C AutoFill wins the claim. On accept: set `service` to `confirmed`, copy `bid` / `proposed_date_time`, then delete **all** fill requests for that `service_id`. AutoFill charges first via `create-payment-intent` (`use_saved_payment_method: true`). The winning claim update also writes `payment_status: 'paid'` and `payment_intent_id`. AutoFill leaves `scheduling_type` as the customer set it: `asap` stays `asap`, and `scheduled` is written only when the job was already `scheduled`. Copying `proposed_date_time` into `scheduled_date_time` does not change `scheduling_type`. If the charge fails, or the claim loses the race, the job is not confirmed and that provider’s fill request is removed. A lost race refunds or cancels the PaymentIntent through `void-unclaimed-payment`.
 
 **Delete:**
 

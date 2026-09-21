@@ -60,17 +60,57 @@ test('confirm update requires a payment intent id and paid status', () => {
     price: 80,
     paymentIntentId: 'pi_autofill',
     scheduledDateTime: '2026-09-22T15:00:00.000Z',
+    schedulingType: 'scheduled',
   });
 
   assert.deepEqual(update, {
     service_provider_id: 'provider-1',
     status: 'confirmed',
     price: 80,
-    scheduling_type: 'scheduled',
     scheduled_date_time: '2026-09-22T15:00:00.000Z',
     payment_status: 'paid',
     payment_intent_id: 'pi_autofill',
+    scheduling_type: 'scheduled',
   });
+});
+
+test('ASAP AutoFill claim stays asap and keeps the charge fields', () => {
+  const update = buildAutoFillConfirmUpdate({
+    providerId: 'provider-1',
+    price: 80,
+    paymentIntentId: 'pi_asap',
+    scheduledDateTime: '2026-09-22T15:00:00.000Z',
+    schedulingType: 'asap',
+  });
+
+  assert.equal(update.scheduling_type, 'asap');
+  assert.equal(update.payment_intent_id, 'pi_asap');
+  assert.equal(update.payment_status, 'paid');
+  assert.equal(update.status, 'confirmed');
+  assert.equal(update.scheduled_date_time, '2026-09-22T15:00:00.000Z');
+});
+
+test('preserves the existing scheduling spelling and omits a blank type', () => {
+  const asap = buildAutoFillConfirmUpdate({
+    providerId: 'provider-1',
+    price: 40,
+    paymentIntentId: 'pi_case',
+    scheduledDateTime: null,
+    schedulingType: ' ASAP ',
+  });
+  assert.equal(asap.scheduling_type, 'ASAP');
+  assert.equal(asap.payment_status, 'paid');
+
+  const untyped = buildAutoFillConfirmUpdate({
+    providerId: 'provider-1',
+    price: 40,
+    paymentIntentId: 'pi_blank',
+    scheduledDateTime: null,
+    schedulingType: '   ',
+  });
+  assert.equal('scheduling_type' in untyped, false);
+  assert.equal(untyped.payment_intent_id, 'pi_blank');
+  assert.equal(untyped.payment_status, 'paid');
 });
 
 test('does not confirm without a payment intent id', () => {
