@@ -1,0 +1,4 @@
+# Stripe calls this endpoint. It does not send a Supabase user JWT.
+# verify_jwt stays false. The handler rejects any body whose Stripe-Signature
+# does not match STRIPE_WEBHOOK_SECRET.
+verify_jwt = false

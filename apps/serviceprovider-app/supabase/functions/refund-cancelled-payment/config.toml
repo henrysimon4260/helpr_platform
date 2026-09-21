@@ -1,0 +1,5 @@
+# A Supabase Database Webhook calls this with the service role JWT.
+# The owning customer may also call it with a user JWT.
+# verify_jwt stays true so an unsigned request never reaches the handler.
+# The handler still rejects an anon key and any user who does not own the service.
+verify_jwt = true

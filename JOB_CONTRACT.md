@@ -18,12 +18,25 @@ Use these spellings exactly. Do not substitute aliases (`helpr_otw`, not `on_the
 | `helpr_otw` | Provider app (C) | From `confirmed` via Service Details (“I'm on the way”). |
 | `in_progress` | Provider app (C) | From `helpr_otw` via Service Details (“Start Service”). |
 | `completed` | Edge function `complete-service` (invoked by C). | From `in_progress` (“Complete Service”). The function writes this status after capture/transfer. |
+| `cancelled` | Customer app (B) only. | Customer cancel from `finding_pros`, `pending`, `scheduled`, `select_service_provider`, or `confirmed` (paid or unpaid). Terminal. Keep the service row, `service_provider_id`, `price`, and `payment_intent_id`. B does not change `payment_status` on this write. Do not write this from `helpr_otw`, `in_progress`, or `completed`. |
 
-There is no `cancelled` status yet. Do not add one in a screen. Agent B specifies it here first (who may set it, from which statuses, and how the other app treats those rows). Then C implements against that paragraph.
+Provider app (C) does not write `cancelled`. A provider backing out of a confirmed job is an unassign: set `finding_pros` and clear `service_provider_id`. That path is not a refund. C excludes `cancelled` from the open feed and must not advance a `cancelled` row.
 
 ### Machine
 
 `finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+
+Customer cancel (terminal): `finding_pros` / `pending` / `scheduled` / `select_service_provider` / `confirmed` → `cancelled`
+
+### Customer cancel
+
+B sets `status: 'cancelled'` with an update guarded on the current cancellable status. Never `DELETE` the `service` row. B does not call Stripe and does not change `payment_status` or `payment_intent_id` on this write.
+
+Then delete **all** `service_fill_request` rows for that `service_id`. If that cleanup fails, the row stays `cancelled`.
+
+The refund signal is `status = 'cancelled'` plus a stored `payment_intent_id`. `refund-cancelled-payment` reads the row and the PaymentIntent from Stripe. A client-supplied `payment_status` is not an input. Checkout stays on the capture behavior `create-payment-intent` already uses. This function does not switch jobs to authorize-then-capture.
+
+`helpr_otw`, `in_progress`, and `completed` are not customer-cancellable here.
 
 ## `service_fill_request`
 
@@ -44,7 +57,8 @@ A bid / interest row. One provider per service until deleted.
 
 - All rows for the service, after customer select-a-pro or successful AutoFill.
 - That provider’s row, if AutoFill loses the race, the charge fails, or assignment fails. A lost race also voids the PaymentIntent created for that claim.
-- That provider’s row, if the assigned provider cancels a confirmed job (C also sets status back to `finding_pros` and clears `service_provider_id` — until B specifies a real `cancelled` status).
+- That provider’s row, if the assigned provider unassigns a confirmed job (C sets status back to `finding_pros` and clears `service_provider_id`). That path is not `cancelled` and does not refund the PaymentIntent.
+- All rows for the service, after the customer sets `cancelled`.
 
 ## Ratings
 
@@ -213,6 +227,64 @@ Signup currently calls this before `signUp`, with no user JWT. That call is reje
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
 **Error:** `{ "success": false, "error": "" }` with HTTP 401 (not signed in), 403 (provider id is not the caller), 400 (email, provider id, or SSN last 4 does not match the rules), 409 (this provider already has a Connect account), or 500 (server cannot verify the caller). A 401, 403, 400, or 500 from this check does not create a Stripe account. The new account id is still stored by the caller, not by this function.
+
+### `payment_status`
+
+`paid` on confirm is still written by B (select-a-pro) and C (AutoFill claim). Every later money transition is written by `stripe-webhook` or `refund-cancelled-payment` from Stripe. Neither function reads `payment_status` from the request body.
+
+| Value | Who writes it | When |
+| --- | --- | --- |
+| `paid` | B, C, or `stripe-webhook` | Charge succeeded (`payment_intent.succeeded` or `charge.succeeded`). The webhook does not overwrite `refunded`, `partially_refunded`, `disputed`, or `dispute_lost`. |
+| `failed` | `stripe-webhook` | `payment_intent.payment_failed` or `charge.failed`, and the row is not already paid, refunded, or disputed. |
+| `refund_pending` | `refund-cancelled-payment` or `stripe-webhook` | Refund created and not yet succeeded. |
+| `refunded` | `refund-cancelled-payment` or `stripe-webhook` | Full refund, or a dispute closed as `charge_refunded`. |
+| `partially_refunded` | `stripe-webhook` | `charge.refunded` with `amount_refunded` greater than 0 and less than `amount`. |
+| `canceled` | `refund-cancelled-payment` or `stripe-webhook` | Uncaptured PaymentIntent canceled (`requires_capture`, `requires_payment_method`, `requires_confirmation`, or `requires_action`). Same release choice as `void-unclaimed-payment`. |
+| `disputed` | `stripe-webhook` | `charge.dispute.created`, `charge.dispute.updated`, or `charge.dispute.funds_withdrawn`. |
+| `dispute_lost` | `stripe-webhook` | `charge.dispute.closed` with status `lost`. |
+
+`refund.failed` moves `refund_pending` back to `paid`. It does not move `refunded` back.
+
+### `stripe-webhook`
+
+Stripe Dashboard calls this. There is no Supabase user JWT. `verify_jwt` is false. The handler verifies the raw body with the `Stripe-Signature` header and `STRIPE_WEBHOOK_SECRET` (HMAC-SHA256, `v1` only, 5 minute tolerance). A bad signature is **400** and does not write `payment_status`. A missing secret is **500**.
+
+**Endpoint:** `https://hecikcopbdhhiilhgmrd.supabase.co/functions/v1/stripe-webhook`
+
+**Events:** `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.succeeded`, `charge.failed`, `charge.refunded`, `refund.created`, `refund.updated`, `refund.failed`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, `charge.dispute.funds_withdrawn`, `charge.dispute.funds_reinstated`.
+
+The service row is found from PaymentIntent metadata `service_id`, otherwise from `service.payment_intent_id`. A stored PaymentIntent id that does not match the event is left unchanged. The function does not write `service.status`.
+
+**Idempotency:** `public.stripe_webhook_events.event_id` is the primary key (service role only; RLS on and no client policies). A `processed` or `ignored` id is not applied again. Stripe retries of the same event id are a no-op. A `processing` row older than 60 seconds, or an `error` row, can be taken over. Failures return **500** so Stripe retries.
+
+**Secrets (names only, set in the function environment, never in git):**
+
+- `STRIPE_WEBHOOK_SECRET` — webhook signing secret (`whsec_...`). Not `STRIPE_SECRET_KEY`.
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — already injected for hosted functions.
+
+Dashboard steps: `apps/serviceprovider-app/supabase/functions/stripe-webhook/README.md`.
+
+Apply `supabase/migrations/20260921190500_stripe_webhook_events.sql` before enabling the endpoint.
+
+### `refund-cancelled-payment`
+
+Server refund for a cancelled job. Source: `apps/serviceprovider-app/supabase/functions/refund-cancelled-payment/index.ts`. B does not call Stripe. The intended caller is a Supabase Database Webhook on `public.service` UPDATE, with the service role key. The owning customer may also invoke it. This change does not edit the customer cancel screen.
+
+**Auth:** `Authorization: Bearer <service role key>` or `Bearer <user access token>`. `verify_jwt` stays true, so an unsigned request is rejected at the gateway. The handler compares the bearer to `SUPABASE_SERVICE_ROLE_KEY`. Any other token must pass `auth.getUser()` and own the service (same rule as `create-payment-intent`: auth user id equals `service.customer_id`, or the `getUser()` email matches `customer.email`). Otherwise **401** or **403**. No Stripe call runs. An anon key is not a customer session.
+
+**Request:** `{ "service_id": "" }` or `{ "serviceId": "" }`. A database webhook body `{ "record": { "service_id": "" } }` is accepted. `payment_status` in the body is ignored.
+
+The handler loads `status`, `payment_intent_id`, and `customer_id` from `service`. It refunds only when `status` is `cancelled` and `payment_intent_id` is set. Stripe metadata `service_id`, when present, must match. The PaymentIntent status chooses the Stripe call (refund when `succeeded`, cancel when the PaymentIntent was never captured, no-op when already `canceled`). A `platform_transactions.stripe_transfer_id` blocks the refund (**409**) so a payout is not left in place. `processing` returns **500** so the webhook retries.
+
+**Idempotency:** Stripe Idempotency-Key `helpr-cancel-refund-{service_id}` or `helpr-cancel-pi-{service_id}`. A second call does not create a second refund. `charge_already_refunded` is treated as already refunded. `payment_intent_id` is kept. `payment_status` is updated only while `status` is still `cancelled`.
+
+**Success:** `{ "released": true, "action": "refund" | "cancel" | "none", "payment_status": "refunded" | "refund_pending" | "canceled" }`
+
+**Skip (HTTP 200, no Stripe write):** `{ "released": false, "skipped": "not_cancelled" | "no_payment" | "unsupported" }`
+
+**Error:** `{ "released": false, "error": "" }` with HTTP 401, 403, 400 (charge metadata does not match), 404 (no service), 409 (payout already sent), or 500.
+
+**Webhook setup:** Supabase Dashboard → Database → Webhooks → `public.service` UPDATE → `https://hecikcopbdhhiilhgmrd.supabase.co/functions/v1/refund-cancelled-payment`, header `Authorization: Bearer <service role key>`. The service role key is an environment secret. Do not put it in the repo. Any update that is not `cancelled` returns the skip body and does not refund.
 
 ## Adding something new
 
