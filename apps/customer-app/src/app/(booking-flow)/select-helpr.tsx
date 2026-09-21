@@ -1,7 +1,7 @@
 import { useStripe } from '@stripe/stripe-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PaymentMethodModal } from '../../components/common/PaymentMethodModal';
 import { PaymentSummaryModal } from '../../components/services/PaymentSummaryModal';
@@ -9,7 +9,15 @@ import type { ProviderSummary } from '../../components/services/PaymentSummaryMo
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
+import { readPaymentIntentId } from '../../lib/readPaymentIntentId';
 import { supabase } from '../../lib/supabase';
+import {
+  OPEN_UNASSIGNED_STATUSES,
+  confirmAssignmentOutcome,
+  isOpenUnassignedJob,
+  lostConfirmShouldReleaseCharge,
+  type OpenJobSnapshot,
+} from './confirmOpenJob';
 
 type ServiceFillRequestRow = {
   service_provider_id: string;
@@ -158,6 +166,7 @@ const SelectHelpr = () => {
   const [activePaymentMethodId, setActivePaymentMethodId] = useState<string | null>(null);
   const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const confirmInFlight = useRef(false);
 
   // Payment Method Modal state (for adding new cards)
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
@@ -407,11 +416,88 @@ const SelectHelpr = () => {
     }
   }, [cardComplete, user?.id, savingPaymentMethod, createPaymentMethod, cardDetailsSnapshot, showModal]);
 
+  const confirmOpenService = useCallback(async (
+    updateData: {
+      service_provider_id: string;
+      status: string;
+      price: number;
+      scheduled_date_time?: string;
+      payment_status?: string;
+      payment_intent_id?: string;
+    },
+    selectedProviderId: string,
+    paymentIntentId: string | null,
+  ): Promise<{ outcome: 'won' | 'lost' | 'unchanged'; service: OpenJobSnapshot | null }> => {
+    if (!serviceId) {
+      throw new Error('Missing service reference.');
+    }
+
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('service')
+      .update(updateData)
+      .eq('service_id', serviceId)
+      .in('status', [...OPEN_UNASSIGNED_STATUSES])
+      .is('service_provider_id', null)
+      .select('service_id');
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    const updatedCount = updatedRows?.length ?? 0;
+    if (updatedCount > 0) {
+      return { outcome: 'won', service: null };
+    }
+
+    const { data: currentJob, error: readError } = await supabase
+      .from('service')
+      .select('status, service_provider_id, payment_intent_id')
+      .eq('service_id', serviceId)
+      .maybeSingle();
+
+    if (readError) {
+      throw readError;
+    }
+
+    return {
+      outcome: confirmAssignmentOutcome({
+        updatedCount,
+        selectedProviderId,
+        paymentIntentId,
+        service: currentJob,
+      }),
+      service: currentJob,
+    };
+  }, [serviceId]);
+
+  const releaseLostConfirmCharge = useCallback(async (paymentIntentId: string): Promise<boolean> => {
+    if (!serviceId) {
+      return false;
+    }
+
+    const { data, error } = await supabase.functions.invoke('void-unclaimed-payment', {
+      body: {
+        paymentIntentId,
+        service_id: serviceId,
+      },
+    });
+
+    if (error || data?.voided !== true) {
+      console.error('Failed to void confirm charge after lost race:', error, data);
+      return false;
+    }
+
+    return true;
+  }, [serviceId]);
+
   // Handle confirming the booking with payment
   const handleConfirmBooking = useCallback(async () => {
+    if (confirmInFlight.current) return;
     if (!selectedRequest || !serviceId || !activePaymentMethodId || !user?.id) return;
 
+    confirmInFlight.current = true;
     setConfirming(true);
+    let chargedPaymentIntentId: string | null = null;
 
     try {
       // Find the selected payment method
@@ -421,7 +507,6 @@ const SelectHelpr = () => {
           title: 'Payment Error',
           message: 'Selected payment method not found.',
         });
-        setConfirming(false);
         return;
       }
 
@@ -441,7 +526,24 @@ const SelectHelpr = () => {
           title: 'Account Error',
           message: 'Unable to find your customer account. Please try again.',
         });
-        setConfirming(false);
+        return;
+      }
+
+      const { data: openRow, error: openError } = await supabase
+        .from('service')
+        .select('status, service_provider_id')
+        .eq('service_id', serviceId)
+        .maybeSingle();
+
+      if (openError) {
+        throw openError;
+      }
+
+      if (!isOpenUnassignedJob(openRow)) {
+        showModal({
+          title: 'Job no longer available',
+          message: 'This job was just assigned to a Helpr, so it can no longer be confirmed.',
+        });
         return;
       }
 
@@ -491,14 +593,15 @@ const SelectHelpr = () => {
       const paymentStatus = paymentIntentData?.status 
         || paymentIntentData?.data?.status;
 
-      // Check if payment was already completed server-side (off_session)
-      if (paymentStatus === 'succeeded') {
-        console.log('Payment already succeeded server-side');
-        // Payment already completed, continue to update service
+      let confirmedPaymentIntentId: string | undefined;
+
+      // succeeded and processing are already charged. Confirming them again can start a second attempt.
+      if (paymentStatus === 'succeeded' || paymentStatus === 'processing') {
+        console.log('Payment already submitted server-side:', paymentStatus);
       } else if (clientSecret) {
         // Need to confirm payment client-side
         console.log('Confirming payment with client secret');
-        const { error: confirmError } = await confirmPayment(clientSecret, {
+        const { error: confirmError, paymentIntent } = await confirmPayment(clientSecret, {
           paymentMethodType: 'Card',
           paymentMethodData: {
             paymentMethodId: paymentMethod.stripePaymentMethodId,
@@ -513,6 +616,8 @@ const SelectHelpr = () => {
           });
           return;
         }
+
+        confirmedPaymentIntentId = paymentIntent?.id;
       } else if (paymentIntentData?.error) {
         // Edge function returned an error
         console.error('Edge function error:', paymentIntentData.error);
@@ -527,6 +632,17 @@ const SelectHelpr = () => {
         showModal({
           title: 'Payment Failed',
           message: 'Unexpected response from payment server.',
+        });
+        return;
+      }
+
+      const paymentIntentId = readPaymentIntentId(paymentIntentData, confirmedPaymentIntentId);
+      chargedPaymentIntentId = paymentIntentId;
+      if (!paymentIntentId) {
+        console.error('Payment succeeded but payment intent id was missing:', paymentIntentData);
+        showModal({
+          title: 'Payment Failed',
+          message: 'Payment could not be linked to this booking. Please contact support before trying again.',
         });
         return;
       }
@@ -549,24 +665,45 @@ const SelectHelpr = () => {
         price: number;
         scheduled_date_time?: string;
         payment_status: string;
+        payment_intent_id: string;
       } = {
         service_provider_id: selectedRequest.service_provider_id,
         status: 'confirmed',
         price: selectedRequest.bid,
         payment_status: 'paid',
+        payment_intent_id: paymentIntentId,
       };
 
       if (fillRequestData?.proposed_date_time) {
         updateData.scheduled_date_time = fillRequestData.proposed_date_time;
       }
 
-      const { error: updateError } = await supabase
-        .from('service')
-        .update(updateData)
-        .eq('service_id', serviceId);
+      const { outcome, service: assignedJob } = await confirmOpenService(
+        updateData,
+        selectedRequest.service_provider_id,
+        paymentIntentId,
+      );
 
-      if (updateError) {
-        throw updateError;
+      if (outcome === 'lost') {
+        const shouldRelease = lostConfirmShouldReleaseCharge(assignedJob, paymentIntentId);
+        const released = shouldRelease
+          ? await releaseLostConfirmCharge(paymentIntentId)
+          : false;
+        showModal({
+          title: 'Job no longer available',
+          message: released
+            ? 'This job was just assigned to a Helpr, so your booking was not confirmed. The charge was reversed.'
+            : shouldRelease
+              ? 'This job was just assigned to a Helpr, so your booking was not confirmed. We could not reverse the charge. Contact support before trying again.'
+              : 'This job was just assigned to a Helpr, so your booking was not confirmed.',
+        });
+        setShowPaymentSummary(false);
+        setSelectedRequest(null);
+        return;
+      }
+
+      if (outcome !== 'won') {
+        throw new Error('Booking update did not apply');
       }
 
       // Delete all service fill requests for this service
@@ -594,12 +731,15 @@ const SelectHelpr = () => {
       console.error('Failed to confirm booking:', err);
       showModal({
         title: 'Booking Failed',
-        message: 'Unable to complete booking. Please try again.',
+        message: chargedPaymentIntentId
+          ? 'Your payment went through, but the booking did not save. Tap confirm again to finish. This payment is reused.'
+          : 'Unable to complete booking. Please try again.',
       });
     } finally {
+      confirmInFlight.current = false;
       setConfirming(false);
     }
-  }, [selectedRequest, serviceId, activePaymentMethodId, user?.id, savedPaymentMethods, confirmPayment, showModal]);
+  }, [selectedRequest, serviceId, activePaymentMethodId, user?.id, savedPaymentMethods, confirmPayment, showModal, confirmOpenService, releaseLostConfirmCharge]);
 
   const handleSelectProvider = useCallback(
     async (request: ProviderRequestDisplay) => {
@@ -639,13 +779,23 @@ const SelectHelpr = () => {
           updateData.scheduled_date_time = fillRequestData.proposed_date_time;
         }
 
-        const { error: updateError } = await supabase
-          .from('service')
-          .update(updateData)
-          .eq('service_id', serviceId);
+        const { outcome } = await confirmOpenService(
+          updateData,
+          request.service_provider_id,
+          null,
+        );
 
-        if (updateError) {
-          throw updateError;
+        if (outcome === 'lost') {
+          showModal({
+            title: 'Job no longer available',
+            message: 'This job was just assigned to a Helpr, so it can no longer be confirmed.',
+          });
+          setSelectingProviderId(null);
+          return;
+        }
+
+        if (outcome !== 'won') {
+          throw new Error('Booking update did not apply');
         }
 
         // Delete all service fill requests for this service
@@ -678,7 +828,7 @@ const SelectHelpr = () => {
         setSelectingProviderId(null);
       }
     },
-    [serviceId, showModal],
+    [serviceId, showModal, confirmOpenService],
   );
 
   const renderContent = () => {
