@@ -9,6 +9,7 @@ import type { ProviderSummary } from '../../components/services/PaymentSummaryMo
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
+import { readPaymentIntentId } from '../../lib/readPaymentIntentId';
 import { supabase } from '../../lib/supabase';
 
 type ServiceFillRequestRow = {
@@ -535,13 +536,9 @@ const SelectHelpr = () => {
         return;
       }
 
-      const paymentIntentId = paymentIntentData?.paymentIntentId
-        || paymentIntentData?.payment_intent_id
-        || paymentIntentData?.data?.paymentIntentId
-        || paymentIntentData?.data?.payment_intent_id
-        || confirmedPaymentIntentId;
+      const paymentIntentId = readPaymentIntentId(paymentIntentData, confirmedPaymentIntentId);
 
-      if (typeof paymentIntentId !== 'string' || paymentIntentId.length === 0) {
+      if (!paymentIntentId) {
         console.error('Payment succeeded but payment intent id was missing:', paymentIntentData);
         showModal({
           title: 'Payment Failed',
