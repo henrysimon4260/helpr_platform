@@ -6,6 +6,7 @@ import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
+import { resolveEditRequestRoute } from '../../lib/editRequestRoute';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
 import { supabase } from '../../lib/supabase';
 import { clearViewedCompletedServices, hasViewedCompletedService } from '../../lib/viewedCompletedServices';
@@ -793,21 +794,7 @@ export default function BookedServices() {
     }
 
     try {
-      const serviceType = (service.service_type ?? '').toLowerCase().trim();
-      
-      // Map service type to route path
-      const routeMap: Record<string, string> = {
-        'moving': '/(services)/moving',
-        'cleaning': '/(services)/cleaning',
-        'furniture assembly': '/(services)/furniture-assembly',
-        'home improvement': '/(services)/home-improvement',
-        'running errands': '/(services)/custom-service',
-        'wall mounting': '/(services)/wall-mounting',
-        'wall-mounting': '/(services)/wall-mounting',
-        'custom': '/(services)/custom-service',
-      };
-
-      const routePath = routeMap[serviceType] || '/(services)/custom-service';
+      const routePath = resolveEditRequestRoute(service.service_type);
 
       const payload = {
         service_id: service.service_id,
