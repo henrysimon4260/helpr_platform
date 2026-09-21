@@ -14,6 +14,7 @@ import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDe
 import { supabase } from '../../../lib/supabase';
 
 import { CurrentLocationOption, PlaceSuggestion } from './LocationAutocompleteInput';
+import { firstSearchParam, MovingEditSearchParams, resolveServiceIdForSubmit } from './moving.edit';
 import { MovingAnalysisResult, MovingModalQuestion, SelectedLocation } from './moving.types';
 import {
   containsStreetNumber,
@@ -263,6 +264,65 @@ export function useLocationManagement({ showModal, mapRef }: LocationManagementP
     setEndSessionToken(createSessionToken());
   }, []);
 
+  const geocodeAddress = useCallback(async (address: string): Promise<SelectedLocation | null> => {
+    const trimmed = address.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      const results = await Location.geocodeAsync(trimmed);
+      const first = results?.[0];
+      if (first) {
+        return {
+          description: trimmed,
+          coordinate: { latitude: first.latitude, longitude: first.longitude },
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to geocode address for edit prefill:', error);
+    }
+
+    return null;
+  }, []);
+
+  const hydrateEditLocations = useCallback(async (startAddress?: string | null, endAddress?: string | null) => {
+    const applyResolved = async (target: 'start' | 'end', address?: string | null) => {
+      const trimmed = address?.trim() ?? '';
+      if (!trimmed) {
+        if (target === 'start') {
+          setStartQuery('');
+          setStartLocation(null);
+        } else {
+          setEndQuery('');
+          setEndLocation(null);
+        }
+        return;
+      }
+
+      if (target === 'start') {
+        setStartQuery(trimmed);
+      } else {
+        setEndQuery(trimmed);
+      }
+
+      const resolved = await geocodeAddress(trimmed);
+      if (resolved) {
+        applyLocation(target, resolved, { showStreetNumberWarning: false });
+        return;
+      }
+
+      if (target === 'start') {
+        setStartLocation(null);
+      } else {
+        setEndLocation(null);
+      }
+    };
+
+    await applyResolved('start', startAddress);
+    await applyResolved('end', endAddress);
+  }, [applyLocation, geocodeAddress]);
+
   const dismissSuggestions = useCallback(() => {
     setStartSuggestions([]);
     setEndSuggestions([]);
@@ -376,6 +436,7 @@ export function useLocationManagement({ showModal, mapRef }: LocationManagementP
     dismissSuggestions,
     startCurrentLocationOption,
     endCurrentLocationOption,
+    hydrateEditLocations,
   };
 }
 
@@ -403,6 +464,17 @@ export function usePriceEstimate({ showModal }: PriceEstimateProps) {
 
   const resetPriceState = useCallback(() => {
     setPriceQuote(null);
+    setPriceNote(null);
+    setPriceError(null);
+    setIsPriceLoading(false);
+  }, []);
+
+  const applyExistingPrice = useCallback((price: number | null | undefined) => {
+    if (typeof price === 'number' && Number.isFinite(price)) {
+      setPriceQuote(formatCurrency(price));
+    } else {
+      setPriceQuote(null);
+    }
     setPriceNote(null);
     setPriceError(null);
     setIsPriceLoading(false);
@@ -513,7 +585,7 @@ export function usePriceEstimate({ showModal }: PriceEstimateProps) {
     }
   }, [openAiApiKey, fetchDrivingInfo]);
 
-  return { priceQuote, priceNote, priceError, isPriceLoading, resetPriceState, fetchPrice };
+  return { priceQuote, priceNote, priceError, isPriceLoading, resetPriceState, fetchPrice, applyExistingPrice };
 }
 
 // =============================================================================
@@ -1056,7 +1128,7 @@ interface ServiceSubmissionProps {
   activePaymentMethod: SavedPaymentMethodSummary | null;
   showModal: (config: { title: string; message: string; onDismiss?: () => void }) => void;
   setShowSignInModal: (v: boolean) => void;
-  params: any;
+  params?: MovingEditSearchParams;
 }
 
 export function useServiceSubmission({
@@ -1140,6 +1212,42 @@ export function useServiceSubmission({
 
     setIsSubmitting(true);
     try {
+      const { serviceId: targetServiceId, isEditing } = resolveServiceIdForSubmit(
+        firstSearchParam(params?.editServiceId),
+        createUuid,
+      );
+      const paymentMethodType = isPersonal ? 'Personal' : 'Business';
+      const autofillType = isAuto ? 'AutoFill' : 'Custom';
+
+      if (isEditing) {
+        const { error } = await supabase
+          .from('service')
+          .update({
+            start_location: startLocation.description,
+            end_location: endLocation.description,
+            price: priceValue,
+            payment_method_type: paymentMethodType,
+            autofill_type: autofillType,
+            description: trimmedDescription,
+          })
+          .eq('service_id', targetServiceId);
+
+        if (error) {
+          console.error('Failed to update moving service:', error);
+          showModal({
+            title: 'Update failed',
+            message: 'Unable to save changes to your moving request. Please try again.',
+          });
+          return;
+        }
+
+        router.push({
+          pathname: 'booked-services' as any,
+          params: { serviceId: targetServiceId },
+        });
+        return;
+      }
+
       const resolvedCustomerId = customerId || (await (async () => {
         const { data } = await supabase.from('customer').select('customer_id').eq('email', user.email).maybeSingle();
         return data?.customer_id ?? null;
@@ -1151,7 +1259,7 @@ export function useServiceSubmission({
       }
 
       const payload = {
-        service_id: createUuid(),
+        service_id: targetServiceId,
         customer_id: resolvedCustomerId,
         date_of_creation: new Date().toISOString(),
         service_type: 'Moving',
@@ -1159,8 +1267,8 @@ export function useServiceSubmission({
         start_location: startLocation.description,
         end_location: endLocation.description,
         price: priceValue,
-        payment_method_type: isPersonal ? 'Personal' : 'Business',
-        autofill_type: isAuto ? 'AutoFill' : 'Custom',
+        payment_method_type: paymentMethodType,
+        autofill_type: autofillType,
         description: trimmedDescription,
       };
 
@@ -1188,6 +1296,7 @@ export function useServiceSubmission({
     customerId,
     isPersonal,
     isAuto,
+    params,
     showModal,
     setShowSignInModal,
     preserveFormForAuth,

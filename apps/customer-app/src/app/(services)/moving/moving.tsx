@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Keyboard, KeyboardAvoidingView, Platform, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import MapView from 'react-native-maps';
 
@@ -28,6 +28,7 @@ import {
   useServiceSubmission,
   useVoiceInput,
 } from './moving.hooks';
+import { firstSearchParam, parseEditServicePayload } from './moving.edit';
 import { styles } from './moving.styles';
 import { MovingModalQuestion } from './moving.types';
 import { MovingAnalysisModal } from './MovingAnalysisModal';
@@ -37,7 +38,13 @@ import { StartLocationSection } from './StartLocationSection';
 export default function Moving() {
   const { user } = useAuth();
   const { showModal } = useModal();
-  const params = useLocalSearchParams<{ editServiceId?: string; editService?: string }>();
+  const params = useLocalSearchParams<{ editServiceId?: string | string[]; editService?: string | string[] }>();
+  const editServiceId = useMemo(() => firstSearchParam(params.editServiceId), [params.editServiceId]);
+  const editingPayload = useMemo(
+    () => parseEditServicePayload(firstSearchParam(params.editService)),
+    [params.editService],
+  );
+  const hydratedEditIdRef = useRef<string | null>(null);
   const mapRef = useRef<MapView | null>(null);
   const descriptionInputRef = useRef<TextInput | null>(null);
 
@@ -103,6 +110,45 @@ export default function Moving() {
     setShowSignInModal,
     params,
   });
+
+  const hydrateEditLocations = locationManagement.hydrateEditLocations;
+  const applyExistingPrice = priceEstimate.applyExistingPrice;
+
+  useEffect(() => {
+    if (!editServiceId || !editingPayload || editingPayload.service_id !== editServiceId) {
+      return;
+    }
+    if (hydratedEditIdRef.current === editServiceId) {
+      return;
+    }
+    hydratedEditIdRef.current = editServiceId;
+
+    const nextIsAuto = (editingPayload.autofill_type ?? 'AutoFill').toLowerCase() !== 'custom';
+    const nextIsPersonal = (editingPayload.payment_method_type ?? 'Personal').toLowerCase() !== 'business';
+
+    setIsAuto(nextIsAuto);
+    slideAnimation.setValue(nextIsAuto ? 1 : 0);
+    setIsPersonal(nextIsPersonal);
+    slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
+
+    const nextDescription = typeof editingPayload.description === 'string'
+      ? editingPayload.description.trim()
+      : '';
+    setDescription(nextDescription);
+    if (nextDescription) {
+      setPromptingCompleted(true);
+    }
+
+    applyExistingPrice(typeof editingPayload.price === 'number' ? editingPayload.price : null);
+    void hydrateEditLocations(editingPayload.start_location, editingPayload.end_location);
+  }, [
+    applyExistingPrice,
+    editServiceId,
+    editingPayload,
+    hydrateEditLocations,
+    slideAnimation,
+    slideAnimation2,
+  ]);
 
   // Toggle handlers with animation
   const handleAutoToggle = useCallback(() => {
