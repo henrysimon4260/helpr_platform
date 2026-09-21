@@ -58,7 +58,7 @@ export default function PastServices() {
         .from('service')
         .select('*')
         .eq('customer_id', customer.customer_id)
-        .eq('status', 'completed')
+        .in('status', ['completed', 'cancelled'])
         .order('date_of_creation', { ascending: false });
 
       setServices(serviceData ?? []);
@@ -148,7 +148,9 @@ export default function PastServices() {
             contentContainerStyle={styles.serviceListContent}
             showsVerticalScrollIndicator={false}
           >
-            {services.map((service) => (
+            {services.map((service) => {
+              const isCancelled = (service.status ?? '').toLowerCase() === 'cancelled';
+              return (
               <View key={service.service_id} style={styles.serviceCard}>
                 <View style={styles.cardContentRow}>
                   <View style={styles.cardInfoColumn}>
@@ -157,8 +159,10 @@ export default function PastServices() {
                         {formatServiceType(service.service_type)}
                       </Text>
                     </View>
-                    <View style={styles.completedStatusPill}>
-                      <Text style={styles.completedStatusText}>Completed</Text>
+                    <View style={isCancelled ? styles.cancelledStatusPill : styles.completedStatusPill}>
+                      <Text style={isCancelled ? styles.cancelledStatusText : styles.completedStatusText}>
+                        {isCancelled ? 'Cancelled' : 'Completed'}
+                      </Text>
                     </View>
                     <View style={styles.cardActionRow}>
                       <View style={styles.locationGroup}>
@@ -198,7 +202,8 @@ export default function PastServices() {
                   </View>
                 </View>
               </View>
-            ))}
+              );
+            })}
           </ScrollView>
         )}
       </View>
@@ -304,6 +309,22 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   completedStatusText: {
+    color: '#FFF8E8',
+    fontSize: 11.5,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  cancelledStatusPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#C94736',
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 4,
+    minHeight: 20,
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  cancelledStatusText: {
     color: '#FFF8E8',
     fontSize: 11.5,
     fontWeight: '600',

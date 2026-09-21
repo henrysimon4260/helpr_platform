@@ -433,6 +433,8 @@ export default function ServiceDetails() {
         return 'In Progress';
       case 'completed':
         return 'Service Completed';
+      case 'cancelled':
+        return 'Service Cancelled';
       default:
         return 'Service Details';
     }

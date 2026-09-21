@@ -28,7 +28,32 @@ type ServiceRow = {
   autofill_type?: string | null;
   description?: string | null;
   service_provider_id?: string | null;
+  payment_status?: string | null;
 };
+
+/** Statuses a customer may cancel. Spellings match JOB_CONTRACT.md `cancelled`. */
+const CUSTOMER_CANCELLABLE_STATUSES = new Set([
+  'finding_pros',
+  'pending',
+  'scheduled',
+  'select_service_provider',
+  'confirmed',
+]);
+
+/**
+ * Paid cancellations stay `payment_status: 'paid'` with `status: 'cancelled'`.
+ * That pair is the refund signal for the payments lane (HLP-43). Do not call Stripe here.
+ */
+function notePaidCancellationRefund(service: ServiceRow) {
+  if ((service.payment_status ?? '').toLowerCase() !== 'paid') {
+    return;
+  }
+
+  // TODO(payments): HLP-43 — refund payment_intent_id when status is cancelled and payment_status is paid.
+  console.info('[cancel] paid service cancelled; refund is owned by the payments lane', {
+    serviceId: service.service_id,
+  });
+}
 
 type ServiceProviderProfile = {
   service_provider_id: string;
@@ -501,6 +526,10 @@ export default function BookedServices() {
       const type = (service.scheduling_type ?? '').toLowerCase();
       const status = (service.status ?? '').toLowerCase();
 
+      if (status === 'cancelled') {
+        return false;
+      }
+
       // Include completed services only if they haven't been viewed yet
       if (status === 'completed') {
         return !viewedCompletedServices.has(service.service_id);
@@ -615,6 +644,7 @@ export default function BookedServices() {
     const providerInitials = `${providerFirstName ? providerFirstName.charAt(0) : ''}${providerLastName ? providerLastName.charAt(0) : ''}`.toUpperCase() || 'H';
     const profileImageUrl = profile?.profile_picture_url ?? null;
     const isAssigned = isConfirmed || isHelprOtw || isInProgress || isCompleted;
+    const canCancel = CUSTOMER_CANCELLABLE_STATUSES.has(normalizedStatus);
 
     const fillRequestCount = fillRequestCounts[service.service_id] || 0;
     const showFindingProsPill = isFindingPros || (fillRequestCount > 0 && !isAssigned);
@@ -719,6 +749,16 @@ export default function BookedServices() {
               >
                 <Text style={styles.showDetailsButtonText}>Details</Text>
               </Pressable>
+              {canCancel ? (
+                <Pressable
+                  style={styles.serviceCancelButton}
+                  onPress={() => handleCancelService(service)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel service"
+                >
+                  <Text style={styles.serviceCancelButtonText}>Cancel</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : (
             <View style={styles.priceColumn}>
@@ -726,9 +766,16 @@ export default function BookedServices() {
                 <Text style={styles.priceValue}>{priceLabel}</Text>
                 <Text style={styles.priceEstimate}>est.</Text>
               </View>
-              <Pressable style={styles.serviceCancelButton} onPress={() => handleCancelService(service)}>
-                <Text style={styles.serviceCancelButtonText}>Cancel</Text>
-              </Pressable>
+              {canCancel ? (
+                <Pressable
+                  style={styles.serviceCancelButton}
+                  onPress={() => handleCancelService(service)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel service"
+                >
+                  <Text style={styles.serviceCancelButtonText}>Cancel</Text>
+                </Pressable>
+              ) : null}
             </View>
           )}
         </View>
@@ -737,32 +784,56 @@ export default function BookedServices() {
   };
 
   const cancelService = useCallback(
-    async (serviceIdToCancel: string) => {
+    async (serviceToCancel: ServiceRow) => {
+      const serviceIdToCancel = serviceToCancel.service_id;
+      const currentStatus = serviceToCancel.status ?? '';
+      const normalizedStatus = currentStatus.toLowerCase();
+
+      if (!CUSTOMER_CANCELLABLE_STATUSES.has(normalizedStatus)) {
+        showModal({
+          title: 'Unable to cancel',
+          message: 'This service can no longer be cancelled.',
+        });
+        return;
+      }
+
       try {
+        const { data: updatedRows, error } = await supabase
+          .from('service')
+          .update({ status: 'cancelled' })
+          .eq('service_id', serviceIdToCancel)
+          .eq('status', currentStatus)
+          .select('service_id');
+
+        if (error) {
+          throw error;
+        }
+
+        if (!updatedRows || updatedRows.length === 0) {
+          showModal({
+            title: 'Unable to cancel',
+            message: 'This service can no longer be cancelled.',
+          });
+          await fetchServices();
+          return;
+        }
+
         const { error: requestError } = await supabase
           .from('service_fill_request')
           .delete()
           .eq('service_id', serviceIdToCancel);
 
         if (requestError) {
-          throw requestError;
+          console.error('Cancelled service but failed to clear fill requests:', requestError);
         }
 
-        const { error } = await supabase
-          .from('service')
-          .delete()
-          .eq('service_id', serviceIdToCancel);
-
-        if (error) {
-          throw error;
-        }
-
+        notePaidCancellationRefund(serviceToCancel);
         await fetchServices();
       } catch (error) {
-        console.error('Failed to delete service:', error);
+        console.error('Failed to cancel service:', error);
         showModal({
-          title: 'Delete failed',
-          message: 'Unable to delete this service right now.',
+          title: 'Cancel failed',
+          message: 'Unable to cancel this service right now.',
         });
       }
     },
@@ -771,15 +842,18 @@ export default function BookedServices() {
 
   const handleCancelService = useCallback(
     (service: ServiceRow) => {
+      const isPaid = (service.payment_status ?? '').toLowerCase() === 'paid';
       showModal({
         title: 'Cancel Request?',
-        message: 'This will permanently remove the service from your account.',
+        message: isPaid
+          ? 'This marks the request cancelled and keeps it on your account. A refund for the payment is handled separately.'
+          : 'This marks the request cancelled and keeps it on your account.',
         buttons: [
           { text: 'Keep My Service', style: 'cancel' },
           {
             text: 'Cancel service',
             style: 'destructive',
-            onPress: () => cancelService(service.service_id),
+            onPress: () => cancelService(service),
           },
         ],
       });
