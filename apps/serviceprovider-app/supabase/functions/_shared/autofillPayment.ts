@@ -21,26 +21,8 @@ export type AutoFillConfirmUpdate = {
 
 const WORKABLE_STATUSES = new Set(['confirmed', 'helpr_otw', 'in_progress', 'completed']);
 
-/**
- * Same cents math as customer select-helpr: bid + 3% processing + 1% platform.
- * Returns null when the bid cannot be charged.
- */
-export function bookingChargeCents(basePrice: number): number | null {
-  if (!Number.isFinite(basePrice) || basePrice <= 0) {
-    return null;
-  }
-
-  const processingFee = Math.round(basePrice * 0.03 * 100) / 100;
-  const platformFee = Math.round(basePrice * 0.01 * 100) / 100;
-  const totalAmount = Math.round((basePrice + processingFee + platformFee) * 100) / 100;
-  const cents = Math.round(totalAmount * 100);
-
-  if (!Number.isInteger(cents) || cents <= 0) {
-    return null;
-  }
-
-  return cents;
-}
+/** Checkout total: bid + 3% processing + 1% platform. Defined in bookingFees.ts. */
+export { bookingChargeCents } from './bookingFees.ts';
 
 export function parseBidDollars(bid: unknown): number | null {
   if (typeof bid === 'number' && Number.isFinite(bid)) {

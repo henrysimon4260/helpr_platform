@@ -19,6 +19,7 @@ import {
   resolveServicePayout,
   type PayoutLedger,
 } from '../_shared/payoutTransferIdempotency.ts';
+import { centsToDollars, quoteBookingFees, settleBookingFees } from '../_shared/bookingFees.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,6 +27,7 @@ const corsHeaders = {
 };
 
 const PROVIDER_PAYOUT_COLUMNS = 'service_provider_id, email, stripe_account_id, first_name, last_name, balance';
+const PAYOUT_UNFUNDED = 'This charge does not cover the card fee, so the provider payout was not sent.';
 
 type ProviderPayoutRow = ProviderAccountRef & {
   stripe_account_id?: string | null;
@@ -69,13 +71,16 @@ serve(async (req) => {
     const authUserId = userData.user.id;
     const authEmail = typeof userData.user.email === 'string' ? userData.user.email : null;
 
-    const { serviceId, platformFeePercent, skipCustomerCharge } = await req.json();
+    const body = await req.json();
+    const serviceId = body?.serviceId;
+    // platformFeePercent (ServiceDetails still sends 0.15) and skipCustomerCharge
+    // are ignored. The fee model is quoteBookingFees: 3% processing + 1% platform.
 
     if (!serviceId || typeof serviceId !== 'string') {
       throw new Error('Missing required parameter: serviceId');
     }
 
-    console.log('Processing service completion:', { serviceId, platformFeePercent, skipCustomerCharge });
+    console.log('Processing service completion:', { serviceId });
 
     const { data: service, error: serviceError } = await supabaseClient
       .from('service')
@@ -138,26 +143,21 @@ serve(async (req) => {
       apiVersion: '2023-10-16',
     });
 
-    const baseServiceAmount = Math.round(service.price * 100);
-    const servicePriceForCalc = service.price;
-    const platformFeeAmount = servicePriceForCalc * 0.01;
-    const processingFeeAmount = (servicePriceForCalc + platformFeeAmount) * 0.029 + 0.30;
-    const totalAmountPaid = Math.round((servicePriceForCalc + platformFeeAmount + processingFeeAmount) * 100);
-    const providerAmount = baseServiceAmount;
-    const platformFeeInCents = Math.round(platformFeeAmount * 100);
-    const processingFeeInCents = Math.round(processingFeeAmount * 100);
-    const applicationFeeInCents = platformFeeInCents + processingFeeInCents;
-    const providerAmountDollars = providerAmount / 100;
+    const basePrice = typeof service.price === 'number' ? service.price : Number(service.price);
+    const quote = quoteBookingFees(basePrice);
+    if (!quote) {
+      throw new Error('Service price cannot be settled');
+    }
 
-    console.log('Fee breakdown:', {
-      totalAmountPaid: totalAmountPaid / 100,
-      baseServiceAmount: baseServiceAmount / 100,
-      platformFeeInCents: platformFeeInCents / 100,
-      processingFeeInCents: processingFeeInCents / 100,
-      applicationFeeInCents: applicationFeeInCents / 100,
-      providerReceives: providerAmount / 100,
-    });
-
+    const payoutFigures = {
+      chargeCents: quote.chargeCents,
+      platformFeeCents: quote.platformFeeCents,
+      processingFeeCents: quote.processingFeeCents,
+      stripeFeeCents: quote.processingFeeCents,
+      providerTransferCents: quote.baseCents,
+      netPlatformFeeCents: quote.platformFeeCents,
+    };
+    let settlementReady = false;
     let chargeId: string | null = null;
 
     const payout = await resolveServicePayout({
@@ -179,18 +179,47 @@ serve(async (req) => {
           if (!provider.stripe_account_id) {
             throw new Error('Provider has not completed payment setup');
           }
-          chargeId = await capturePaidCharge(stripe, service.payment_intent_id);
+          const funds = await capturePaidCharge(stripe, service.payment_intent_id);
+          chargeId = funds.chargeId;
+          const settled = settleBookingFees({
+            baseCents: quote.baseCents,
+            platformFeeCents: quote.platformFeeCents,
+            processingFeeCents: quote.processingFeeCents,
+            chargeCents: funds.chargeCents,
+            stripeFeeCents: funds.stripeFeeCents,
+            amountRefundedCents: funds.amountRefundedCents,
+          });
+          if (!settled) {
+            throw new Error('Service price cannot be settled');
+          }
+          if (settled.providerTransferCents < 1) {
+            throw new Error(PAYOUT_UNFUNDED);
+          }
+          payoutFigures.chargeCents = settled.chargeCents;
+          payoutFigures.platformFeeCents = settled.platformFeeCents;
+          payoutFigures.processingFeeCents = settled.processingFeeCents;
+          payoutFigures.stripeFeeCents = settled.stripeFeeCents;
+          payoutFigures.providerTransferCents = settled.providerTransferCents;
+          payoutFigures.netPlatformFeeCents = settled.netPlatformFeeCents;
+          settlementReady = true;
+          console.log('Fee breakdown:', {
+            totalAmountPaid: centsToDollars(settled.chargeCents),
+            baseServiceAmount: centsToDollars(settled.baseCents),
+            platformFee: centsToDollars(settled.platformFeeCents),
+            stripeFee: centsToDollars(settled.stripeFeeCents),
+            providerReceives: centsToDollars(settled.providerTransferCents),
+          });
         },
         insertClaim: async () => {
           const { error } = await supabaseClient.from('platform_transactions').insert({
             customer_id: service.customer_id,
             provider_id: service.service_provider_id,
             service_id: serviceId,
-            total_amount: totalAmountPaid / 100,
-            platform_fee: platformFeeInCents / 100,
-            provider_amount: providerAmountDollars,
-            stripe_fee: processingFeeInCents / 100,
-            net_platform_fee: platformFeeInCents / 100,
+            total_amount: centsToDollars(payoutFigures.chargeCents),
+            platform_fee: centsToDollars(payoutFigures.platformFeeCents),
+            provider_amount: centsToDollars(payoutFigures.providerTransferCents),
+            stripe_fee: centsToDollars(payoutFigures.stripeFeeCents),
+            net_platform_fee: centsToDollars(payoutFigures.netPlatformFeeCents),
             stripe_charge_id: chargeId,
             stripe_payment_intent_id: service.payment_intent_id,
             status: PAYOUT_LEDGER_PENDING,
@@ -203,9 +232,13 @@ serve(async (req) => {
           if (!provider.stripe_account_id || !chargeId) {
             throw new Error('Provider payout is missing the charge or Connect account');
           }
+          if (!settlementReady || payoutFigures.providerTransferCents < 1) {
+            throw new Error(PAYOUT_UNFUNDED);
+          }
+          const providerAmountDollars = centsToDollars(payoutFigures.providerTransferCents);
           console.log('Transferring', providerAmountDollars, 'to provider', { serviceId, idempotencyKey });
           const transfer = await stripe.transfers.create({
-            amount: providerAmount,
+            amount: payoutFigures.providerTransferCents,
             currency: 'usd',
             destination: provider.stripe_account_id,
             source_transaction: chargeId,
@@ -217,7 +250,7 @@ serve(async (req) => {
               service_id: serviceId,
               customer_id: service.customer_id,
               provider_id: service.service_provider_id,
-              platform_fee: platformFeeInCents.toString(),
+              platform_fee: payoutFigures.platformFeeCents.toString(),
             },
           }, {
             idempotencyKey,
@@ -231,17 +264,18 @@ serve(async (req) => {
             transferId,
             status,
             chargeId,
-            totalAmountPaid,
-            platformFeeInCents,
-            processingFeeInCents,
-            providerAmountDollars,
+            totalAmountPaid: payoutFigures.chargeCents,
+            platformFeeInCents: payoutFigures.platformFeeCents,
+            stripeFeeInCents: payoutFigures.stripeFeeCents,
+            netPlatformFeeInCents: payoutFigures.netPlatformFeeCents,
+            providerAmountDollars: centsToDollars(payoutFigures.providerTransferCents),
           });
         },
         creditBalanceIfRecorded: async () => {
           return creditRecordedPayout(supabaseClient, {
             serviceId,
             providerId: service.service_provider_id,
-            providerAmountDollars,
+            providerAmountDollars: centsToDollars(payoutFigures.providerTransferCents),
           });
         },
         markServiceCompleted: async () => {
@@ -263,6 +297,13 @@ serve(async (req) => {
       .maybeSingle();
 
     const ledger = await readPayoutLedger(supabaseClient, serviceId);
+    const recordedAmounts = payout.created
+      ? null
+      : await readRecordedPayoutAmounts(supabaseClient, serviceId);
+    const totalAmountCharged = recordedAmounts?.total_amount ?? centsToDollars(payoutFigures.chargeCents);
+    const platformFee = recordedAmounts?.platform_fee ?? centsToDollars(payoutFigures.platformFeeCents);
+    const stripeFee = recordedAmounts?.stripe_fee ?? centsToDollars(payoutFigures.stripeFeeCents);
+    const providerAmount = recordedAmounts?.provider_amount ?? centsToDollars(payoutFigures.providerTransferCents);
 
     return completionResponse({
       success: true,
@@ -270,11 +311,12 @@ serve(async (req) => {
       charge_id: chargeId ?? ledger?.stripe_charge_id ?? null,
       transfer_id: payout.transferId,
       payment_intent_id: service.payment_intent_id,
-      total_amount_charged: totalAmountPaid / 100,
+      total_amount_charged: totalAmountCharged,
       service_price: service.price,
-      platform_fee: platformFeeInCents / 100,
-      processing_fee: processingFeeInCents / 100,
-      provider_amount: providerAmountDollars,
+      platform_fee: platformFee,
+      processing_fee: payout.created ? centsToDollars(quote.processingFeeCents) : stripeFee,
+      stripe_fee: stripeFee,
+      provider_amount: providerAmount,
       new_balance: freshProvider?.balance ?? provider.balance ?? 0,
       message: payout.created
         ? 'Service completed - payment captured to platform, then transferred to provider'
@@ -362,7 +404,12 @@ async function readPayoutLedger(supabaseClient, serviceId: string): Promise<Payo
   return choosePayoutLedger(data ?? []);
 }
 
-async function capturePaidCharge(stripe, paymentIntentId: string): Promise<string> {
+async function capturePaidCharge(stripe, paymentIntentId: string): Promise<{
+  chargeId: string;
+  chargeCents: number;
+  stripeFeeCents: number;
+  amountRefundedCents: number;
+}> {
   console.log('Customer payment authorized. Retrieving Payment Intent:', paymentIntentId);
 
   let paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
@@ -396,7 +443,32 @@ async function capturePaidCharge(stripe, paymentIntentId: string): Promise<strin
     throw new Error('Payment captured but no charge ID found. Please contact support.');
   }
 
-  return chargeId;
+  const charge = await stripe.charges.retrieve(chargeId, {
+    expand: ['balance_transaction'],
+  });
+  const chargeCents = charge?.amount;
+  const amountRefundedCents = Number.isInteger(charge?.amount_refunded) ? charge.amount_refunded : 0;
+  if (!Number.isInteger(chargeCents) || chargeCents <= 0) {
+    throw new Error('Stripe charge amount is missing. Please contact support.');
+  }
+
+  return {
+    chargeId,
+    chargeCents,
+    stripeFeeCents: await readStripeFeeCents(stripe, charge?.balance_transaction),
+    amountRefundedCents,
+  };
+}
+
+async function readStripeFeeCents(stripe, balanceTransaction): Promise<number> {
+  const loaded = typeof balanceTransaction === 'string'
+    ? await stripe.balanceTransactions.retrieve(balanceTransaction)
+    : balanceTransaction;
+  const fee = loaded?.fee;
+  if (!Number.isInteger(fee) || fee < 0) {
+    throw new Error('Stripe fee for this charge is not available yet. Retry completion.');
+  }
+  return fee;
 }
 
 function readChargeId(paymentIntent): string | null {
@@ -408,6 +480,26 @@ function readChargeId(paymentIntent): string | null {
   return paymentIntent.latest_charge.id ?? null;
 }
 
+async function readRecordedPayoutAmounts(supabaseClient, serviceId: string): Promise<{
+  total_amount?: number | null;
+  platform_fee?: number | null;
+  provider_amount?: number | null;
+  stripe_fee?: number | null;
+} | null> {
+  const { data, error } = await supabaseClient
+    .from('platform_transactions')
+    .select('total_amount, platform_fee, provider_amount, stripe_fee')
+    .eq('service_id', serviceId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Could not read recorded payout amounts:', error);
+    return null;
+  }
+  return data;
+}
+
 async function persistTransferId(supabaseClient, input: {
   service: { customer_id: string; service_provider_id: string; payment_intent_id: string };
   serviceId: string;
@@ -416,7 +508,8 @@ async function persistTransferId(supabaseClient, input: {
   chargeId: string | null;
   totalAmountPaid: number;
   platformFeeInCents: number;
-  processingFeeInCents: number;
+  stripeFeeInCents: number;
+  netPlatformFeeInCents: number;
   providerAmountDollars: number;
 }) {
   const current = await readPayoutLedger(supabaseClient, input.serviceId);
@@ -448,11 +541,11 @@ async function persistTransferId(supabaseClient, input: {
     customer_id: input.service.customer_id,
     provider_id: input.service.service_provider_id,
     service_id: input.serviceId,
-    total_amount: input.totalAmountPaid / 100,
-    platform_fee: input.platformFeeInCents / 100,
+    total_amount: centsToDollars(input.totalAmountPaid),
+    platform_fee: centsToDollars(input.platformFeeInCents),
     provider_amount: input.providerAmountDollars,
-    stripe_fee: input.processingFeeInCents / 100,
-    net_platform_fee: input.platformFeeInCents / 100,
+    stripe_fee: centsToDollars(input.stripeFeeInCents),
+    net_platform_fee: centsToDollars(input.netPlatformFeeInCents),
     ...(input.chargeId ? { stripe_charge_id: input.chargeId } : {}),
     stripe_transfer_id: input.transferId,
     stripe_payment_intent_id: input.service.payment_intent_id,
@@ -462,6 +555,15 @@ async function persistTransferId(supabaseClient, input: {
   if (insertError && !isUniqueViolation(insertError)) {
     throw new Error(`Failed to record transfer ${input.transferId}: ${insertError.message}`);
   }
+}
+
+function ledgerDollars(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 async function creditRecordedPayout(supabaseClient, input: {
@@ -474,12 +576,14 @@ async function creditRecordedPayout(supabaseClient, input: {
     .update({ status: PAYOUT_LEDGER_COMPLETED })
     .eq('service_id', input.serviceId)
     .eq('status', PAYOUT_LEDGER_TRANSFER_RECORDED)
-    .select('transaction_id');
+    .select('transaction_id, provider_amount');
 
   if (winError) {
     throw new Error(`Failed to record payout before crediting balance: ${winError.message}`);
   }
   if (!won || won.length === 0) return 'already';
+
+  const providerAmountDollars = ledgerDollars(won[0]?.provider_amount, input.providerAmountDollars);
 
   const { data: latest, error: readError } = await supabaseClient
     .from('service_provider')
@@ -492,7 +596,7 @@ async function creditRecordedPayout(supabaseClient, input: {
     throw new Error(`Failed to update provider balance: ${readError.message}`);
   }
 
-  const newBalance = (latest?.balance || 0) + input.providerAmountDollars;
+  const newBalance = (latest?.balance || 0) + providerAmountDollars;
   const { error: balanceError } = await supabaseClient
     .from('service_provider')
     .update({ balance: newBalance })

@@ -94,13 +94,13 @@ Customer select-a-pro sends `amount`, `payment_method_id`, `service_id`, and `cu
 - The JWT user must own that service: `auth.users.id` equals `service.customer_id`, or the auth user's email matches `customer.email` for that `service.customer_id` (case-insensitive). Otherwise **403**.
 - Client `customer_id`, if sent, must equal `service.customer_id`. The charge uses the service's customer id and that row's email. A client email or customer id is not a way to point the charge at someone else. Mismatch → **400**.
 - `payment_method_id` must be a `payment_methods.stripe_pm_id` whose `user_id` is the auth user or that `customer_id`. On Stripe, the PaymentMethod must be unattached or already attached to the Stripe customer for that booking email. Otherwise **403**. A new charge is not created.
-- Amount is computed on the server with the same cents rule as today (`bookingChargeCents`: base + 3% processing + 1% platform). While any fill request has a usable `bid`, that bid is the base — not `service.price`, which is still the customer's estimate until accept copies the bid. If the client sends `amount`, it must equal one of those server totals or the call is **400** and nothing is charged. If several bids produce different totals, the client `amount` or `service_provider_id` has to select exactly one; otherwise **400**. After accept, when fill requests are gone, `service.price` is the copied bid and a retry uses `bookingChargeCents(service.price)`.
+- Amount is computed on the server with `bookingChargeCents` / `quoteBookingFees` (see Fees below): base + 3% processing + 1% platform. While any fill request has a usable `bid`, that bid is the base — not `service.price`, which is still the customer's estimate until accept copies the bid. If the client sends `amount`, it must equal one of those server totals or the call is **400** and nothing is charged. If several bids produce different totals, the client `amount` or `service_provider_id` has to select exactly one; otherwise **400**. After accept, when fill requests are gone, `service.price` is the copied bid and a retry uses `bookingChargeCents(service.price)`.
 - A new PaymentIntent is created only while the job is open and unassigned (`finding_pros`, `pending`, `scheduled`, or `select_service_provider`, and no `service_provider_id`). A later call for an assigned or already-confirmed job returns the stored PaymentIntent when it is reusable and the server amount matches. It does not create another charge.
 - There is no charge without a `service_id`.
 
 On that path the function still confirms the PaymentIntent and writes `payment_intent_id` onto the `service` row. It does not set `payment_status` or `service.status`. The write is retried. It only fills `payment_intent_id` when the column is empty or already that id. If a different reusable PaymentIntent is already stored, the extra PaymentIntent is refunded or canceled and the stored id is returned. If the service row is gone after the charge, the PaymentIntent is refunded or canceled and the call returns an error.
 
-**Fee note (not changed here):** this charge total is bid + 3% + 1%. `complete-service` still computes the transfer from `service.price` as 1% platform + 2.9% + $0.30. Those formulas are not unified in this contract.
+**Fees:** checkout, the customer payment summary, and `complete-service` use the model in the Fees section below. The charge total is bid + 3% + 1%.
 
 **AutoFill (`use_saved_payment_method: true`):** provider `landing.tsx` calls this after inserting the fill request. Omit `amount` and `payment_method_id`. Required: `service_id`, `customer_id`, and the provider's JWT. The function checks the job is still open AutoFill (`finding_pros` or `select_service_provider`, no `service_provider_id`), reads that provider's fill-request `bid`, and charges the same total as select-helpr (bid + 3% processing + 1% platform, in cents). It loads the customer's saved card from `payment_methods` (auth user for `customer.email`, else `customer_id`) and confirms off-session. If the client also sends `amount` or `payment_method_id`, those values must match the server amount and saved card or the call is rejected (**400** / **403**) and the server values are not overridden. It returns success only when `status` is `succeeded`. Any other status is canceled and returned as an error. This path does **not** write `payment_intent_id`; the winning claim update is the writer.
 
@@ -141,7 +141,7 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 }
 ```
 
-`platformFeePercent` and `skipCustomerCharge` are accepted by the client today; the deployed body requires an existing paid `payment_intent_id` and uses its own fee math (1% platform + 2.9% + $0.30). This authorization check does not change that fee math.
+`platformFeePercent` and `skipCustomerCharge` may still be sent. ServiceDetails sends `platformFeePercent: 0.15`. The function ignores both fields. The platform rate is 1% of the service price, not 15%. Settlement uses the Fees section below. The body still requires an existing paid `payment_intent_id`. This does not change the provider JWT check or the transfer idempotency key.
 
 **Auth:** `Authorization: Bearer <user access token>`. Provider `ServiceDetails.tsx` calls `supabase.functions.invoke('complete-service', ...)`, which sends the signed-in provider's JWT. The handler calls `auth.getUser(jwt)` and does not trust `user_metadata`. Missing or invalid token → **401**. Missing server configuration → **500**. No capture or transfer runs. `verify_jwt` stays true. An anon or publishable JWT is not a provider session; `getUser()` rejects it.
 
@@ -162,9 +162,31 @@ Otherwise **403**. A client body cannot name a different provider. A 401, 403, o
 
 Ledger `status` values written here: `payout_pending`, `transfer_recorded`, `completed`. These are not `service.status`.
 
-**Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, ... }`
+**Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, "processing_fee": 0, "stripe_fee": 0, ... }`
+
+`provider_amount` is the transfer in dollars. It is the service price unless that price is greater than the charge minus refunds minus Stripe's fee, in which case it is the smaller available amount. `processing_fee` is the contractual 3% on a new completion. `stripe_fee` is the Stripe balance-transaction fee. A replay echoes the ledger amounts already stored for that service.
 
 **Error:** `{ "success": false, "error": "" }` with HTTP 401 (not signed in), 403 (caller is not the assigned provider), or 500 (server cannot verify the caller). Other payout failures stay HTTP 200 so the client can read `error`. C must not invent a different completion path without updating this contract. A 401 or 403 is an invoke error; C does not write `completed` on that path.
+
+### Fees
+
+Checkout (`create-payment-intent`), the customer payment summary, and `complete-service` share one model. Helper: `apps/serviceprovider-app/supabase/functions/_shared/bookingFees.ts`. The summary uses the same rates and rounding in `apps/customer-app/src/components/services/PaymentSummaryModal/fees.ts`. Customer `select-helpr.tsx` still inlines the same cents rule; the server rejects a client `amount` that does not match it.
+
+- Processing fee: 3% of the service price (the bid).
+- Platform fee: 1% of the service price.
+- Customer charge: price + those two fees. Each fee is rounded to the nearest cent, then the total is rounded to the nearest cent (`quoteBookingFees` / `bookingChargeCents`).
+
+There is no 15% platform fee and no separate 2.9% + $0.30 customer charge. `platformFeePercent` from the client is not applied.
+
+On completion the ledger matches the captured charge:
+
+- `total_amount` is the Stripe charge amount in dollars.
+- `platform_fee` is the contractual 1%.
+- `stripe_fee` is the Stripe balance-transaction fee, not an estimate.
+- The provider transfer is the service price in cents, capped at `charge amount - amount refunded - Stripe fee`. It cannot exceed funds left on that charge. Provider `balance` is credited by that transfer amount.
+- `net_platform_fee` is what remains after the Stripe fee and the transfer.
+
+A charge that cannot cover a 1-cent transfer does not create a transfer and does not mark the service `completed`.
 
 ### `create-connect-account`
 

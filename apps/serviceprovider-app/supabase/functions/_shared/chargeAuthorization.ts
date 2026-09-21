@@ -2,8 +2,8 @@ import { bookingChargeCents, parseBidDollars } from './autofillPayment.ts'
 
 /**
  * Customer confirm and AutoFill both charge with bookingChargeCents
- * (bid + 3% processing + 1% platform). complete-service still settles with
- * 1% platform + 2.9% + $0.30. Those formulas are intentionally not unified here.
+ * (bid + 3% processing + 1% platform). complete-service settles that same
+ * quote and caps the transfer at the charge minus Stripe's fee.
  */
 export const CHARGE_SIGN_IN = 'Sign in again before confirming this booking.'
 export const CHARGE_FORBIDDEN = 'You cannot charge this booking.'
