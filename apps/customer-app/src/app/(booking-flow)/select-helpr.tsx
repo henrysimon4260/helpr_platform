@@ -11,6 +11,13 @@ import { useModal } from '../../context/ModalContext';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
 import { readPaymentIntentId } from '../../lib/readPaymentIntentId';
 import { supabase } from '../../lib/supabase';
+import {
+  OPEN_UNASSIGNED_STATUSES,
+  confirmAssignmentOutcome,
+  isOpenUnassignedJob,
+  lostConfirmShouldReleaseCharge,
+  type OpenJobSnapshot,
+} from './confirmOpenJob';
 
 type ServiceFillRequestRow = {
   service_provider_id: string;
@@ -409,6 +416,80 @@ const SelectHelpr = () => {
     }
   }, [cardComplete, user?.id, savingPaymentMethod, createPaymentMethod, cardDetailsSnapshot, showModal]);
 
+  const confirmOpenService = useCallback(async (
+    updateData: {
+      service_provider_id: string;
+      status: string;
+      price: number;
+      scheduled_date_time?: string;
+      payment_status?: string;
+      payment_intent_id?: string;
+    },
+    selectedProviderId: string,
+    paymentIntentId: string | null,
+  ): Promise<{ outcome: 'won' | 'lost' | 'unchanged'; service: OpenJobSnapshot | null }> => {
+    if (!serviceId) {
+      throw new Error('Missing service reference.');
+    }
+
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('service')
+      .update(updateData)
+      .eq('service_id', serviceId)
+      .in('status', [...OPEN_UNASSIGNED_STATUSES])
+      .is('service_provider_id', null)
+      .select('service_id');
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    const updatedCount = updatedRows?.length ?? 0;
+    if (updatedCount > 0) {
+      return { outcome: 'won', service: null };
+    }
+
+    const { data: currentJob, error: readError } = await supabase
+      .from('service')
+      .select('status, service_provider_id, payment_intent_id')
+      .eq('service_id', serviceId)
+      .maybeSingle();
+
+    if (readError) {
+      throw readError;
+    }
+
+    return {
+      outcome: confirmAssignmentOutcome({
+        updatedCount,
+        selectedProviderId,
+        paymentIntentId,
+        service: currentJob,
+      }),
+      service: currentJob,
+    };
+  }, [serviceId]);
+
+  const releaseLostConfirmCharge = useCallback(async (paymentIntentId: string): Promise<boolean> => {
+    if (!serviceId) {
+      return false;
+    }
+
+    const { data, error } = await supabase.functions.invoke('void-unclaimed-payment', {
+      body: {
+        paymentIntentId,
+        service_id: serviceId,
+      },
+    });
+
+    if (error || data?.voided !== true) {
+      console.error('Failed to void confirm charge after lost race:', error, data);
+      return false;
+    }
+
+    return true;
+  }, [serviceId]);
+
   // Handle confirming the booking with payment
   const handleConfirmBooking = useCallback(async () => {
     if (confirmInFlight.current) return;
@@ -444,6 +525,24 @@ const SelectHelpr = () => {
         showModal({
           title: 'Account Error',
           message: 'Unable to find your customer account. Please try again.',
+        });
+        return;
+      }
+
+      const { data: openRow, error: openError } = await supabase
+        .from('service')
+        .select('status, service_provider_id')
+        .eq('service_id', serviceId)
+        .maybeSingle();
+
+      if (openError) {
+        throw openError;
+      }
+
+      if (!isOpenUnassignedJob(openRow)) {
+        showModal({
+          title: 'Job no longer available',
+          message: 'This job was just assigned to a Helpr, so it can no longer be confirmed.',
         });
         return;
       }
@@ -579,13 +678,32 @@ const SelectHelpr = () => {
         updateData.scheduled_date_time = fillRequestData.proposed_date_time;
       }
 
-      const { error: updateError } = await supabase
-        .from('service')
-        .update(updateData)
-        .eq('service_id', serviceId);
+      const { outcome, service: assignedJob } = await confirmOpenService(
+        updateData,
+        selectedRequest.service_provider_id,
+        paymentIntentId,
+      );
 
-      if (updateError) {
-        throw updateError;
+      if (outcome === 'lost') {
+        const shouldRelease = lostConfirmShouldReleaseCharge(assignedJob, paymentIntentId);
+        const released = shouldRelease
+          ? await releaseLostConfirmCharge(paymentIntentId)
+          : false;
+        showModal({
+          title: 'Job no longer available',
+          message: released
+            ? 'This job was just assigned to a Helpr, so your booking was not confirmed. The charge was reversed.'
+            : shouldRelease
+              ? 'This job was just assigned to a Helpr, so your booking was not confirmed. We could not reverse the charge. Contact support before trying again.'
+              : 'This job was just assigned to a Helpr, so your booking was not confirmed.',
+        });
+        setShowPaymentSummary(false);
+        setSelectedRequest(null);
+        return;
+      }
+
+      if (outcome !== 'won') {
+        throw new Error('Booking update did not apply');
       }
 
       // Delete all service fill requests for this service
@@ -621,7 +739,7 @@ const SelectHelpr = () => {
       confirmInFlight.current = false;
       setConfirming(false);
     }
-  }, [selectedRequest, serviceId, activePaymentMethodId, user?.id, savedPaymentMethods, confirmPayment, showModal]);
+  }, [selectedRequest, serviceId, activePaymentMethodId, user?.id, savedPaymentMethods, confirmPayment, showModal, confirmOpenService, releaseLostConfirmCharge]);
 
   const handleSelectProvider = useCallback(
     async (request: ProviderRequestDisplay) => {
@@ -661,13 +779,23 @@ const SelectHelpr = () => {
           updateData.scheduled_date_time = fillRequestData.proposed_date_time;
         }
 
-        const { error: updateError } = await supabase
-          .from('service')
-          .update(updateData)
-          .eq('service_id', serviceId);
+        const { outcome } = await confirmOpenService(
+          updateData,
+          request.service_provider_id,
+          null,
+        );
 
-        if (updateError) {
-          throw updateError;
+        if (outcome === 'lost') {
+          showModal({
+            title: 'Job no longer available',
+            message: 'This job was just assigned to a Helpr, so it can no longer be confirmed.',
+          });
+          setSelectingProviderId(null);
+          return;
+        }
+
+        if (outcome !== 'won') {
+          throw new Error('Booking update did not apply');
         }
 
         // Delete all service fill requests for this service
@@ -700,7 +828,7 @@ const SelectHelpr = () => {
         setSelectingProviderId(null);
       }
     },
-    [serviceId, showModal],
+    [serviceId, showModal, confirmOpenService],
   );
 
   const renderContent = () => {

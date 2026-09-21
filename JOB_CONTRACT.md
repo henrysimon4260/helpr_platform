@@ -14,7 +14,7 @@ Use these spellings exactly. Do not substitute aliases (`helpr_otw`, not `on_the
 | `pending` | Legacy / unused on write. Provider feed still reads it. | Do not start writing this for new work. |
 | `scheduled` | Legacy / unused on write. Provider feed still reads it. Distinct from `scheduling_type: 'scheduled'`. | Do not start writing this for new work. |
 | `select_service_provider` | Provider app (C) | First non-AutoFill bid while status is `finding_pros`. |
-| `confirmed` | Customer app (B) on select-a-pro. Provider app (C) on AutoFill claim. | Assigns `service_provider_id`, copies bid into `price`, copies `proposed_date_time` into `scheduled_date_time` when present. AutoFill may write `confirmed` only in the same update as `payment_status: 'paid'` and `payment_intent_id`, after `create-payment-intent` returns `succeeded`. No saved card or a failed charge leaves the job unconfirmed. |
+| `confirmed` | Customer app (B) on select-a-pro. Provider app (C) on AutoFill claim. | Assigns `service_provider_id`, copies bid into `price`, copies `proposed_date_time` into `scheduled_date_time` when present. Customer confirm may write this only in a conditional update that still matches `service_provider_id` null and status `finding_pros`, `pending`, `scheduled`, or `select_service_provider`. Zero rows means the job was already assigned. Do not overwrite that assignment. AutoFill may write `confirmed` only in the same update as `payment_status: 'paid'` and `payment_intent_id`, after `create-payment-intent` returns `succeeded`. No saved card or a failed charge leaves the job unconfirmed. |
 | `helpr_otw` | Provider app (C) | From `confirmed` via Service Details (“I'm on the way”). |
 | `in_progress` | Provider app (C) | From `helpr_otw` via Service Details (“Start Service”). |
 | `completed` | Edge function `complete-service` (invoked by C). | From `in_progress` (“Complete Service”). The function writes this status after capture/transfer. |
@@ -38,7 +38,7 @@ A bid / interest row. One provider per service until deleted.
 
 **Insert:** Provider (C) when requesting a job. AutoFill jobs still insert a row, then immediately assign or roll back.
 
-**Accept:** Customer (B) selects a provider, or C AutoFill wins the claim. On accept: set `service` to `confirmed`, copy `bid` / `proposed_date_time`, then delete **all** fill requests for that `service_id`. AutoFill charges first via `create-payment-intent` (`use_saved_payment_method: true`). The winning claim update also writes `payment_status: 'paid'` and `payment_intent_id`. If the charge fails, or the claim loses the race, the job is not confirmed and that provider’s fill request is removed. A lost race refunds or cancels the PaymentIntent through `void-unclaimed-payment`.
+**Accept:** Customer (B) selects a provider, or C AutoFill wins the claim. On accept: set `service` to `confirmed`, copy `bid` / `proposed_date_time`, then delete **all** fill requests for that `service_id`. Customer select-a-pro deletes fill requests only after that conditional update matches a row. A lost customer confirm does not delete them and does not change `service_provider_id`, status, price, or `payment_intent_id`. AutoFill charges first via `create-payment-intent` (`use_saved_payment_method: true`). The winning claim update also writes `payment_status: 'paid'` and `payment_intent_id`. If the charge fails, or the claim loses the race, the job is not confirmed and that provider’s fill request is removed. A lost race refunds or cancels the PaymentIntent through `void-unclaimed-payment`. A customer confirm that already charged and then loses the open-job update does the same when that PaymentIntent is not already the payment on a workable job.
 
 **Delete:**
 
@@ -94,13 +94,13 @@ Customer select-a-pro sends `amount`, `payment_method_id`, `service_id`, and `cu
 
 **Response:** `{ "clientSecret", "status", "paymentIntentId" }`
 
-Customer `select-helpr.tsx` ignores an overlapping confirm tap. It treats `status === 'succeeded'` or `processing` as already charged, or uses `clientSecret` for PaymentSheet, then writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together. It does not mark the row paid when the PaymentIntent id is missing. If that booking update fails after a charge, the customer taps confirm again and the function reuses the PaymentIntent. Provider AutoFill writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together, and only after `status === 'succeeded'` and a non-empty `paymentIntentId`. AutoFill does not mark the row confirmed or paid when the PaymentIntent id is missing.
+Customer `select-helpr.tsx` ignores an overlapping confirm tap. It treats `status === 'succeeded'` or `processing` as already charged, or uses `clientSecret` for PaymentSheet, then writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together only while `service_provider_id` is null and status is `finding_pros`, `pending`, `scheduled`, or `select_service_provider`. It does not mark the row paid when the PaymentIntent id is missing. If that conditional update matches no row, the assigned job is left as-is. A charge that is not already the payment on a workable job (`confirmed`, `helpr_otw`, `in_progress`, `completed`) is released through `void-unclaimed-payment`. If the booking update errors, the customer taps confirm again and the function reuses the PaymentIntent. That error path does not void. Provider AutoFill writes `confirmed`, `payment_status: 'paid'`, and `payment_intent_id` together, and only after `status === 'succeeded'` and a non-empty `paymentIntentId`. AutoFill does not mark the row confirmed or paid when the PaymentIntent id is missing.
 
 **Error:** `{ "error": "" }`
 
 ### `void-unclaimed-payment`
 
-Invoked by provider `landing.tsx` when an AutoFill charge succeeded but the claim update did not win. Source: `apps/serviceprovider-app/supabase/functions/void-unclaimed-payment/index.ts`.
+Invoked by provider `landing.tsx` when an AutoFill charge succeeded but the claim update did not win, and by customer `select-helpr.tsx` when a confirm charge succeeded but the open-job update matched no row. Source: `apps/serviceprovider-app/supabase/functions/void-unclaimed-payment/index.ts`.
 
 **Request:** `{ "paymentIntentId": "", "service_id": "" }`
 
