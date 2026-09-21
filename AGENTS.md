@@ -21,6 +21,8 @@ Exact spellings. Do not invent aliases (`helpr_otw`, not `on_the_way`). Who may 
 
 `finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
 
+Customer cancel ends the job at `cancelled` from any status before `helpr_otw` (`finding_pros`, `pending`, `scheduled`, `select_service_provider`, `confirmed`).
+
 ## The six lanes
 
 | Agent | Primary app | Follow-up | Owns |

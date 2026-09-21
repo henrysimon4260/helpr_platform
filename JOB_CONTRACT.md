@@ -18,12 +18,25 @@ Use these spellings exactly. Do not substitute aliases (`helpr_otw`, not `on_the
 | `helpr_otw` | Provider app (C) | From `confirmed` via Service Details (“I'm on the way”). |
 | `in_progress` | Provider app (C) | From `helpr_otw` via Service Details (“Start Service”). |
 | `completed` | Edge function `complete-service` (invoked by C). | From `in_progress` (“Complete Service”). The function writes this status after capture/transfer. |
+| `cancelled` | Customer app (B) only. | Customer cancel from `finding_pros`, `pending`, `scheduled`, `select_service_provider`, or `confirmed` (paid or unpaid). Terminal. Keep the service row, `service_provider_id`, `price`, `payment_status`, and `payment_intent_id` for audit. Do not write this from `helpr_otw`, `in_progress`, or `completed`. |
 
-There is no `cancelled` status yet. Do not add one in a screen. Agent B specifies it here first (who may set it, from which statuses, and how the other app treats those rows). Then C implements against that paragraph.
+Provider app (C) does not write `cancelled`. A provider backing out of a confirmed job is an unassign: set `finding_pros` and clear `service_provider_id` (see fill-request delete below). C excludes `cancelled` from the open feed (the feed allowlist already omits it) and must not advance a `cancelled` row. A later C session may show these rows as closed; do not return them to the feed.
 
 ### Machine
 
 `finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+
+Customer cancel (terminal): `finding_pros` / `pending` / `scheduled` / `select_service_provider` / `confirmed` → `cancelled`
+
+### Customer cancel
+
+B sets `status: 'cancelled'` with an update guarded on the current cancellable status. Never `DELETE` the `service` row.
+
+Then delete **all** `service_fill_request` rows for that `service_id` so open bids do not survive a cancelled job. If that cleanup fails, the row stays `cancelled`; do not roll the status back and do not delete the service.
+
+Paid jobs (`payment_status: 'paid'`, including `confirmed`) use the same cancel. Leave `payment_status` and `payment_intent_id` unchanged. The refund signal is `status = 'cancelled'` AND `payment_status = 'paid'`. Stripe refund / webhooks belong to the payments lane (E, HLP-43). B does not call Stripe.
+
+`helpr_otw`, `in_progress`, and `completed` are not customer-cancellable here (provider already traveling, work started, or finished).
 
 ## `service_fill_request`
 
@@ -44,7 +57,8 @@ A bid / interest row. One provider per service until deleted.
 
 - All rows for the service, after customer select-a-pro or successful AutoFill.
 - That provider’s row, if AutoFill loses the race or assignment fails.
-- That provider’s row, if the assigned provider cancels a confirmed job (C also sets status back to `finding_pros` and clears `service_provider_id` — until B specifies a real `cancelled` status).
+- That provider’s row, if the assigned provider unassigns a confirmed job (C sets status back to `finding_pros` and clears `service_provider_id`). That path is not `cancelled`.
+- All rows for the service, after the customer sets `cancelled`.
 
 ## Ratings
 
