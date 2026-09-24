@@ -72,7 +72,7 @@ Clients display this quote. They do not invent a second rate. This file does not
 
 ### `zones.ts`
 
-The eight inclusive bounding boxes that were copied in `moving.utils.ts` and the five composers: Manhattan, Brooklyn, Queens, Bronx, Staten Island, Westchester County, Hudson County, Bergen County. Coordinates are unchanged. HLP-40 is the ticket that may retune them.
+The eight inclusive bounding boxes: Manhattan, Brooklyn, Queens, Bronx, Staten Island, Westchester County, Hudson County, Bergen County. Coordinates are the historical rectangles. HLP-40 deleted the composer copies so every form imports this module. The boxes still include water and some land outside the named county. Retuning them is a follow-up; this module does not invent a tighter shoreline.
 
 ## First cut wiring
 
@@ -82,13 +82,14 @@ The eight inclusive bounding boxes that were copied in `moving.utils.ts` and the
 | Provider `ServiceDetails.tsx` | `animationFrameForStatus`, `nextProviderCheckpointStatus` |
 | Provider `landing.tsx` | `OPEN_FEED_STATUSES`, `IN_PROGRESS_FEED_STATUSES` |
 | Customer `moving/moving.utils.ts` | re-exports the zone helpers |
+| Customer cleaning, furniture-assembly, home-improvement, wall-mounting, custom-service | `isWithinServiceArea` |
 
-The moving module is the composer template. The five ~4.3k clones still contain their own box lists. A unit test fails if those lists diverge from `zones.ts`.
+The moving module is the composer template. The five form screens import the same zone helper. A unit test fails if a composer pastes the coordinates again.
 
 ## Follow-ups
 
 - **HLP-53** (unify the progress machines): replace the remaining inline status lists. Provider `landing.tsx` still builds a mixed-case `statusesToQuery` (`Finding_Pros`, `Helpr_Otw`, …) and a long `||` filter. Customer `booked-services.tsx` still branches on raw strings. Do not canonize the mixed-case aliases. When PR #15 lands `cancelled`, add that spelling to the contract first, then to `status.ts`, then sync.
-- **HLP-40** (zone boxes copied 6x): point `cleaning.tsx`, `furniture-assembly.tsx`, `home-improvement.tsx`, `wall-mounting.tsx`, and `custom-service.tsx` at `helpr-core/zones`, then delete their local arrays. Retuning boxes for water or over-included counties is part of that ticket, not this one.
+- **Zone bounds** (follow-up after HLP-40): the shared rectangles still cover water, including New York Harbor inside the Manhattan box, and they overlap (Jersey City matches both Hudson County and Manhattan). Tighten them only from an agreed shoreline or county boundary. Do not change the numbers in a drive-by.
 - **HLP-39 remainder** (fees): after PR #24 merges, change `_shared/bookingFees.ts` `quoteBookingFees` and `PaymentSummaryModal/fees.ts` so they re-export `helpr-core/fees.ts`. Keep `settleBookingFees` in the edge module. Do not change the 3% and 1% rates. Do not rewrite `salesTax.ts` (HLP-58, PR #29) or `quote-service-price` (HLP-47, PR #28). `select-helpr.tsx` can then call `quoteBookingFees` instead of inlining the same formula. Until that lands, the HLP-39 test still requires those screens to use 3% and 1% or to call this helper.
 
 ## Verify

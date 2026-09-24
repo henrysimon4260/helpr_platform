@@ -66,14 +66,6 @@ export type MovingAnalysisResult = {
   missingStreetNumberTargets: Array<'start' | 'end'>;
 };
 
-export type ServiceZoneBoundingBox = {
-  name: string;
-  minLat: number;
-  maxLat: number;
-  minLng: number;
-  maxLng: number;
-};
-
 export type MovingQuestionsState = {
   apartmentSize: string;
   packingStatus: '' | 'packed' | 'not-packed';

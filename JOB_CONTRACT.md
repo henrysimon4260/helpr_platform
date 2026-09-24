@@ -29,7 +29,7 @@ There is no `cancelled` status yet. Do not add one in a screen. Agent B specifie
 
 The spellings in the table are the contract. The runnable list, open-feed sets, provider checkpoint order (`confirmed` → `helpr_otw` → `in_progress` → `completed`), and the service-details animation frames are `shared/helpr-core/status.ts`. Apps import the synced copy under `src/lib/helpr-core/`. Add a status in this file first, then in that module. Do not add `cancelled` to the module until this contract lists it.
 
-The checkout quote (3% processing + 1% platform, each rounded to the nearest cent, then the total rounded to the nearest cent) is `shared/helpr-core/fees.ts`. Clients display that quote. They do not invent a second rate. It does not settle provider transfers and it does not import sales tax. Service-area bounding boxes are `shared/helpr-core/zones.ts`.
+The checkout quote (3% processing + 1% platform, each rounded to the nearest cent, then the total rounded to the nearest cent) is `shared/helpr-core/fees.ts`. Clients display that quote. They do not invent a second rate. It does not settle provider transfers and it does not import sales tax. Service-area bounding boxes and `isWithinServiceArea` are `shared/helpr-core/zones.ts`. Composers import that module. The eight rectangles are the historical boxes; they still include water and some land outside the named county.
 
 Sharing rules, without a `packages/` folder: [`docs/shared-status-fee-zone.md`](docs/shared-status-fee-zone.md).
 

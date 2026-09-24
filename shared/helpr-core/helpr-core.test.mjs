@@ -130,6 +130,12 @@ test('inlined customer fee screens still use 3% and 1%', () => {
   }
 });
 
+function zoneByName(name) {
+  const zone = ALLOWED_SERVICE_ZONES.find((entry) => entry.name === name);
+  assert.ok(zone, name);
+  return zone;
+}
+
 test('service area boxes match the historical eight zones', () => {
   assert.deepEqual(
     ALLOWED_SERVICE_ZONES.map((zone) => zone.name),
@@ -144,23 +150,75 @@ test('service area boxes match the historical eight zones', () => {
       'Bergen County',
     ],
   );
+});
 
-  const manhattan = ALLOWED_SERVICE_ZONES[0];
-  assert.equal(isWithinServiceZone({ latitude: 40.758, longitude: -73.9855 }, manhattan), true);
-  assert.equal(isWithinServiceZone({ latitude: manhattan.minLat, longitude: manhattan.minLng }, manhattan), true);
-  assert.equal(isWithinServiceArea({ latitude: 40.6782, longitude: -73.9442 }), true);
-  assert.equal(isWithinServiceArea({ latitude: 42.3601, longitude: -71.0589 }), false);
+test('point-in-zone accepts a known interior of each box and inclusive edges', () => {
+  const interiors = [
+    ['Manhattan', 40.7484, -73.9857],
+    ['Brooklyn', 40.6782, -73.9442],
+    ['Queens', 40.7675, -73.833],
+    ['Bronx', 40.8296, -73.9262],
+    ['Staten Island', 40.6437, -74.0776],
+    ['Westchester County', 41.034, -73.7629],
+    ['Hudson County', 40.7178, -74.0431],
+    ['Bergen County', 40.8859, -74.0435],
+  ];
+
+  for (const [name, latitude, longitude] of interiors) {
+    const coordinate = { latitude, longitude };
+    assert.equal(isWithinServiceZone(coordinate, zoneByName(name)), true, name);
+    assert.equal(isWithinServiceArea(coordinate), true, name);
+  }
+
+  const manhattan = zoneByName('Manhattan');
+  assert.equal(
+    isWithinServiceZone({ latitude: manhattan.minLat, longitude: manhattan.minLng }, manhattan),
+    true,
+  );
+  assert.equal(
+    isWithinServiceZone({ latitude: manhattan.maxLat, longitude: manhattan.maxLng }, manhattan),
+    true,
+  );
+
+  const statenIsland = zoneByName('Staten Island');
+  assert.equal(isWithinServiceArea({ latitude: statenIsland.minLat, longitude: -74.15 }), true);
+  assert.equal(isWithinServiceArea({ latitude: statenIsland.minLat - 0.0001, longitude: -74.15 }), false);
+
+  const westchester = zoneByName('Westchester County');
+  assert.equal(
+    isWithinServiceArea({ latitude: westchester.maxLat, longitude: westchester.maxLng }),
+    true,
+  );
+  assert.equal(
+    isWithinServiceArea({ latitude: westchester.maxLat, longitude: westchester.maxLng + 0.0001 }),
+    false,
+  );
+});
+
+test('point-in-zone rejects points outside every box', () => {
+  const outside = [
+    ['Boston', 42.3601, -71.0589],
+    ['Philadelphia', 39.9526, -75.1652],
+    ['west of Staten Island', 40.55, -74.26],
+    ['north of Westchester', 41.358, -73.8],
+    ['Montauk', 41.0359, -71.9545],
+  ];
+  for (const [name, latitude, longitude] of outside) {
+    assert.equal(isWithinServiceArea({ latitude, longitude }), false, name);
+  }
   assert.equal(isWithinServiceArea(null), false);
   assert.equal(isWithinServiceArea(undefined), false);
 });
 
-test('composer zone copies still match the canonical boxes', () => {
-  const canonical = fs.readFileSync(path.join(root, 'shared/helpr-core/zones.ts'), 'utf8');
-  const boxLines = canonical
-    .split('\n')
-    .filter((line) => line.includes("name: '") && line.includes('minLat:'));
-  assert.equal(boxLines.length, 8);
+test('current boxes still over-include harbor water', () => {
+  // New York Harbor near Governors Island is inside the Manhattan rectangle.
+  // This locks the historical box. It is not a desired shoreline.
+  const harbor = { latitude: 40.6895, longitude: -74.016 };
+  assert.equal(isWithinServiceZone(harbor, zoneByName('Manhattan')), true);
+  assert.equal(isWithinServiceArea(harbor), true);
+});
 
+test('composers import shared zones instead of local boxes', () => {
   const composers = [
     'apps/customer-app/src/app/(services)/cleaning.tsx',
     'apps/customer-app/src/app/(services)/furniture-assembly.tsx',
@@ -170,15 +228,53 @@ test('composer zone copies still match the canonical boxes', () => {
   ];
   for (const relativePath of composers) {
     const source = fs.readFileSync(path.join(root, relativePath), 'utf8');
-    for (const line of boxLines) {
-      assert.equal(source.includes(line.trim()), true, `${relativePath} missing ${line.trim()}`);
-    }
+    assert.equal(source.includes("from '../../lib/helpr-core/zones'"), true, relativePath);
+    assert.equal(source.includes('minLat'), false, relativePath);
+    assert.equal(source.includes('ALLOWED_SERVICE_ZONES'), false, relativePath);
   }
 
   const movingUtils = fs.readFileSync(
     path.join(root, 'apps/customer-app/src/app/(services)/moving/moving.utils.ts'),
     'utf8',
   );
-  assert.equal(movingUtils.includes('helpr-core/zones'), true);
-  assert.equal(movingUtils.includes('minLat: 40.6808'), false);
+  assert.equal(movingUtils.includes("from '../../../lib/helpr-core/zones'"), true);
+  assert.equal(movingUtils.includes('minLat'), false);
+
+  const movingTypes = fs.readFileSync(
+    path.join(root, 'apps/customer-app/src/app/(services)/moving/moving.types.ts'),
+    'utf8',
+  );
+  assert.equal(movingTypes.includes('ServiceZoneBoundingBox'), false);
+});
+
+test('zone coordinates live only in synced helpr-core copies', () => {
+  const allowed = new Set([
+    'shared/helpr-core/zones.ts',
+    'apps/customer-app/src/lib/helpr-core/zones.ts',
+    'apps/serviceprovider-app/src/lib/helpr-core/zones.ts',
+    'apps/serviceprovider-app/supabase/functions/_shared/helpr-core/zones.ts',
+  ]);
+  // Split so this file does not itself contain the coordinate literal.
+  const needle = 'minLat: ' + '40.6808';
+  const hits = [];
+
+  function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === '.git') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.(ts|tsx|js|mjs|md)$/.test(entry.name)) continue;
+      const relativePath = path.relative(root, full);
+      const source = fs.readFileSync(full, 'utf8');
+      if (source.includes(needle) && !allowed.has(relativePath)) {
+        hits.push(relativePath);
+      }
+    }
+  }
+
+  walk(root);
+  assert.deepEqual(hits, []);
 });

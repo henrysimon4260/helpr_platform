@@ -3,11 +3,13 @@
 // Copies must stay byte-identical. Plan: docs/shared-status-fee-zone.md
 
 /**
- * Service-area bounding boxes copied historically in moving.utils and the
- * five service composers. Boxes are inclusive on every edge.
+ * Service-area bounding boxes. Inclusive on every edge.
  *
- * HLP-40 owns retuning these boxes (water and over-included counties) and
- * deleting the composer copies. Do not change coordinates in a drive-by.
+ * HLP-40 moved the historical rectangles out of moving.utils and the five
+ * service composers. Coordinates are unchanged. The boxes still cover water
+ * (New York Harbor sits inside the Manhattan rectangle) and some land outside
+ * the named county. Retuning the bounds is a follow-up. Do not change
+ * coordinates in a drive-by.
  */
 
 export type ServiceZoneBoundingBox = {
