@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
+import { canonicalizeServiceType, formatServiceTypeLabel, serviceTypeEditPath, withCanonicalServiceType } from '@helpr/service-type';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
@@ -79,7 +80,11 @@ export default function BookedServices() {
     }
     const param = Array.isArray(temporaryServiceParam) ? temporaryServiceParam[0] : temporaryServiceParam;
     try {
-      return JSON.parse(decodeURIComponent(param));
+      const parsed = JSON.parse(decodeURIComponent(param));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return parsed;
+      }
+      return withCanonicalServiceType(parsed);
     } catch (error) {
       console.error('Failed to parse temporary service data:', error);
       return null;
@@ -421,11 +426,7 @@ export default function BookedServices() {
 
 
   const formatServiceType = useCallback((serviceType?: string | null) => {
-    if (!serviceType) {
-      return 'Service';
-    }
-
-    return serviceType.charAt(0).toUpperCase() + serviceType.slice(1).toLowerCase();
+    return formatServiceTypeLabel(serviceType);
   }, []);
 
   const getPrimaryLocation = useCallback((service: ServiceRow) => {
@@ -793,24 +794,11 @@ export default function BookedServices() {
     }
 
     try {
-      const serviceType = (service.service_type ?? '').toLowerCase().trim();
-      
-      // Map service type to route path
-      const routeMap: Record<string, string> = {
-        'moving': '/(services)/moving',
-        'cleaning': '/(services)/cleaning',
-        'furniture assembly': '/(services)/furniture-assembly',
-        'home improvement': '/(services)/home-improvement',
-        'running errands': '/(services)/custom-service',
-        'wall mounting': '/(services)/wall-mounting',
-        'custom': '/(services)/custom-service',
-      };
-
-      const routePath = routeMap[serviceType] || '/(services)/custom-service';
+      const routePath = serviceTypeEditPath(service.service_type);
 
       const payload = {
         service_id: service.service_id,
-        service_type: service.service_type,
+        service_type: canonicalizeServiceType(service.service_type) ?? service.service_type,
         start_location: service.start_location,
         end_location: service.end_location,
         location: service.location,

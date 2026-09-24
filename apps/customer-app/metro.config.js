@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const { applyServiceTypeResolver } = require('../../shared/metro-resolve-service-type');
 
 module.exports = (() => {
   const config = getDefaultConfig(__dirname);
@@ -17,5 +18,5 @@ module.exports = (() => {
     sourceExts: [...resolver.sourceExts, 'svg']
   };
 
-  return config;
+  return applyServiceTypeResolver(config, __dirname);
 })();

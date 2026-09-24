@@ -5,6 +5,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  SERVICE_TYPE_FILTER_OPTIONS,
+  formatServiceTypeLabel,
+  matchesServiceTypeFilter,
+} from '@helpr/service-type';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
@@ -75,28 +80,6 @@ const IN_PROGRESS_FEED_STATUSES = new Set([
   'helpr_otw',
   'in_progress',
 ]);
-
-const SERVICE_TYPE_OPTIONS = [
-  { id: 'all', label: 'All types' },
-  { id: 'moving', label: 'Moving', match: ['moving'] },
-  { id: 'cleaning', label: 'Cleaning', match: ['cleaning'] },
-  { id: 'furniture', label: 'Furniture', match: ['furniture'] },
-  { id: 'home', label: 'Home improvement', match: ['home'] },
-  { id: 'wall', label: 'Wall mounting', match: ['wall'] },
-  { id: 'custom', label: 'Custom', match: ['custom'] },
-] as const;
-
-const matchesServiceType = (serviceType: string | null | undefined, filterId: string) => {
-  if (filterId === 'all') {
-    return true;
-  }
-  const option = SERVICE_TYPE_OPTIONS.find(item => item.id === filterId);
-  if (!option || option.id === 'all') {
-    return true;
-  }
-  const normalized = (serviceType ?? '').toLowerCase();
-  return option.match.some(token => normalized.includes(token));
-};
 
 const helpIconSvg = `
   <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -397,16 +380,7 @@ export default function Landing() {
   }, [authLoading, fetchServices]);
 
   const formatServiceType = useCallback((serviceType?: string | null) => {
-    if (!serviceType) {
-      return 'Service';
-    }
-
-    const normalized = serviceType.trim();
-    if (!normalized) {
-      return 'Service';
-    }
-
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+    return formatServiceTypeLabel(serviceType);
   }, []);
 
   const getPrimaryLocation = useCallback((service: ServiceRow) => {
@@ -498,7 +472,7 @@ export default function Landing() {
 
   const filteredServices = useMemo(() => {
     return scopedServices.filter(service => {
-      if (!matchesServiceType(service.service_type, typeFilter)) {
+      if (!matchesServiceTypeFilter(service.service_type, typeFilter)) {
         return false;
       }
 
@@ -1393,7 +1367,7 @@ export default function Landing() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterRow}
         >
-          {SERVICE_TYPE_OPTIONS.map(option =>
+          {SERVICE_TYPE_FILTER_OPTIONS.map(option =>
             renderFilterChip(option.label, typeFilter === option.id, () => setTypeFilter(option.id)),
           )}
         </ScrollView>

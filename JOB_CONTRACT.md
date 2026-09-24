@@ -25,6 +25,27 @@ There is no `cancelled` status yet. Do not add one in a screen. Agent B specifie
 
 `finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
 
+## `service.service_type`
+
+Canonical form is a lowercase kebab-case slug. Writers store these exact values. Readers compare them with `canonicalizeServiceType` in `shared/service-type.ts` (`@helpr/service-type` in both Expo apps). Do not substring-match raw strings, and do not add a category that is not in this list.
+
+| Slug | Display label | Also accepted on read |
+| --- | --- | --- |
+| `moving` | Moving | `Moving` |
+| `cleaning` | Cleaning | case and surrounding whitespace only |
+| `furniture-assembly` | Furniture Assembly | `furniture assembly`, `furnitureAssembly`, `furniture_assembly`, `furniture` |
+| `home-improvement` | Home Improvement | `home improvement`, `homeImprovement`, `home_improvement`, `home` |
+| `wall-mounting` | Wall Mounting | `wall mounting`, `wallMounting`, `wall_mounting`, `wall` |
+| `custom-service` | Custom Service | `customService`, `custom service`, `custom_service`, `custom`, `running errands`, `running-errands` |
+
+`home-improvement` is a composer and route already in the customer app. `custom-service` matches that route file; `custom` is an alias, not a second category.
+
+Wall mounting is not cleaning. The wall-mounting composer used to insert `cleaning` (it was cloned from the cleaning form). That was a bug. New creates and edits from that screen write `wall-mounting`. Rows already stored as `cleaning` cannot be told apart from real cleaning jobs, so there is no migration and `cleaning` does not alias to `wall-mounting`.
+
+Unknown values are left unchanged on write. Edit routing falls back to `/(services)/custom-service` when a value does not canonicalize (the previous booked-services fallback).
+
+Provider feed filter ids are these slugs. Chip labels stay All types, Moving, Cleaning, Furniture, Home improvement, Wall mounting, Custom.
+
 ## `service_fill_request`
 
 A bid / interest row. One provider per service until deleted.
