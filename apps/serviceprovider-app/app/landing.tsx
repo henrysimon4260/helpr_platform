@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { parsePhotoUrls } from '../src/lib/jobPhotoUrls';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
@@ -49,6 +50,7 @@ type ServiceRow = {
   autofill_type?: string | null;
   description?: string | null;
   service_provider_id?: string | null;
+  photo_urls?: unknown;
 };
 
 type ServiceRequestRow = {
@@ -165,6 +167,11 @@ export default function Landing() {
       return suggestedTimeSelection.toString();
     }
   }, [suggestedTimeSelection]);
+
+  const descriptionPhotoUrls = useMemo(
+    () => parsePhotoUrls(descriptionModalService?.photo_urls),
+    [descriptionModalService],
+  );
 
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -1586,6 +1593,18 @@ export default function Landing() {
                         <Text style={styles.descriptionModalText}>
                           {descriptionModalService?.description?.trim() || 'No description provided.'}
                         </Text>
+                        {descriptionPhotoUrls.length > 0 ? (
+                          <View style={styles.jobPhotoWrap}>
+                            {descriptionPhotoUrls.map(url => (
+                              <Image
+                                key={url}
+                                source={{ uri: url }}
+                                style={styles.jobPhoto}
+                                accessibilityLabel="Job photo"
+                              />
+                            ))}
+                          </View>
+                        ) : null}
                       </ScrollView>
                     </View>
                     <Pressable style={styles.closeDescriptionButton} onPress={closeDescriptionModal}>
@@ -2383,10 +2402,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF8E8',
     borderRadius: 16,
     padding: 16,
-    maxHeight: 260,
+    maxHeight: 420,
   },
   descriptionModalScroll: {
-    maxHeight: 228,
+    maxHeight: 380,
   },
   descriptionModalScrollContent: {
     paddingBottom: 4,
@@ -2396,6 +2415,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '500',
+  },
+  jobPhotoWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+  },
+  jobPhoto: {
+    width: 96,
+    height: 96,
+    borderRadius: 10,
+    marginRight: 8,
+    marginBottom: 8,
+    backgroundColor: '#F5E7D0',
   },
   closeDescriptionButton: {
     marginTop: 24,

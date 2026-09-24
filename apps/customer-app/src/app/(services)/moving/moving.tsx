@@ -99,6 +99,7 @@ export default function Moving() {
     isAuto,
     isPersonal,
     activePaymentMethod: paymentManagement.activePaymentMethod,
+    attachments,
     showModal,
     setShowSignInModal,
     params,
