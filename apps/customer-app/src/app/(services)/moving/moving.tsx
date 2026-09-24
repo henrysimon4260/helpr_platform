@@ -96,6 +96,7 @@ export default function Moving() {
     startLocation: locationManagement.startLocation,
     endLocation: locationManagement.endLocation,
     priceQuote: priceEstimate.priceQuote,
+    suggestedPrice: priceEstimate.suggestedPrice,
     isAuto,
     isPersonal,
     activePaymentMethod: paymentManagement.activePaymentMethod,
@@ -185,6 +186,7 @@ export default function Moving() {
           start: locationManagement.startLocation,
           end: locationManagement.endLocation,
           needsTruck: needsTruck === 'yes',
+          volumeHint: apartmentSize,
         });
       }, 0);
     }

@@ -1,0 +1,4 @@
+# Moving quotes run from the customer composer before sign-in, and from the
+# provider feed. The gateway still requires the project apikey. Maps and OpenAI
+# keys stay in server secrets and are never returned to the client.
+verify_jwt = false

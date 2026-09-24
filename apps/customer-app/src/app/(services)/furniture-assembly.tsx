@@ -6,7 +6,7 @@ import * as Location from 'expo-location';
 import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
@@ -61,6 +61,17 @@ type LocationAutocompleteInputProps = {
 
 type AttachmentAsset = { uri: string; type: 'photo' | 'video'; name: string };
 
+type AssemblyComplexity = 'simple' | 'moderate' | 'complex';
+
+type AssemblyItemDraft = {
+  name: string;
+  sku: string;
+  pieceCount: string;
+  complexity: AssemblyComplexity;
+  brand: string;
+  model: string;
+};
+
 type FurnitureAssemblyFormState = {
   locationQuery: string;
   location: SelectedLocation | null;
@@ -68,6 +79,7 @@ type FurnitureAssemblyFormState = {
   isAuto: boolean;
   isPersonal: boolean;
   priceQuote: string | null;
+  suggestedPrice: number | null;
   priceNote: string | null;
   priceError: string | null;
   attachments: AttachmentAsset[];
@@ -76,7 +88,14 @@ type FurnitureAssemblyFormState = {
   needsTruck: '' | 'yes' | 'no';
   boxesNeeded: '' | 'yes' | 'no';
   furnitureScope: string;
-  assemblyComplexity: '' | 'simple' | 'complex';
+  assemblyComplexity: '' | AssemblyComplexity;
+  assemblyItems: AssemblyItemDraft[];
+  itemName: string;
+  itemSku: string;
+  pieceCountInput: string;
+  itemBrand: string;
+  itemModel: string;
+  itemComplexity: '' | AssemblyComplexity;
   specialRequests: string;
   detailsPhotos: AttachmentAsset[];
   toolsNeeded: string;
@@ -176,6 +195,107 @@ const isWithinServiceArea = (coordinate: LatLng | undefined | null): boolean => 
 const formatCurrency = (value: number) => {
   const safeValue = Math.max(0, Math.round(value));
   return `$${safeValue.toLocaleString('en-US')}`;
+};
+
+const readPieceCount = (value: string): number | null => {
+  const numeric = Number(value.trim());
+  if (!Number.isFinite(numeric)) return null;
+  const rounded = Math.round(numeric);
+  if (rounded < 1 || rounded > 200) return null;
+  return rounded;
+};
+
+const formatDurationLabel = (minutes: number) => {
+  const rounded = Math.max(1, Math.round(minutes));
+  if (rounded < 90) return `about ${rounded} min`;
+  const hours = Math.round((rounded / 60) * 10) / 10;
+  return `about ${hours} hr`;
+};
+
+const formatAssemblyClause = (item: AssemblyItemDraft) => {
+  const name = item.name.trim();
+  const sku = item.sku.trim();
+  const parts = [name || sku || 'item'];
+  if (sku) parts.push(`sku: ${sku}`);
+  if (name) parts.push(`type: ${name}`);
+  parts.push(`pieces: ${item.pieceCount}`);
+  parts.push(`complexity: ${item.complexity}`);
+  if (item.brand.trim()) parts.push(`brand: ${item.brand.trim()}`);
+  if (item.model.trim()) parts.push(`model: ${item.model.trim()}`);
+  return parts.join(' | ');
+};
+
+const stripAssemblyMeta = (text: string) => {
+  return text
+    .replace(/\bAssembly items:\s*[\s\S]*$/i, '')
+    .replace(/\s*\.\s*Type:\s*(?:Simple|Moderate|Complex)\s*assembly\b[^.]*/gi, '')
+    .replace(/\s*\.\s*Property size:\s*[^.]*/gi, '')
+    .replace(/\s*\.\s*Tools to bring:\s*[^.]*/gi, '')
+    .replace(/\s*\.\s*Tools needed:\s*[^.]*/gi, '')
+    .replace(/\s*\.\s*Photos:\s*\d+\b/gi, '')
+    .replace(/\s*\.\s*Special requests:\s*[^.]*/gi, '')
+    .replace(/\s*[.]\s*$/g, '')
+    .trim();
+};
+
+const buildAssemblyDescription = (
+  baseText: string,
+  items: AssemblyItemDraft[],
+  tools: string,
+  requests: string,
+  photoCount: number,
+) => {
+  const base = stripAssemblyMeta(baseText);
+  const clauses: string[] = [];
+  if (items.length > 0) {
+    clauses.push(`Assembly items: ${items.map(formatAssemblyClause).join('; ')}`);
+  }
+  if (tools.trim()) clauses.push(`Tools needed: ${tools.trim()}`);
+  if (photoCount > 0) clauses.push(`Photos: ${photoCount}`);
+  if (requests.trim()) clauses.push(`Special requests: ${requests.trim()}`);
+  if (clauses.length === 0) return base;
+  if (!base) return clauses.join('. ');
+  return `${base}. ${clauses.join('. ')}`;
+};
+
+const countAssemblyPhotos = (details: AttachmentAsset[], uploads: AttachmentAsset[]) =>
+  details.length + uploads.filter(item => item.type === 'photo').length;
+
+const parseComplexity = (value: string): AssemblyComplexity | null => {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'simple' || normalized === 'moderate' || normalized === 'complex') return normalized;
+  return null;
+};
+
+const parseAssemblyItemsFromDescription = (text: string): AssemblyItemDraft[] => {
+  const match = text.match(/\bassembly items:\s*([\s\S]+)/i);
+  if (!match) return [];
+  const body = match[1].split(/\.\s*(?:tools needed|tools to bring|photos|special requests)\b/i)[0];
+  const items: AssemblyItemDraft[] = [];
+  for (const clause of body.split(';')) {
+    const parts = clause.split('|').map(part => part.trim()).filter(Boolean);
+    const fields: Record<string, string> = {};
+    let name = '';
+    for (const part of parts) {
+      const labeled = part.match(/^([a-z][a-z ]{0,24}):\s*(.+)$/i);
+      if (labeled) fields[labeled[1].trim().toLowerCase()] = labeled[2].trim().replace(/\.+$/, '');
+      else if (!name) name = part.replace(/\.+$/, '');
+    }
+    const complexity = parseComplexity(fields.complexity || '');
+    const pieces = readPieceCount(fields.pieces || fields['piece count'] || '');
+    const itemName = (fields.name || name).trim();
+    const sku = (fields.sku || '').trim();
+    if (!complexity || pieces == null || (!itemName && !sku)) continue;
+    items.push({
+      name: itemName,
+      sku,
+      pieceCount: String(pieces),
+      complexity,
+      brand: fields.brand || '',
+      model: fields.model || '',
+    });
+  }
+  return items;
 };
 
 const STREET_SUFFIX_KEYWORDS = new Set([
@@ -671,12 +791,14 @@ export default function furnitureAssembly() {
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
   const [description, setDescription] = useState('');
   const [priceQuote, setPriceQuote] = useState<string | null>(null);
+  const [suggestedPrice, setSuggestedPrice] = useState<number | null>(null);
   const [priceNote, setPriceNote] = useState<string | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
 
   const resetPriceState = useCallback(() => {
     setPriceQuote(null);
+    setSuggestedPrice(null);
     setPriceNote(null);
     setPriceError(null);
     setIsPriceLoading(false);
@@ -697,7 +819,14 @@ export default function furnitureAssembly() {
   const [currentQuestionStep, setCurrentQuestionStep] = useState(0);
   const [furnitureScope, setFurnitureScope] = useState('');
   const [needsTruck, setNeedsTruck] = useState<'yes' | 'no' | ''>('');
-  const [assemblyComplexity, setAssemblyComplexity] = useState<'simple' | 'complex' | ''>('');
+  const [assemblyComplexity, setAssemblyComplexity] = useState<'' | AssemblyComplexity>('');
+  const [assemblyItems, setAssemblyItems] = useState<AssemblyItemDraft[]>([]);
+  const [itemName, setItemName] = useState('');
+  const [itemSku, setItemSku] = useState('');
+  const [pieceCountInput, setPieceCountInput] = useState('1');
+  const [itemBrand, setItemBrand] = useState('');
+  const [itemModel, setItemModel] = useState('');
+  const [itemComplexity, setItemComplexity] = useState<'' | AssemblyComplexity>('');
   const [specialRequests, setSpecialRequests] = useState('');
   const [detailsPhotos, setDetailsPhotos] = useState<AttachmentAsset[]>([]);
   const [showAssemblyComplexityModal, setShowAssemblyComplexityModal] = useState(false);
@@ -718,6 +847,7 @@ export default function furnitureAssembly() {
       isAuto,
       isPersonal,
       priceQuote,
+      suggestedPrice,
       priceNote,
       priceError,
       attachments: cloneAttachments(attachments),
@@ -727,6 +857,13 @@ export default function furnitureAssembly() {
       boxesNeeded,
       furnitureScope,
       assemblyComplexity,
+      assemblyItems,
+      itemName,
+      itemSku,
+      pieceCountInput,
+      itemBrand,
+      itemModel,
+      itemComplexity,
       specialRequests,
       detailsPhotos: cloneAttachments(detailsPhotos),
       toolsNeeded,
@@ -746,7 +883,15 @@ export default function furnitureAssembly() {
     priceError,
     priceNote,
     priceQuote,
+    suggestedPrice,
     assemblyComplexity,
+    assemblyItems,
+    itemName,
+    itemSku,
+    pieceCountInput,
+    itemBrand,
+    itemModel,
+    itemComplexity,
     specialRequests,
     detailsPhotos,
     toolsNeeded,
@@ -766,6 +911,7 @@ export default function furnitureAssembly() {
       setIsPersonal(nextIsPersonal);
       slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
       setPriceQuote(formState.priceQuote ?? null);
+      setSuggestedPrice(typeof formState.suggestedPrice === 'number' ? formState.suggestedPrice : null);
       setPriceNote(formState.priceNote ?? null);
       setPriceError(formState.priceError ?? null);
       setAttachments(cloneAttachments(formState.attachments ?? []));
@@ -775,6 +921,13 @@ export default function furnitureAssembly() {
       setBoxesNeeded(formState.boxesNeeded ?? '');
       setFurnitureScope(formState.furnitureScope ?? '');
       setAssemblyComplexity(formState.assemblyComplexity ?? '');
+      setAssemblyItems(formState.assemblyItems ?? []);
+      setItemName(formState.itemName ?? '');
+      setItemSku(formState.itemSku ?? '');
+      setPieceCountInput(formState.pieceCountInput ?? '1');
+      setItemBrand(formState.itemBrand ?? '');
+      setItemModel(formState.itemModel ?? '');
+      setItemComplexity(formState.itemComplexity ?? '');
       setSpecialRequests(formState.specialRequests ?? '');
       setDetailsPhotos(cloneAttachments(formState.detailsPhotos ?? []));
       setToolsNeeded(formState.toolsNeeded ?? '');
@@ -1189,15 +1342,21 @@ export default function furnitureAssembly() {
     setIsPersonal(nextIsPersonal);
     slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
 
-    if (typeof editingPayload.price === 'number' && Number.isFinite(editingPayload.price)) {
-      setPriceQuote(formatCurrency(editingPayload.price));
-    } else {
-      setPriceQuote(null);
-    }
+    setPriceQuote(null);
+    setSuggestedPrice(null);
 
     if (typeof editingPayload.description === 'string') {
       const trimmed = editingPayload.description.trim();
       setDescription(trimmed);
+      const parsedItems = parseAssemblyItemsFromDescription(trimmed);
+      if (parsedItems.length > 0) {
+        setAssemblyItems(parsedItems);
+        setAssemblyComplexity(parsedItems[parsedItems.length - 1].complexity);
+      }
+      const toolsMatch = trimmed.match(/\btools needed:\s*([^.]*)/i);
+      if (toolsMatch?.[1]) {
+        setToolsNeeded(toolsMatch[1].trim());
+      }
     } else {
       setDescription('');
     }
@@ -1235,112 +1394,30 @@ export default function furnitureAssembly() {
     };
   }, [applyLocation, editServiceId, editingPayload, geocodeAddress, slideAnimation, slideAnimation2]);
 
-  const checkIfDescriptionAlreadyEnhanced = useCallback((text: string) => {
-    const lowerText = text.toLowerCase();
-    
-    // Check if description already contains the modal information patterns
-    const hasTypeInfo = /\.\s*type:\s*(simple|complex)\s*cleaning/i.test(lowerText);
-    const hasSizeInfo = /\.\s*number and size of furniture pieces:/i.test(lowerText);
-    const hasToolsInfo = /\.\s*tools to bring:/i.test(lowerText);
-    
-    return hasTypeInfo || hasSizeInfo || hasToolsInfo;
-  }, []);
-
-  // Sync state variables when description is manually edited
   useEffect(() => {
-    // Check if description has the enhanced format
-    const hasEnhancedFormat = checkIfDescriptionAlreadyEnhanced(description);
-    
-    // If description is empty, only reset if we previously had an enhanced description
+    const hasItems = /\bassembly items:/i.test(description);
     if (!description) {
-      if (lastEnhancedDescriptionRef.current && (assemblyComplexity || apartmentSize || toolsNeeded || specialRequests)) {
-        console.log('📝 Description cleared after modal completion - resetting modal states');
+      if (lastEnhancedDescriptionRef.current) {
         setAssemblyComplexity('');
-        setApartmentSize('');
+        setAssemblyItems([]);
         setToolsNeeded('');
         setSpecialRequests('');
         lastEnhancedDescriptionRef.current = null;
       }
       return;
     }
-
-    // If we have an enhanced format, track it
-    if (hasEnhancedFormat) {
+    if (hasItems) {
       lastEnhancedDescriptionRef.current = description;
+      return;
     }
-    
-    // Only reset if:
-    // 1. We previously had an enhanced description (modals were completed)
-    // 2. Current description doesn't have enhanced format (user removed it)
-    // 3. We have modal states that need clearing
-    if (!hasEnhancedFormat && lastEnhancedDescriptionRef.current && (assemblyComplexity || apartmentSize || toolsNeeded || specialRequests)) {
-      console.log('📝 Enhanced format removed after modal completion - resetting modal states');
+    if (lastEnhancedDescriptionRef.current) {
       setAssemblyComplexity('');
-      setApartmentSize('');
+      setAssemblyItems([]);
       setToolsNeeded('');
       setSpecialRequests('');
       lastEnhancedDescriptionRef.current = null;
-      return;
     }
-
-    // If no enhanced format and no previous enhanced description, don't do anything
-    // (This prevents resets while user is just typing initial description)
-    if (!hasEnhancedFormat) {
-      return;
-    }
-
-    // Extract assembly complexity
-    const typeMatch = description.match(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/i);
-    if (typeMatch) {
-      const type = typeMatch[1].toLowerCase() as 'simple' | 'complex';
-      if (assemblyComplexity !== type) {
-        console.log('📝 Extracted assembly complexity:', type);
-        setAssemblyComplexity(type);
-      }
-    } else if (assemblyComplexity) {
-      // Type info was removed from description
-      setAssemblyComplexity('');
-    }
-
-    // Extract number and size of furniture pieces
-    const sizeMatch = description.match(/\.\s*Property size:\s*([^.]+)/i);
-    if (sizeMatch) {
-      const size = sizeMatch[1].trim();
-      if (apartmentSize !== size) {
-        console.log('📝 Extracted number and size of furniture pieces:', size);
-        setApartmentSize(size);
-      }
-    } else if (apartmentSize) {
-      // Size info was removed from description
-      setApartmentSize('');
-    }
-
-    // Extract tools
-    const toolsMatch = description.match(/\.\s*Tools to bring:\s*([^.]+)/i);
-    if (toolsMatch) {
-      const tools = toolsMatch[1].trim();
-      if (toolsNeeded !== tools) {
-        console.log('📝 Extracted tools:', tools);
-        setToolsNeeded(tools);
-      }
-    } else if (toolsNeeded) {
-      // Tools info was removed from description
-      setToolsNeeded('');
-    }
-
-    // Extract special requests
-    const requestsMatch = description.match(/\.\s*Special requests:\s*([^.]+)/i);
-    if (requestsMatch) {
-      const requests = requestsMatch[1].trim();
-      if (specialRequests !== requests) {
-        console.log('📝 Extracted special requests:', requests);
-        setSpecialRequests(requests);
-      }
-    } else if (specialRequests) {
-      // Requests info was removed from description
-      setSpecialRequests('');
-    }
-  }, [description, assemblyComplexity, apartmentSize, toolsNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced]);
+  }, [description]);
 
   const handleDescriptionChange = useCallback((text: string) => {
     setDescription(text);
@@ -1350,108 +1427,66 @@ export default function furnitureAssembly() {
   const fetchPriceEstimate = useCallback(
     async (
       taskDescription: string,
-      options: { start?: SelectedLocation | null; end?: SelectedLocation | null } = {},
+      items: AssemblyItemDraft[],
+      tools: string,
+      photoCount: number,
     ) => {
-      const { start, end } = options;
-
       setIsPriceLoading(true);
       setPriceQuote(null);
+      setSuggestedPrice(null);
       setPriceNote(null);
       setPriceError(null);
 
-      if (!openAiApiKey) {
+      if (items.length === 0) {
         setIsPriceLoading(false);
-        setPriceError('Price estimate unavailable (missing OpenAI key).');
+        setPriceError('Add the item to assemble, including how many pieces.');
         return;
       }
 
       try {
-        const startDetails = start
-          ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-        const endDetails = end
-          ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-
-        const requestBody = {
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a pricing assistant for furniture assembly services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) complexity of assembly (simple/moderate/complex), number of furniture pieces, 2) types of furniture items to assemble, 3) number and size of furniture pieces. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (30-300 range). IMPORTANT: Scale prices based on item complexity and quantity - Small item (chair, small table): $30-60 (simple) / $60-100 (complex), Medium item (desk, bookshelf): $50-90 (simple) / $90-150 (complex), Large item (bed frame, wardrobe): $80-130 (simple) / $130-200 (complex), Multiple items or very large (entertainment center, sectional): $120-180 (simple) / $180-300 (complex). Always increase price proportionally with more items and complexity. Provide competitive, budget-friendly estimates.',
-            },
-            {
-              role: 'user',
-              content: [
-                `Task description: ${taskDescription}`,
-                `Start location: ${startDetails}`,
-                `End location: ${endDetails}`,
-              ].join('\n'),
-            },
-          ],
+        const body: Record<string, unknown> = {
+          serviceType: 'furniture-assembly',
+          description: taskDescription,
+          photoCount,
+          items: items.map(item => ({
+            name: item.name || null,
+            sku: item.sku || null,
+            type: item.name || null,
+            pieceCount: Number(item.pieceCount),
+            complexity: item.complexity,
+            brand: item.brand || null,
+            model: item.model || null,
+          })),
         };
+        if (tools.trim()) body.toolsNeeded = tools.trim();
 
-        console.log('🔍 Fetching price estimate with description:', taskDescription);
-        console.log('📝 Full request:', JSON.stringify(requestBody, null, 2));
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || 'Failed to fetch price estimate');
+        const { data, error } = await supabase.functions.invoke('quote-service-price', { body });
+        const estimate = data as {
+          source?: string;
+          serviceType?: string;
+          priceMin?: number;
+          priceMax?: number;
+          suggestedPrice?: number;
+          durationMinutes?: number;
+          error?: string;
+        } | null;
+        if (
+          error
+          || !estimate
+          || estimate.source !== 'server'
+          || estimate.serviceType !== 'furniture-assembly'
+          || typeof estimate.priceMin !== 'number'
+          || typeof estimate.priceMax !== 'number'
+          || typeof estimate.suggestedPrice !== 'number'
+        ) {
+          throw new Error(estimate?.error || error?.message || 'Failed to fetch price estimate');
         }
 
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-
-        if (typeof content !== 'string' || content.trim().length === 0) {
-          throw new Error('Missing completion content');
+        setSuggestedPrice(estimate.suggestedPrice);
+        setPriceQuote(`${formatCurrency(estimate.priceMin)}–${formatCurrency(estimate.priceMax)}`);
+        if (typeof estimate.durationMinutes === 'number') {
+          setPriceNote(formatDurationLabel(estimate.durationMinutes));
         }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(content);
-        } catch (error) {
-          throw new Error('Unable to parse price estimate');
-        }
-
-        // Check for safety concerns first
-        if (parsed.safety_concern === true && parsed.safety_message) {
-          showModal({
-            title: 'Safety Concern',
-            message: parsed.safety_message,
-          });
-          setPriceError('This request may not be suitable for our platform.');
-          return;
-        }
-
-        // Check if clarification is needed
-        if (parsed.needs_clarification === true && parsed.clarification_prompt) {
-          setShowAssemblyComplexityModal(true);
-          setPriceError('Please select a assembly complexity.');
-          return;
-        }
-
-        const price = Number(parsed.price);
-
-        if (!Number.isFinite(price)) {
-          throw new Error('Invalid price value');
-        }
-
-        // Apply 15% discount to make pricing more competitive
-        const discountedPrice = price * 0.85;
-        const sanitizedPrice = Math.max(0, Math.round(discountedPrice));
-
-        setPriceQuote(formatCurrency(sanitizedPrice));
       } catch (error) {
         console.warn('Failed to fetch price estimate', error);
         setPriceError('Unable to estimate price right now.');
@@ -1459,26 +1494,8 @@ export default function furnitureAssembly() {
         setIsPriceLoading(false);
       }
     },
-    [openAiApiKey],
+    [],
   );
-
-  const checkForPropertySize = useCallback((text: string) => {
-    const lowerText = text.toLowerCase();
-    
-    // Check for square footage
-    const hasSqFt = /\b\d+\s*(sq\s*ft|square\s*feet|sqft|sf)\b/i.test(lowerText);
-    
-    // Check for room count (bedroom, bathroom, etc.)
-    const hasRoomCount = /\b\d+[\s-]*(bedroom|bed|br|bathroom|bath|ba|room)\b/i.test(lowerText);
-    
-    // Check for property descriptors
-    const hasPropertyDesc = /\b(studio|apartment|condo|house|office|townhouse|loft)\b/i.test(lowerText);
-    
-    // Check for size descriptors
-    const hasSizeDesc = /\b(small|medium|large|tiny|huge|spacious|compact)\s*(apartment|house|office|space|property|home|room)\b/i.test(lowerText);
-    
-    return hasSqFt || hasRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
-  }, []);
 
   const handleDescriptionSubmit = useCallback(() => {
     if (isPriceLoading || isTranscribing) {
@@ -1489,6 +1506,7 @@ export default function furnitureAssembly() {
 
     if (trimmed.length === 0) {
       setPriceQuote(null);
+      setSuggestedPrice(null);
       setPriceNote(null);
       setPriceError('Add a brief task description to see a price.');
       return;
@@ -1503,56 +1521,38 @@ export default function furnitureAssembly() {
     }
 
     Keyboard.dismiss();
-    
-    // Check if assembly complexity is already set
-    if (assemblyComplexity) {
-      // Skip to next step based on what's already filled
-      if (checkForPropertySize(description) || apartmentSize) {
-        // Property size is set, check tools
-        if (toolsNeeded) {
-          // All main fields set - rebuild description from state to ensure consistency
-          const baseDesc = description
-            .replace(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/gi, '')
-            .replace(/\.\s*Property size:\s*[^.]+/gi, '')
-            .replace(/\.\s*Tools to bring:\s*[^.]+/gi, '')
-            .replace(/\.\s*Special requests:\s*[^.]+/gi, '')
-            .trim();
-          
-          const assemblyComplexityText = assemblyComplexity === 'simple' ? 'Simple assembly' : assemblyComplexity === 'complex' ? 'Complex assembly' : '';
-          const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-          const toolsInfo = toolsNeeded ? `. Tools to bring: ${toolsNeeded}` : '';
-          const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-          
-          const rebuiltDescription = `${baseDesc}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
-          
-          console.log('🔄 Rebuilding description:');
-          console.log('  Original:', description);
-          console.log('  Base:', baseDesc);
-          console.log('  assemblyComplexity:', assemblyComplexity);
-          console.log('  apartmentSize:', apartmentSize);
-          console.log('  toolsNeeded:', toolsNeeded);
-          console.log('  specialRequests:', specialRequests);
-          console.log('  Rebuilt:', rebuiltDescription);
-          
-          // Update description if it changed
-          if (rebuiltDescription !== description) {
-            setDescription(rebuiltDescription);
-          }
-          
-          fetchPriceEstimate(rebuiltDescription, { start: location, end: location });
-        } else {
-          // Show tools modal
-          setShowToolsModal(true);
-        }
-      } else {
-        // Show apartment size modal
-        setShowApartmentSizeModal(true);
-      }
-    } else {
-      // Show assembly complexity modal first
+
+    if (!assemblyComplexity) {
       setShowAssemblyComplexityModal(true);
+      return;
     }
-  }, [description, location, isPriceLoading, isTranscribing, showModal, assemblyComplexity, apartmentSize, toolsNeeded, specialRequests, checkForPropertySize, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+
+    if (assemblyItems.length === 0) {
+      setItemComplexity(assemblyComplexity);
+      setShowApartmentSizeModal(true);
+      return;
+    }
+
+    const photoCount = countAssemblyPhotos(detailsPhotos, attachments);
+    const enhanced = buildAssemblyDescription(trimmed, assemblyItems, toolsNeeded, specialRequests, photoCount);
+    if (enhanced !== description) {
+      setDescription(enhanced);
+    }
+    void fetchPriceEstimate(enhanced, assemblyItems, toolsNeeded, photoCount);
+  }, [
+    assemblyComplexity,
+    assemblyItems,
+    attachments,
+    description,
+    detailsPhotos,
+    fetchPriceEstimate,
+    isPriceLoading,
+    isTranscribing,
+    location,
+    showModal,
+    specialRequests,
+    toolsNeeded,
+  ]);
 
   const analyzeFurnitureAssemblyDescription = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
@@ -1748,83 +1748,105 @@ export default function furnitureAssembly() {
     }
   }, [showModal]);
 
-  const handleAssemblyComplexitySelect = useCallback((type: 'simple' | 'complex') => {
+  const buildDraftItem = useCallback((): AssemblyItemDraft | null => {
+    const complexity = itemComplexity || assemblyComplexity;
+    const pieceCount = readPieceCount(pieceCountInput);
+    const name = itemName.trim();
+    const sku = itemSku.trim();
+    if ((!name && !sku) || pieceCount == null || !complexity) return null;
+    return {
+      name,
+      sku,
+      pieceCount: String(pieceCount),
+      complexity,
+      brand: itemBrand.trim(),
+      model: itemModel.trim(),
+    };
+  }, [assemblyComplexity, itemBrand, itemComplexity, itemModel, itemName, itemSku, pieceCountInput]);
+
+  const clearItemDraft = useCallback(() => {
+    setItemName('');
+    setItemSku('');
+    setPieceCountInput('1');
+    setItemBrand('');
+    setItemModel('');
+    setItemComplexity(assemblyComplexity || '');
+  }, [assemblyComplexity]);
+
+  const handleAssemblyComplexitySelect = useCallback((type: AssemblyComplexity) => {
     setAssemblyComplexity(type);
+    setItemComplexity(type);
     setShowAssemblyComplexityModal(false);
-    
-    // Check if number and size of furniture pieces is already in description
-    if (checkForPropertySize(description)) {
-      // Skip apartment size modal, go directly to tools
-      setShowToolsModal(true);
-    } else {
-      // Show apartment size modal after selecting assembly complexity
-      setShowApartmentSizeModal(true);
-    }
-  }, [description, checkForPropertySize]);
+    setShowApartmentSizeModal(true);
+    resetPriceState();
+  }, [resetPriceState]);
 
   const handleApartmentSizeBack = useCallback(() => {
     setShowApartmentSizeModal(false);
-    // Go back to assembly complexity modal
     setShowAssemblyComplexityModal(true);
   }, []);
 
+  const handleAddAssemblyItem = useCallback(() => {
+    const draft = buildDraftItem();
+    if (!draft) return;
+    setAssemblyItems(prev => [...prev, draft]);
+    clearItemDraft();
+    resetPriceState();
+  }, [buildDraftItem, clearItemDraft, resetPriceState]);
+
+  const handleRemoveAssemblyItem = useCallback((index: number) => {
+    setAssemblyItems(prev => prev.filter((_, itemIndex) => itemIndex !== index));
+    resetPriceState();
+  }, [resetPriceState]);
+
   const handleApartmentSizeSubmit = useCallback(() => {
-    if (!apartmentSize.trim()) {
-      return;
+    const draft = buildDraftItem();
+    const draftStarted = Boolean(
+      itemName.trim()
+      || itemSku.trim()
+      || itemBrand.trim()
+      || itemModel.trim()
+      || pieceCountInput.trim() !== '1',
+    );
+    if (!draft && draftStarted) return;
+    const next = draft ? [...assemblyItems, draft] : assemblyItems;
+    if (next.length === 0) return;
+    if (draft) {
+      setAssemblyItems(next);
+      clearItemDraft();
     }
+    resetPriceState();
     setShowApartmentSizeModal(false);
-    // Show tools modal after apartment size
     setShowToolsModal(true);
-  }, [apartmentSize]);
+  }, [assemblyItems, buildDraftItem, clearItemDraft, itemBrand, itemModel, itemName, itemSku, pieceCountInput, resetPriceState]);
 
   const handleToolsBack = useCallback(() => {
     setShowToolsModal(false);
-    // Check if we came from apartment size modal or directly from assembly complexity
-    if (checkForPropertySize(description)) {
-      // If number and size of furniture pieces was already in description, go back to assembly complexity
-      setShowAssemblyComplexityModal(true);
-    } else {
-      // Otherwise go back to apartment size modal
-      setShowApartmentSizeModal(true);
-    }
-  }, [description, checkForPropertySize]);
+    setShowApartmentSizeModal(true);
+  }, []);
 
   const handleToolsSubmit = useCallback(() => {
     setShowToolsModal(false);
-    // Show details modal after tools
     setShowDetailsModal(true);
   }, []);
 
   const handleDetailsBack = useCallback(() => {
     setShowDetailsModal(false);
-    // Go back to tools modal
     setShowToolsModal(true);
   }, []);
 
   const handleDetailsSubmit = useCallback(() => {
     setShowDetailsModal(false);
-    // Run price estimation with all collected information
-    if (description.trim() && location) {
-      // Check if description is already enhanced to avoid duplication
-      if (checkIfDescriptionAlreadyEnhanced(description)) {
-        // Description already has modal info, just fetch price
-        fetchPriceEstimate(description, { start: location, end: location });
-      } else {
-        // Build enhanced description for the first time
-        const assemblyComplexityText = assemblyComplexity === 'simple' ? 'Simple assembly' : assemblyComplexity === 'complex' ? 'Complex assembly' : '';
-        const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-        const toolsInfo = toolsNeeded ? `. Tools to bring: ${toolsNeeded}` : '';
-        const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-        
-        const enhancedDescription = `${description}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
-        
-        // Update the description state with the enhanced description
-        setDescription(enhancedDescription);
-        
-        fetchPriceEstimate(enhancedDescription, { start: location, end: location });
-      }
+    if (!description.trim() || !location) return;
+    if (assemblyItems.length === 0) {
+      setShowApartmentSizeModal(true);
+      return;
     }
-  }, [description, location, assemblyComplexity, apartmentSize, toolsNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+    const photoCount = countAssemblyPhotos(detailsPhotos, attachments);
+    const enhanced = buildAssemblyDescription(description, assemblyItems, toolsNeeded, specialRequests, photoCount);
+    setDescription(enhanced);
+    void fetchPriceEstimate(enhanced, assemblyItems, toolsNeeded, photoCount);
+  }, [assemblyItems, attachments, description, detailsPhotos, fetchPriceEstimate, location, specialRequests, toolsNeeded]);
 
   const snapshotLocations = useCallback(() => {
     locationSnapshotRef.current = {
@@ -1876,11 +1898,15 @@ export default function furnitureAssembly() {
       return;
     }
 
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
+    if (assemblyItems.length === 0) {
+      showModal({
+        title: 'Item needed',
+        message: 'Add the item you need assembled, including a piece count, before scheduling.',
+      });
+      return;
+    }
 
-    if (sanitizedPrice === null) {
+    if (!Number.isFinite(suggestedPrice ?? NaN)) {
       showModal({
         title: 'Estimate needed',
         message: 'Request a quick price estimate before scheduling your furniture assembly service.',
@@ -1930,13 +1956,14 @@ export default function furnitureAssembly() {
       resolvedCustomerIdValue = resolvedCustomerId;
     }
 
-    // Build enhanced description with all collected information
-    const assemblyComplexityText = assemblyComplexity === 'simple' ? 'Simple assembly' : assemblyComplexity === 'complex' ? 'Complex assembly' : '';
-    const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-    const toolsInfo = toolsNeeded ? `. Tools to bring: ${toolsNeeded}` : '';
-    const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-    
-    const normalizedDescription = `${trimmedDescription}${assemblyComplexityText ? `. Type: ${assemblyComplexityText}` : ''}${sizeInfo}${toolsInfo}${requestsInfo}`;
+    const photoCount = countAssemblyPhotos(detailsPhotos, attachments);
+    const normalizedDescription = buildAssemblyDescription(
+      trimmedDescription,
+      assemblyItems,
+      toolsNeeded,
+      specialRequests,
+      photoCount,
+    );
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
@@ -1947,7 +1974,7 @@ export default function furnitureAssembly() {
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
           location: location.description,
-          price: sanitizedPrice,
+          price: suggestedPrice,
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
           description: normalizedDescription,
@@ -1990,7 +2017,7 @@ export default function furnitureAssembly() {
         status: 'finding_pros',
         scheduling_type: null,
         location: location.description,
-        price: sanitizedPrice,
+        price: suggestedPrice,
         start_datetime: null,
         end_datetime: null,
         payment_method_type: paymentMethodType,
@@ -2023,21 +2050,21 @@ export default function furnitureAssembly() {
     customerId,
     customerLookupError,
     description,
+    detailsPhotos,
     editServiceId,
     location,
     isAuto,
     isEditing,
     isPersonal,
     isSubmitting,
-    priceQuote,
+    suggestedPrice,
     preserveFormForAuth,
     resolveCustomerId,
     router,
     snapshotLocations,
     restoreLocations,
     user,
-    assemblyComplexity,
-    apartmentSize,
+    assemblyItems,
     toolsNeeded,
     specialRequests,
   ]);
@@ -2415,7 +2442,7 @@ export default function furnitureAssembly() {
                 />
                 <LocationAutocompleteInput
                 value={locationQuery}
-                placeholder="Cleaning Location"
+                placeholder="Assembly location"
                 onChangeText={handleLocationChange}
                 onSelectSuggestion={handleLocationSelect}
                 onClear={handleLocationClear}
@@ -2441,14 +2468,21 @@ export default function furnitureAssembly() {
                   ) : (
                     <>
                       {priceQuote ? (
-                        <View style={styles.PriceOfServiceQuoteRow}>
-                          <Text
-                            style={[styles.PriceOfServiceQuoteText, styles.PriceOfServiceQuotePrice]}
-                            numberOfLines={1}
-                          >
-                            {priceQuote}
-                          </Text>
-                          <Text style={styles.PriceOfServiceQuoteEstimateText}>est.</Text>
+                        <View>
+                          <View style={styles.PriceOfServiceQuoteRow}>
+                            <Text
+                              style={[styles.PriceOfServiceQuoteText, styles.PriceOfServiceQuotePrice]}
+                              numberOfLines={1}
+                            >
+                              {priceQuote}
+                            </Text>
+                            <Text style={styles.PriceOfServiceQuoteEstimateText}>est.</Text>
+                          </View>
+                          {priceNote ? (
+                            <Text style={styles.PriceOfServiceQuoteNoteText} numberOfLines={2}>
+                              {priceNote}
+                            </Text>
+                          ) : null}
                         </View>
                       ) : (
                         <>
@@ -2475,7 +2509,7 @@ export default function furnitureAssembly() {
             <View style={styles.jobDescriptionContainer}>
               <TextInput
                 style={styles.jobDescriptionText}
-                placeholder="Describe your task...                                         (e.g.  'I need my one bedroom apartment complex cleaned.')"
+                placeholder="Describe the furniture... (e.g. 'Assemble an IKEA dining chair.')"
                 multiline
                 numberOfLines={4}
                 placeholderTextColor="#333333ab"
@@ -2719,7 +2753,7 @@ export default function furnitureAssembly() {
             <Text style={styles.signInTitle}>Select Assembly Complexity</Text>
             <View style={styles.signInDivider} />
             <Text style={styles.signInMessage}>
-              Please select the complexity of your furniture assembly:
+              This is the default complexity for each item. A chair is simple. A wardrobe is complex.
             </Text>
             <View style={styles.assemblyComplexityOptionsContainer}>
               <Pressable 
@@ -2727,10 +2761,21 @@ export default function furnitureAssembly() {
                 onPress={() => handleAssemblyComplexitySelect('simple')}
               >
                 <Text style={[styles.assemblyComplexityOptionText, assemblyComplexity === 'simple' && styles.assemblyComplexityOptionTextSelected]}>
-                  Simple Assembly
+                  Simple
                 </Text>
                 <Text style={styles.assemblyComplexityOptionDescription}>
-                  Basic furniture items like chairs, small tables, or simple shelves
+                  One chair, stool, or small table
+                </Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.assemblyComplexityOption, assemblyComplexity === 'moderate' && styles.assemblyComplexityOptionSelected]}
+                onPress={() => handleAssemblyComplexitySelect('moderate')}
+              >
+                <Text style={[styles.assemblyComplexityOptionText, assemblyComplexity === 'moderate' && styles.assemblyComplexityOptionTextSelected]}>
+                  Moderate
+                </Text>
+                <Text style={styles.assemblyComplexityOptionDescription}>
+                  A desk, bookshelf, or TV stand
                 </Text>
               </Pressable>
               <Pressable 
@@ -2738,10 +2783,10 @@ export default function furnitureAssembly() {
                 onPress={() => handleAssemblyComplexitySelect('complex')}
               >
                 <Text style={[styles.assemblyComplexityOptionText, assemblyComplexity === 'complex' && styles.assemblyComplexityOptionTextSelected]}>
-                  Complex Assembly
+                  Complex
                 </Text>
                 <Text style={styles.assemblyComplexityOptionDescription}>
-                  Large or intricate items like bed frames, wardrobes, entertainment centers, or multiple pieces
+                  A wardrobe, bed frame, or entertainment center
                 </Text>
               </Pressable>
             </View>
@@ -2755,7 +2800,7 @@ export default function furnitureAssembly() {
         </View>
       </Modal>
 
-      {/* Space Size Modal */}
+      {/* Items to assemble */}
       <Modal
         visible={showApartmentSizeModal}
         transparent
@@ -2764,21 +2809,85 @@ export default function furnitureAssembly() {
       >
         <View style={styles.signInOverlayBackground}>
           <View style={styles.apartmentSizeModal}>
-            <Text style={styles.apartmentSizeTitle}>Space Size</Text>
+            <ScrollView style={styles.assemblyItemScroll} keyboardShouldPersistTaps="handled">
+            <Text style={styles.apartmentSizeTitle}>Items to assemble</Text>
             <View style={styles.apartmentSizeDivider} />
             <Text style={styles.apartmentSizeMessage}>
-              Please specify the size of your home or office:
+              Add each product. Name, SKU, or type is required, plus how many pieces.
             </Text>
-            
+            {assemblyItems.map((item, index) => (
+              <View key={`${item.name}-${item.sku}-${index}`} style={styles.assemblyItemChip}>
+                <Text style={styles.assemblyItemChipText}>
+                  {`${item.name || item.sku} · ${item.pieceCount} pc · ${item.complexity}`}
+                </Text>
+                <Pressable onPress={() => handleRemoveAssemblyItem(index)}>
+                  <Text style={styles.assemblyItemRemoveText}>Remove</Text>
+                </Pressable>
+              </View>
+            ))}
+            <Text style={styles.assemblyFieldLabel}>Product name or type</Text>
             <TextInput
               style={styles.furnitureAssemblyAnalysisInput}
-              placeholder="e.g., 2-bedroom apartment, 1500 sq ft house, 3-room office..."
+              placeholder="e.g. dining chair or PAX wardrobe"
               placeholderTextColor="#7C7160"
-              value={apartmentSize}
-              onChangeText={setApartmentSize}
-              autoFocus
+              value={itemName}
+              onChangeText={setItemName}
             />
-
+            <Text style={styles.assemblyFieldLabel}>SKU (optional)</Text>
+            <TextInput
+              style={styles.furnitureAssemblyAnalysisInput}
+              placeholder="e.g. ADDE or PAX"
+              placeholderTextColor="#7C7160"
+              value={itemSku}
+              onChangeText={setItemSku}
+              autoCapitalize="characters"
+            />
+            <Text style={styles.assemblyFieldLabel}>Piece count</Text>
+            <TextInput
+              style={styles.furnitureAssemblyAnalysisInput}
+              placeholder="1 for a chair, 8 for a wardrobe"
+              placeholderTextColor="#7C7160"
+              value={pieceCountInput}
+              onChangeText={setPieceCountInput}
+              keyboardType="number-pad"
+            />
+            <Text style={styles.assemblyFieldLabel}>Complexity</Text>
+            <View style={styles.assemblyComplexityOptionsContainer}>
+              {(['simple', 'moderate', 'complex'] as AssemblyComplexity[]).map(level => (
+                <Pressable
+                  key={level}
+                  style={[styles.assemblyComplexityOption, (itemComplexity || assemblyComplexity) === level && styles.assemblyComplexityOptionSelected]}
+                  onPress={() => setItemComplexity(level)}
+                >
+                  <Text style={[styles.assemblyComplexityOptionText, (itemComplexity || assemblyComplexity) === level && styles.assemblyComplexityOptionTextSelected]}>
+                    {level}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.assemblyFieldLabel}>Brand (optional)</Text>
+            <TextInput
+              style={styles.furnitureAssemblyAnalysisInput}
+              placeholder="e.g. IKEA"
+              placeholderTextColor="#7C7160"
+              value={itemBrand}
+              onChangeText={setItemBrand}
+            />
+            <Text style={styles.assemblyFieldLabel}>Model (optional)</Text>
+            <TextInput
+              style={styles.furnitureAssemblyAnalysisInput}
+              placeholder="e.g. ADDE"
+              placeholderTextColor="#7C7160"
+              value={itemModel}
+              onChangeText={setItemModel}
+            />
+            <Pressable
+              style={[styles.apartmentSizeContinueButton, !((itemName.trim() || itemSku.trim()) && readPieceCount(pieceCountInput) != null && (itemComplexity || assemblyComplexity)) && { opacity: 0.5 }]}
+              onPress={handleAddAssemblyItem}
+              disabled={!((itemName.trim() || itemSku.trim()) && readPieceCount(pieceCountInput) != null && (itemComplexity || assemblyComplexity))}
+            >
+              <Text style={styles.apartmentSizeContinueButtonText}>Add item</Text>
+            </Pressable>
             <View style={styles.apartmentSizeButtonsRow}>
               <Pressable
                 style={styles.apartmentSizeBackButton}
@@ -2787,13 +2896,14 @@ export default function furnitureAssembly() {
                 <Text style={styles.apartmentSizeBackButtonText}>Back</Text>
               </Pressable>
               <Pressable 
-                style={[styles.apartmentSizeContinueButton, !apartmentSize.trim() && { opacity: 0.5 }]}
+                style={[styles.apartmentSizeContinueButton, assemblyItems.length === 0 && !((itemName.trim() || itemSku.trim()) && readPieceCount(pieceCountInput) != null && (itemComplexity || assemblyComplexity)) && { opacity: 0.5 }]}
                 onPress={handleApartmentSizeSubmit}
-                disabled={!apartmentSize.trim()}
+                disabled={assemblyItems.length === 0 && !((itemName.trim() || itemSku.trim()) && readPieceCount(pieceCountInput) != null && (itemComplexity || assemblyComplexity))}
               >
                 <Text style={styles.apartmentSizeContinueButtonText}>Continue</Text>
               </Pressable>
             </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -2807,15 +2917,15 @@ export default function furnitureAssembly() {
       >
         <View style={styles.signInOverlayBackground}>
           <View style={styles.toolsModal}>
-            <Text style={styles.toolsModalTitle}>Cleaning Tools</Text>
+            <Text style={styles.toolsModalTitle}>Tools needed</Text>
             <View style={styles.toolsModalDivider} />
             <Text style={styles.toolsModalMessage}>
-              What cleaning tools or equipment should your Helpr bring?
+              Optional. What tools should your Helpr bring?
             </Text>
             
             <TextInput
               style={styles.furnitureAssemblyAnalysisInput}
-              placeholder="e.g., All cleaning tools, vacuum, mop, eco-friendly products..."
+              placeholder="e.g. Allen key, rubber mallet"
               placeholderTextColor="#7C7160"
               value={toolsNeeded}
               onChangeText={setToolsNeeded}
@@ -2832,11 +2942,10 @@ export default function furnitureAssembly() {
                 <Text style={styles.toolsModalBackButtonText}>Back</Text>
               </Pressable>
               <Pressable 
-                style={[styles.toolsModalContinueButton, !toolsNeeded.trim() && { opacity: 0.5 }]}
+                style={styles.toolsModalContinueButton}
                 onPress={handleToolsSubmit}
-                disabled={!toolsNeeded.trim()}
               >
-                <Text style={styles.toolsModalContinueButtonText}>Continue</Text>
+                <Text style={styles.toolsModalContinueButtonText}>{toolsNeeded.trim() ? 'Continue' : 'Skip'}</Text>
               </Pressable>
             </View>
           </View>
@@ -2855,12 +2964,12 @@ export default function furnitureAssembly() {
             <Text style={styles.detailsModalTitle}>Any Special Requests?</Text>
             <View style={styles.detailsModalDivider} />
             <Text style={styles.detailsModalMessage}>
-              Share any specific details or add photos to help us understand your cleaning needs better (optional):
+              Share product photos or other details (optional):
             </Text>
             
             <TextInput
               style={styles.specialRequestsInput}
-              placeholder="e.g., Focus on kitchen and bathrooms, pet-friendly products, etc..."
+              placeholder="e.g. Hardware is in the red bag, assemble in the bedroom..."
               multiline
               numberOfLines={4}
               placeholderTextColor="#7C7160"
@@ -4278,6 +4387,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  assemblyItemScroll: {
+    maxHeight: 520,
+    alignSelf: 'stretch',
+  },
+  assemblyFieldLabel: {
+    alignSelf: 'flex-start',
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  assemblyItemChip: {
+    alignSelf: 'stretch',
+    backgroundColor: '#E5DCC9',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  assemblyItemChipText: {
+    flex: 1,
+    color: '#0c4309',
+    fontSize: 13,
+    fontWeight: '600',
+    marginRight: 8,
+  },
+  assemblyItemRemoveText: {
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });
 

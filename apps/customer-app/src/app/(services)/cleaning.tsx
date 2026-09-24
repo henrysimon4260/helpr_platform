@@ -6,7 +6,7 @@ import * as Location from 'expo-location';
 import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
@@ -80,6 +80,13 @@ type CleaningFormState = {
   specialRequests: string;
   detailsPhotos: AttachmentAsset[];
   suppliesNeeded: string;
+  squareFeet: string;
+  bedrooms: string;
+  bathrooms: string;
+  condition: '' | 'light' | 'average' | 'heavy';
+  petHair: boolean | null;
+  frequency: '' | 'one_time' | 'weekly' | 'biweekly' | 'monthly';
+  suggestedPrice: number | null;
 };
 
 type CleaningReturnData = {
@@ -176,6 +183,103 @@ const isWithinServiceArea = (coordinate: LatLng | undefined | null): boolean => 
 const formatCurrency = (value: number) => {
   const safeValue = Math.max(0, Math.round(value));
   return `$${safeValue.toLocaleString('en-US')}`;
+};
+
+type CleaningCondition = '' | 'light' | 'average' | 'heavy';
+type CleaningFrequency = '' | 'one_time' | 'weekly' | 'biweekly' | 'monthly';
+
+type CleaningMeta = {
+  cleaningType: '' | 'basic' | 'deep';
+  apartmentSize: string;
+  suppliesNeeded: string;
+  specialRequests: string;
+  condition: CleaningCondition;
+  petHair: boolean | null;
+  frequency: CleaningFrequency;
+};
+
+const FREQUENCY_LABEL: Record<Exclude<CleaningFrequency, ''>, string> = {
+  one_time: 'one-time',
+  weekly: 'weekly',
+  biweekly: 'biweekly',
+  monthly: 'monthly',
+};
+
+const readCountInput = (value: string, allowZero: boolean): number | undefined => {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const numeric = Number(trimmed);
+  if (!allowZero && numeric <= 0) return undefined;
+  return numeric;
+};
+
+const hasStructuredHomeSize = (squareFeet: string, bedrooms: string, bathrooms: string) => {
+  return readCountInput(squareFeet, false) != null
+    || readCountInput(bedrooms, true) != null
+    || (readCountInput(bathrooms, true) ?? 0) > 0;
+};
+
+const descriptionHasHomeSize = (text: string) => {
+  if (/\bstudio\b/i.test(text)) return true;
+  if (/\b\d{2,5}\s*(?:sq\.?\s*ft|square\s*feet|sqft|sf)\b/i.test(text)) return true;
+  if (/\b\d{1,2}\s*[- ]?\s*(?:bed(?:room)?s?|br|bath(?:room)?s?|ba)\b/i.test(text)) return true;
+  if (/\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+bed(?:room)?s?\b/i.test(text)) return true;
+  return false;
+};
+
+const quoteFlowHasHomeSize = (
+  squareFeet: string,
+  bedrooms: string,
+  bathrooms: string,
+  apartmentSize: string,
+  description: string,
+) => {
+  return hasStructuredHomeSize(squareFeet, bedrooms, bathrooms)
+    || descriptionHasHomeSize(apartmentSize)
+    || descriptionHasHomeSize(description);
+};
+
+const formatHomeSizeLabel = (squareFeet: string, bedrooms: string, bathrooms: string) => {
+  const parts: string[] = [];
+  const beds = readCountInput(bedrooms, true);
+  const baths = readCountInput(bathrooms, true);
+  const sqft = readCountInput(squareFeet, false);
+  if (beds === 0) parts.push('studio');
+  else if (beds != null) parts.push(`${beds} bedroom`);
+  if (baths != null) parts.push(`${baths} bathroom`);
+  if (sqft != null) parts.push(`${sqft} sq ft`);
+  return parts.join(', ');
+};
+
+const formatDurationLabel = (minutes: number) => {
+  const rounded = Math.max(1, Math.round(minutes));
+  if (rounded < 90) return `about ${rounded} min`;
+  const hours = Math.round((rounded / 60) * 10) / 10;
+  return `about ${hours} hr`;
+};
+
+const stripCleaningMeta = (text: string) => {
+  return text
+    .replace(/\.\s*Type:\s*(?:Basic|Deep)\s*cleaning/gi, '')
+    .replace(/\.\s*Property size:\s*[^.]*/gi, '')
+    .replace(/\.\s*Supplies to bring:\s*[^.]*/gi, '')
+    .replace(/\.\s*Special requests:\s*[^.]*/gi, '')
+    .replace(/\.\s*Condition:\s*[^.]*/gi, '')
+    .replace(/\.\s*Pet hair:\s*[^.]*/gi, '')
+    .replace(/\.\s*Frequency:\s*[^.]*/gi, '')
+    .trim();
+};
+
+const composeCleaningDescription = (description: string, meta: CleaningMeta) => {
+  const base = stripCleaningMeta(description);
+  const cleaningTypeText = meta.cleaningType === 'basic' ? 'Basic cleaning' : meta.cleaningType === 'deep' ? 'Deep cleaning' : '';
+  const sizeInfo = meta.apartmentSize.trim() ? `. Property size: ${meta.apartmentSize.trim()}` : '';
+  const conditionInfo = meta.condition ? `. Condition: ${meta.condition}` : '';
+  const petInfo = meta.petHair === true ? '. Pet hair: yes' : meta.petHair === false ? '. Pet hair: no' : '';
+  const frequencyInfo = meta.frequency ? `. Frequency: ${FREQUENCY_LABEL[meta.frequency]}` : '';
+  const suppliesInfo = meta.suppliesNeeded.trim() ? `. Supplies to bring: ${meta.suppliesNeeded.trim()}` : '';
+  const requestsInfo = meta.specialRequests.trim() ? `. Special requests: ${meta.specialRequests.trim()}` : '';
+  return `${base}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${conditionInfo}${petInfo}${frequencyInfo}${suppliesInfo}${requestsInfo}`;
 };
 
 const STREET_SUFFIX_KEYWORDS = new Set([
@@ -671,12 +775,14 @@ export default function cleaning() {
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
   const [description, setDescription] = useState('');
   const [priceQuote, setPriceQuote] = useState<string | null>(null);
+  const [suggestedPrice, setSuggestedPrice] = useState<number | null>(null);
   const [priceNote, setPriceNote] = useState<string | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
 
   const resetPriceState = useCallback(() => {
     setPriceQuote(null);
+    setSuggestedPrice(null);
     setPriceNote(null);
     setPriceError(null);
     setIsPriceLoading(false);
@@ -705,6 +811,12 @@ export default function cleaning() {
   const [showApartmentSizeModal, setShowApartmentSizeModal] = useState(false);
   const [showSuppliesModal, setShowSuppliesModal] = useState(false);
   const [suppliesNeeded, setSuppliesNeeded] = useState('');
+  const [squareFeetInput, setSquareFeetInput] = useState('');
+  const [bedroomsInput, setBedroomsInput] = useState('');
+  const [bathroomsInput, setBathroomsInput] = useState('');
+  const [condition, setCondition] = useState<CleaningCondition>('');
+  const [petHair, setPetHair] = useState<boolean | null>(null);
+  const [frequency, setFrequency] = useState<CleaningFrequency>('');
   const lastEnhancedDescriptionRef = useRef<string | null>(null);
   const voicePulseValue = useRef(new Animated.Value(1)).current;
   const voicePulseAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -730,6 +842,13 @@ export default function cleaning() {
       specialRequests,
       detailsPhotos: cloneAttachments(detailsPhotos),
       suppliesNeeded,
+      squareFeet: squareFeetInput,
+      bedrooms: bedroomsInput,
+      bathrooms: bathroomsInput,
+      condition,
+      petHair,
+      frequency,
+      suggestedPrice,
     };
   }, [
     apartmentSize,
@@ -750,6 +869,13 @@ export default function cleaning() {
     specialRequests,
     detailsPhotos,
     suppliesNeeded,
+    squareFeetInput,
+    bedroomsInput,
+    bathroomsInput,
+    condition,
+    petHair,
+    frequency,
+    suggestedPrice,
   ]);
 
   const restoreFormState = useCallback(
@@ -766,6 +892,7 @@ export default function cleaning() {
       setIsPersonal(nextIsPersonal);
       slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
       setPriceQuote(formState.priceQuote ?? null);
+      setSuggestedPrice(typeof formState.suggestedPrice === 'number' ? formState.suggestedPrice : null);
       setPriceNote(formState.priceNote ?? null);
       setPriceError(formState.priceError ?? null);
       setAttachments(cloneAttachments(formState.attachments ?? []));
@@ -778,6 +905,12 @@ export default function cleaning() {
       setSpecialRequests(formState.specialRequests ?? '');
       setDetailsPhotos(cloneAttachments(formState.detailsPhotos ?? []));
       setSuppliesNeeded(formState.suppliesNeeded ?? '');
+      setSquareFeetInput(formState.squareFeet ?? '');
+      setBedroomsInput(formState.bedrooms ?? '');
+      setBathroomsInput(formState.bathrooms ?? '');
+      setCondition(formState.condition ?? '');
+      setPetHair(typeof formState.petHair === 'boolean' ? formState.petHair : null);
+      setFrequency(formState.frequency ?? '');
     },
     [slideAnimation, slideAnimation2],
   );
@@ -1189,11 +1322,9 @@ export default function cleaning() {
     setIsPersonal(nextIsPersonal);
     slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
 
-    if (typeof editingPayload.price === 'number' && Number.isFinite(editingPayload.price)) {
-      setPriceQuote(formatCurrency(editingPayload.price));
-    } else {
-      setPriceQuote(null);
-    }
+    setSuggestedPrice(null);
+    setPriceQuote(null);
+    setPriceNote('Request a new estimate before saving.');
 
     if (typeof editingPayload.description === 'string') {
       const trimmed = editingPayload.description.trim();
@@ -1202,7 +1333,6 @@ export default function cleaning() {
       setDescription('');
     }
 
-    setPriceNote(null);
     setPriceError(null);
 
     let cancelled = false;
@@ -1257,6 +1387,12 @@ export default function cleaning() {
         console.log('📝 Description cleared after modal completion - resetting modal states');
         setCleaningType('');
         setApartmentSize('');
+        setSquareFeetInput('');
+        setBedroomsInput('');
+        setBathroomsInput('');
+        setCondition('');
+        setPetHair(null);
+        setFrequency('');
         setSuppliesNeeded('');
         setSpecialRequests('');
         lastEnhancedDescriptionRef.current = null;
@@ -1277,6 +1413,12 @@ export default function cleaning() {
       console.log('📝 Enhanced format removed after modal completion - resetting modal states');
       setCleaningType('');
       setApartmentSize('');
+      setSquareFeetInput('');
+      setBedroomsInput('');
+      setBathroomsInput('');
+      setCondition('');
+      setPetHair(null);
+      setFrequency('');
       setSuppliesNeeded('');
       setSpecialRequests('');
       lastEnhancedDescriptionRef.current = null;
@@ -1348,110 +1490,63 @@ export default function cleaning() {
   }, [resetPriceState]);
 
   const fetchPriceEstimate = useCallback(
-    async (
-      taskDescription: string,
-      options: { start?: SelectedLocation | null; end?: SelectedLocation | null } = {},
-    ) => {
-      const { start, end } = options;
-
+    async (taskDescription: string) => {
       setIsPriceLoading(true);
       setPriceQuote(null);
+      setSuggestedPrice(null);
       setPriceNote(null);
       setPriceError(null);
 
-      if (!openAiApiKey) {
+      if (!quoteFlowHasHomeSize(squareFeetInput, bedroomsInput, bathroomsInput, apartmentSize, taskDescription)) {
         setIsPriceLoading(false);
-        setPriceError('Price estimate unavailable (missing OpenAI key).');
+        setPriceError('Add home size (sq ft and/or beds and baths) to see a price.');
         return;
       }
 
       try {
-        const startDetails = start
-          ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-        const endDetails = end
-          ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-
-        const requestBody = {
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a pricing assistant for cleaning services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) degree of cleaning needed (light/medium/deep), 2) which rooms or entire home, 3) property size. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on property size - Studio: $20-40 (basic) / $40-80 (deep), 1-bed: $30-50 (basic) / $60-100 (deep), 2-bed: $45-70 (basic) / $90-130 (deep), 3-bed: $60-90 (basic) / $120-170 (deep), 4+ bed or house: $80-130 (basic) / $150-250 (deep). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.',
-            },
-            {
-              role: 'user',
-              content: [
-                `Task description: ${taskDescription}`,
-                `Start location: ${startDetails}`,
-                `End location: ${endDetails}`,
-              ].join('\n'),
-            },
-          ],
+        const body: Record<string, unknown> = {
+          serviceType: 'cleaning',
+          description: taskDescription,
         };
+        const squareFeet = readCountInput(squareFeetInput, false);
+        const bedrooms = readCountInput(bedroomsInput, true);
+        const bathrooms = readCountInput(bathroomsInput, true);
+        if (squareFeet != null) body.squareFeet = squareFeet;
+        if (bedrooms != null) body.bedrooms = bedrooms;
+        if (bathrooms != null) body.bathrooms = bathrooms;
+        if (condition) body.condition = condition;
+        if (typeof petHair === 'boolean') body.petHair = petHair;
+        if (cleaningType === 'deep') body.depth = 'deep';
+        else if (cleaningType === 'basic') body.depth = 'standard';
+        if (frequency) body.frequency = frequency;
 
-        console.log('🔍 Fetching price estimate with description:', taskDescription);
-        console.log('📝 Full request:', JSON.stringify(requestBody, null, 2));
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || 'Failed to fetch price estimate');
+        const { data, error } = await supabase.functions.invoke('quote-service-price', { body });
+        const estimate = data as {
+          source?: string;
+          serviceType?: string;
+          priceMin?: number;
+          priceMax?: number;
+          suggestedPrice?: number;
+          durationMinutes?: number;
+          error?: string;
+        } | null;
+        if (
+          error
+          || !estimate
+          || estimate.source !== 'server'
+          || estimate.serviceType !== 'cleaning'
+          || typeof estimate.priceMin !== 'number'
+          || typeof estimate.priceMax !== 'number'
+          || typeof estimate.suggestedPrice !== 'number'
+        ) {
+          throw new Error(estimate?.error || error?.message || 'Failed to fetch price estimate');
         }
 
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-
-        if (typeof content !== 'string' || content.trim().length === 0) {
-          throw new Error('Missing completion content');
+        setSuggestedPrice(estimate.suggestedPrice);
+        setPriceQuote(`${formatCurrency(estimate.priceMin)}–${formatCurrency(estimate.priceMax)}`);
+        if (typeof estimate.durationMinutes === 'number') {
+          setPriceNote(formatDurationLabel(estimate.durationMinutes));
         }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(content);
-        } catch (error) {
-          throw new Error('Unable to parse price estimate');
-        }
-
-        // Check for safety concerns first
-        if (parsed.safety_concern === true && parsed.safety_message) {
-          showModal({
-            title: 'Safety Concern',
-            message: parsed.safety_message,
-          });
-          setPriceError('This request may not be suitable for our platform.');
-          return;
-        }
-
-        // Check if clarification is needed
-        if (parsed.needs_clarification === true && parsed.clarification_prompt) {
-          setShowCleaningTypeModal(true);
-          setPriceError('Please select a cleaning type.');
-          return;
-        }
-
-        const price = Number(parsed.price);
-
-        if (!Number.isFinite(price)) {
-          throw new Error('Invalid price value');
-        }
-
-        // Apply 15% discount to make pricing more competitive
-        const discountedPrice = price * 0.85;
-        const sanitizedPrice = Math.max(0, Math.round(discountedPrice));
-
-        setPriceQuote(formatCurrency(sanitizedPrice));
       } catch (error) {
         console.warn('Failed to fetch price estimate', error);
         setPriceError('Unable to estimate price right now.');
@@ -1459,30 +1554,8 @@ export default function cleaning() {
         setIsPriceLoading(false);
       }
     },
-    [openAiApiKey],
+    [apartmentSize, bathroomsInput, bedroomsInput, cleaningType, condition, frequency, petHair, squareFeetInput],
   );
-
-  const checkForPropertySize = useCallback((text: string) => {
-    const lowerText = text.toLowerCase();
-    
-    // Check for square footage
-    const hasSqFt = /\b\d+\s*(sq\s*ft|square\s*feet|sqft|sf)\b/i.test(lowerText);
-    
-    // Check for room count (bedroom, bathroom, etc.)
-    const hasRoomCount = /\b\d+[\s-]*(bedroom|bed|br|bathroom|bath|ba|room)\b/i.test(lowerText);
-    
-    // Check for spelled-out bedroom numbers (one bedroom, two bedroom, etc.)
-    const spelledOutBedroomPattern = /\b(one|two|three|four|five|six|seven|eight|nine|ten|single|double|triple)\s*(?:-|\s)?\s*(bedroom|bed|br|room|apt|apartment)s?\b/;
-    const hasSpelledOutRoomCount = spelledOutBedroomPattern.test(lowerText);
-    
-    // Check for property descriptors
-    const hasPropertyDesc = /\b(studio|apartment|condo|house|office|townhouse|loft)\b/i.test(lowerText);
-    
-    // Check for size descriptors
-    const hasSizeDesc = /\b(small|medium|large|tiny|huge|spacious|compact)\s*(apartment|house|office|space|property|home|room)\b/i.test(lowerText);
-    
-    return hasSqFt || hasRoomCount || hasSpelledOutRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
-  }, []);
 
   const checkForCleaningType = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
@@ -1526,52 +1599,35 @@ export default function cleaning() {
     // Check if cleaning type is already set (in state or in description)
     if (cleaningType || checkForCleaningType(description)) {
       // Skip to next step based on what's already filled
-      if (checkForPropertySize(description) || apartmentSize) {
+      if (quoteFlowHasHomeSize(squareFeetInput, bedroomsInput, bathroomsInput, apartmentSize, description)) {
         // Property size is set, check supplies
         if (suppliesNeeded) {
-          // All main fields set - rebuild description from state to ensure consistency
-          const baseDesc = description
-            .replace(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/gi, '')
-            .replace(/\.\s*Property size:\s*[^.]+/gi, '')
-            .replace(/\.\s*Supplies to bring:\s*[^.]+/gi, '')
-            .replace(/\.\s*Special requests:\s*[^.]+/gi, '')
-            .trim();
-          
-          const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
-          const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-          const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
-          const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-          
-          const rebuiltDescription = `${baseDesc}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
-          
-          console.log('🔄 Rebuilding description:');
-          console.log('  Original:', description);
-          console.log('  Base:', baseDesc);
-          console.log('  cleaningType:', cleaningType);
-          console.log('  apartmentSize:', apartmentSize);
-          console.log('  suppliesNeeded:', suppliesNeeded);
-          console.log('  specialRequests:', specialRequests);
-          console.log('  Rebuilt:', rebuiltDescription);
-          
-          // Update description if it changed
+          const rebuiltDescription = composeCleaningDescription(description, {
+            cleaningType,
+            apartmentSize,
+            suppliesNeeded,
+            specialRequests,
+            condition,
+            petHair,
+            frequency,
+          });
+
           if (rebuiltDescription !== description) {
             setDescription(rebuiltDescription);
           }
-          
-          fetchPriceEstimate(rebuiltDescription, { start: location, end: location });
+
+          fetchPriceEstimate(rebuiltDescription);
         } else {
-          // Show supplies modal
           setShowSuppliesModal(true);
         }
       } else {
-        // Show apartment size modal
         setShowApartmentSizeModal(true);
       }
     } else {
       // Show cleaning type modal first
       setShowCleaningTypeModal(true);
     }
-  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkForCleaningType, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, condition, petHair, frequency, squareFeetInput, bedroomsInput, bathroomsInput, checkForCleaningType, fetchPriceEstimate]);
 
   const analyzecleaningDescription = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
@@ -1772,14 +1828,12 @@ export default function cleaning() {
     setShowCleaningTypeModal(false);
     
     // Check if property size is already in description
-    if (checkForPropertySize(description)) {
-      // Skip apartment size modal, go directly to supplies
+    if (quoteFlowHasHomeSize(squareFeetInput, bedroomsInput, bathroomsInput, apartmentSize, description)) {
       setShowSuppliesModal(true);
     } else {
-      // Show apartment size modal after selecting cleaning type
       setShowApartmentSizeModal(true);
     }
-  }, [description, checkForPropertySize]);
+  }, [description, apartmentSize, squareFeetInput, bedroomsInput, bathroomsInput]);
 
   const handleApartmentSizeBack = useCallback(() => {
     setShowApartmentSizeModal(false);
@@ -1788,25 +1842,22 @@ export default function cleaning() {
   }, []);
 
   const handleApartmentSizeSubmit = useCallback(() => {
-    if (!apartmentSize.trim()) {
+    if (!hasStructuredHomeSize(squareFeetInput, bedroomsInput, bathroomsInput)) {
       return;
     }
+    setApartmentSize(formatHomeSizeLabel(squareFeetInput, bedroomsInput, bathroomsInput));
     setShowApartmentSizeModal(false);
-    // Show supplies modal after apartment size
     setShowSuppliesModal(true);
-  }, [apartmentSize]);
+  }, [squareFeetInput, bedroomsInput, bathroomsInput]);
 
   const handleSuppliesBack = useCallback(() => {
     setShowSuppliesModal(false);
-    // Check if we came from apartment size modal or directly from cleaning type
-    if (checkForPropertySize(description)) {
-      // If property size was already in description, go back to cleaning type
-      setShowCleaningTypeModal(true);
-    } else {
-      // Otherwise go back to apartment size modal
+    if (hasStructuredHomeSize(squareFeetInput, bedroomsInput, bathroomsInput) || !descriptionHasHomeSize(description)) {
       setShowApartmentSizeModal(true);
+    } else {
+      setShowCleaningTypeModal(true);
     }
-  }, [description, checkForPropertySize]);
+  }, [description, squareFeetInput, bedroomsInput, bathroomsInput]);
 
   const handleSuppliesSubmit = useCallback(() => {
     setShowSuppliesModal(false);
@@ -1822,28 +1873,22 @@ export default function cleaning() {
 
   const handleDetailsSubmit = useCallback(() => {
     setShowDetailsModal(false);
-    // Run price estimation with all collected information
     if (description.trim() && location) {
-      // Check if description is already enhanced to avoid duplication
-      if (checkIfDescriptionAlreadyEnhanced(description)) {
-        // Description already has modal info, just fetch price
-        fetchPriceEstimate(description, { start: location, end: location });
-      } else {
-        // Build enhanced description for the first time
-        const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
-        const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-        const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
-        const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-        
-        const enhancedDescription = `${description}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
-        
-        // Update the description state with the enhanced description
+      const enhancedDescription = composeCleaningDescription(description, {
+        cleaningType,
+        apartmentSize,
+        suppliesNeeded,
+        specialRequests,
+        condition,
+        petHair,
+        frequency,
+      });
+      if (enhancedDescription !== description) {
         setDescription(enhancedDescription);
-        
-        fetchPriceEstimate(enhancedDescription, { start: location, end: location });
       }
+      fetchPriceEstimate(enhancedDescription);
     }
-  }, [description, location, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+  }, [description, location, cleaningType, apartmentSize, suppliesNeeded, specialRequests, condition, petHair, frequency, fetchPriceEstimate]);
 
   const snapshotLocations = useCallback(() => {
     locationSnapshotRef.current = {
@@ -1895,11 +1940,15 @@ export default function cleaning() {
       return;
     }
 
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
+    if (!quoteFlowHasHomeSize(squareFeetInput, bedroomsInput, bathroomsInput, apartmentSize, trimmedDescription)) {
+      showModal({
+        title: 'Home size needed',
+        message: 'Add square feet and/or a bedroom or bathroom count before scheduling.',
+      });
+      return;
+    }
 
-    if (sanitizedPrice === null) {
+    if (!Number.isFinite(suggestedPrice ?? NaN)) {
       showModal({
         title: 'Estimate needed',
         message: 'Request a quick price estimate before scheduling your cleaning service.',
@@ -1949,13 +1998,15 @@ export default function cleaning() {
       resolvedCustomerIdValue = resolvedCustomerId;
     }
 
-    // Build enhanced description with all collected information
-    const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
-    const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-    const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
-    const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-    
-    const normalizedDescription = `${trimmedDescription}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+    const normalizedDescription = composeCleaningDescription(trimmedDescription, {
+      cleaningType,
+      apartmentSize,
+      suppliesNeeded,
+      specialRequests,
+      condition,
+      petHair,
+      frequency,
+    });
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
@@ -1966,7 +2017,7 @@ export default function cleaning() {
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
           location: location.description,
-          price: sanitizedPrice,
+          price: suggestedPrice,
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
           description: normalizedDescription,
@@ -2009,7 +2060,7 @@ export default function cleaning() {
         status: 'finding_pros',
         scheduling_type: null,
         location: location.description,
-        price: sanitizedPrice,
+        price: suggestedPrice,
         start_datetime: null,
         end_datetime: null,
         payment_method_type: paymentMethodType,
@@ -2049,6 +2100,7 @@ export default function cleaning() {
     isPersonal,
     isSubmitting,
     priceQuote,
+    suggestedPrice,
     preserveFormForAuth,
     resolveCustomerId,
     router,
@@ -2059,6 +2111,12 @@ export default function cleaning() {
     apartmentSize,
     suppliesNeeded,
     specialRequests,
+    condition,
+    petHair,
+    frequency,
+    squareFeetInput,
+    bedroomsInput,
+    bathroomsInput,
   ]);
 
   useEffect(() => {
@@ -2451,7 +2509,9 @@ export default function cleaning() {
                   <Text style={styles.PriceOfServiceTitleText}>Helpr</Text>
                 </View>
                 <View style={styles.PriceOfServiceSubtitleTextContainer}>
-                  <Text style={styles.PriceOfServiceSubtitleText}>Price to be confirmed on next page</Text>
+                  <Text style={styles.PriceOfServiceSubtitleText} numberOfLines={1}>
+                    {priceNote ?? 'Price to be confirmed on next page'}
+                  </Text>
                 </View>            
               </View>
               <View style={styles.PriceOfServiceQuoteContainer}>
@@ -2464,6 +2524,8 @@ export default function cleaning() {
                           <Text
                             style={[styles.PriceOfServiceQuoteText, styles.PriceOfServiceQuotePrice]}
                             numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.6}
                           >
                             {priceQuote}
                           </Text>
@@ -2783,21 +2845,102 @@ export default function cleaning() {
       >
         <View style={styles.signInOverlayBackground}>
           <View style={styles.apartmentSizeModal}>
-            <Text style={styles.apartmentSizeTitle}>Space Size</Text>
+            <Text style={styles.apartmentSizeTitle}>Home size</Text>
             <View style={styles.apartmentSizeDivider} />
-            <Text style={styles.apartmentSizeMessage}>
-              Please specify the size of your home or office:
-            </Text>
-            
-            <TextInput
-              style={styles.cleaningAnalysisInput}
-              placeholder="e.g., 2-bedroom apartment, 1500 sq ft house, 3-room office..."
-              placeholderTextColor="#7C7160"
-              value={apartmentSize}
-              onChangeText={setApartmentSize}
-              autoFocus
-            />
-
+            <ScrollView style={styles.sizeModalScroll} keyboardShouldPersistTaps="handled">
+              <Text style={styles.apartmentSizeMessage}>
+                Square feet, bedrooms, or bathrooms. At least one is required. Use 0 bedrooms for a studio.
+              </Text>
+              <Text style={styles.sizeFieldLabel}>Bedrooms</Text>
+              <TextInput
+                style={styles.cleaningAnalysisInput}
+                placeholder="0 for a studio"
+                placeholderTextColor="#7C7160"
+                value={bedroomsInput}
+                onChangeText={(text) => {
+                  setBedroomsInput(text.replace(/[^0-9]/g, ''));
+                  resetPriceState();
+                }}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.sizeFieldLabel}>Bathrooms</Text>
+              <TextInput
+                style={styles.cleaningAnalysisInput}
+                placeholder="e.g. 1"
+                placeholderTextColor="#7C7160"
+                value={bathroomsInput}
+                onChangeText={(text) => {
+                  setBathroomsInput(text.replace(/[^0-9]/g, ''));
+                  resetPriceState();
+                }}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.sizeFieldLabel}>Square feet</Text>
+              <TextInput
+                style={styles.cleaningAnalysisInput}
+                placeholder="e.g. 450"
+                placeholderTextColor="#7C7160"
+                value={squareFeetInput}
+                onChangeText={(text) => {
+                  setSquareFeetInput(text.replace(/[^0-9]/g, ''));
+                  resetPriceState();
+                }}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.sizeFieldLabel}>Condition (optional)</Text>
+              <View style={styles.chipRow}>
+                {(['light', 'average', 'heavy'] as const).map(option => (
+                  <Pressable
+                    key={option}
+                    style={[styles.chip, condition === option && styles.chipSelected]}
+                    onPress={() => {
+                      setCondition(condition === option ? '' : option);
+                      resetPriceState();
+                    }}
+                  >
+                    <Text style={[styles.chipText, condition === option && styles.chipTextSelected]}>{option}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.sizeFieldLabel}>Pet hair (optional)</Text>
+              <View style={styles.chipRow}>
+                {([
+                  { label: 'Yes', value: true },
+                  { label: 'No', value: false },
+                ] as const).map(option => (
+                  <Pressable
+                    key={option.label}
+                    style={[styles.chip, petHair === option.value && styles.chipSelected]}
+                    onPress={() => {
+                      setPetHair(petHair === option.value ? null : option.value);
+                      resetPriceState();
+                    }}
+                  >
+                    <Text style={[styles.chipText, petHair === option.value && styles.chipTextSelected]}>{option.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.sizeFieldLabel}>Frequency (optional)</Text>
+              <View style={styles.chipRow}>
+                {([
+                  { label: 'One-time', value: 'one_time' },
+                  { label: 'Weekly', value: 'weekly' },
+                  { label: 'Every 2 weeks', value: 'biweekly' },
+                  { label: 'Monthly', value: 'monthly' },
+                ] as const).map(option => (
+                  <Pressable
+                    key={option.value}
+                    style={[styles.chip, frequency === option.value && styles.chipSelected]}
+                    onPress={() => {
+                      setFrequency(frequency === option.value ? '' : option.value);
+                      resetPriceState();
+                    }}
+                  >
+                    <Text style={[styles.chipText, frequency === option.value && styles.chipTextSelected]}>{option.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
             <View style={styles.apartmentSizeButtonsRow}>
               <Pressable
                 style={styles.apartmentSizeBackButton}
@@ -2805,10 +2948,10 @@ export default function cleaning() {
               >
                 <Text style={styles.apartmentSizeBackButtonText}>Back</Text>
               </Pressable>
-              <Pressable 
-                style={[styles.apartmentSizeContinueButton, !apartmentSize.trim() && { opacity: 0.5 }]}
+              <Pressable
+                style={[styles.apartmentSizeContinueButton, !hasStructuredHomeSize(squareFeetInput, bedroomsInput, bathroomsInput) && { opacity: 0.5 }]}
                 onPress={handleApartmentSizeSubmit}
-                disabled={!apartmentSize.trim()}
+                disabled={!hasStructuredHomeSize(squareFeetInput, bedroomsInput, bathroomsInput)}
               >
                 <Text style={styles.apartmentSizeContinueButtonText}>Continue</Text>
               </Pressable>
@@ -3243,7 +3386,7 @@ const styles = StyleSheet.create({
     color: '#49454F',
   },
   PriceOfServiceQuoteContainer:{
-    width: 120,
+    width: 136,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent',
@@ -3261,7 +3404,7 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   PriceOfServiceQuotePrice: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
     color: '#0c4309',
   },
@@ -4142,9 +4285,45 @@ const styles = StyleSheet.create({
   apartmentSizeMessage: {
     fontSize: 12,
     color: '#49454F',
-    marginBottom: 20,
-    lineHeight: 20,
+    marginBottom: 12,
+    lineHeight: 18,
     textAlign: 'center',
+  },
+  sizeModalScroll: {
+    maxHeight: 420,
+  },
+  sizeFieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0c4309',
+    marginBottom: 6,
+    marginTop: 8,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  chip: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#0c4309',
+  },
+  chipSelected: {
+    backgroundColor: '#0c4309',
+  },
+  chipText: {
+    color: '#0c4309',
+    fontSize: 13,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  chipTextSelected: {
+    color: '#FFFFFF',
   },
   apartmentSizeButtonsRow: {
     flexDirection: 'row',
