@@ -1,12 +1,56 @@
 import { useStripe } from '@stripe/stripe-react-native';
+import * as SecureStore from 'expo-secure-store';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { PaymentMethodModal } from '../../components/common/PaymentMethodModal';
 import { ModalButtonConfig, useModal } from '../../context/ModalContext';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
 import { supabase } from '../../lib/supabase';
+
+const AUTH_STORAGE_KEY = 'sb-hecikcopbdhhiilhgmrd-auth-token';
+
+const DELETE_ACCOUNT_MESSAGE =
+  'This permanently deletes your Helpr login. A provider profile and payout account on this same login are removed too. Saved cards and open requests are removed. You will be signed out and cannot sign in again. Jobs that are confirmed, on the way, or in progress, and any provider balance, must be resolved first. Payments are not captured, refunded, or paid out here.';
+
+const isDeleteAccountSuccess = (data: unknown) =>
+  Boolean(data && typeof data === 'object' && (data as { success?: boolean }).success === true);
+
+const readErrorText = (value: unknown) => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const error = (value as { error?: unknown }).error;
+  return typeof error === 'string' && error.trim() ? error : null;
+};
+
+const deleteAccountErrorMessage = async (data: unknown, error: unknown) => {
+  if (isDeleteAccountSuccess(data)) {
+    return null;
+  }
+  const direct = readErrorText(data);
+  if (direct) {
+    return direct;
+  }
+  const context = error && typeof error === 'object' ? (error as { context?: unknown }).context : null;
+  const fromContext = readErrorText(context);
+  if (fromContext) {
+    return fromContext;
+  }
+  if (context && typeof context === 'object' && 'json' in context && typeof (context as { json?: unknown }).json === 'function') {
+    try {
+      const body = await (context as { json: () => Promise<unknown> }).json();
+      const parsed = readErrorText(body);
+      if (parsed) {
+        return parsed;
+      }
+    } catch {
+      // Response body was already read by the Supabase client.
+    }
+  }
+  return 'We could not delete your account. Please try again.';
+};
 
 interface CustomerData {
   customer_id: string;
@@ -57,7 +101,8 @@ export default function Account() {
     expiryMonth: number | null;
     expiryYear: number | null;
   } | null>(null);
-  const { showModal } = useModal();
+  const { showModal, hideModal } = useModal();
+  const deleteInFlight = useRef(false);
   const { createPaymentMethod } = useStripe();
 
   const presentModal = useCallback(
@@ -306,6 +351,64 @@ export default function Account() {
         },
       },
     ]);
+  };
+
+  const runDeleteAccount = async () => {
+    if (deleteInFlight.current) {
+      return;
+    }
+    deleteInFlight.current = true;
+    showModal({
+      title: 'Deleting account',
+      message: 'This can take a moment.',
+      allowBackdropDismiss: false,
+      buttons: [{ text: 'Please wait', disabled: true }],
+    });
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-account', {
+        body: { confirm: true },
+      });
+      const failure = await deleteAccountErrorMessage(data, error);
+      if (failure) {
+        presentModal("Can't delete account", failure);
+        return;
+      }
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch (signOutError) {
+        console.error('Local sign out after account deletion failed:', signOutError);
+      }
+      try {
+        await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+      } catch (storageError) {
+        console.error('Clearing the local session after account deletion failed:', storageError);
+      }
+      hideModal();
+      router.replace('/(auth)/login' as any);
+    } catch (deleteError) {
+      console.error('Error deleting account:', deleteError);
+      presentModal("Can't delete account", 'We could not delete your account. Please try again.');
+    } finally {
+      deleteInFlight.current = false;
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    showModal({
+      title: 'Delete account',
+      message: DELETE_ACCOUNT_MESSAGE,
+      allowBackdropDismiss: false,
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => {
+            void runDeleteAccount();
+          },
+        },
+      ],
+    });
   };
 
   const verifyEmailOTP = async () => {
@@ -668,6 +771,10 @@ export default function Account() {
 
         <TouchableOpacity style={styles.signOutItem} onPress={signOut}>
           <Text style={styles.signOutText}>Sign out</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.signOutItem} onPress={confirmDeleteAccount}>
+          <Text style={styles.signOutText}>Delete account</Text>
         </TouchableOpacity>
       </View>
 
