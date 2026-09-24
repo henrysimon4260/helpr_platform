@@ -1,7 +1,15 @@
 import Link from "next/link";
+import ContactStatus from "../components/contact-status";
 import LegalDisclaimer from "../components/legal-disclaimer";
+import SupportChat from "../components/support-chat";
 
-export default function ContactUsPage() {
+type ContactPageProps = {
+  searchParams?: Promise<{ status?: string | string[] }>;
+};
+
+export default async function ContactUsPage({ searchParams }: ContactPageProps) {
+  const params = searchParams ? await searchParams : {};
+  const statusValue = Array.isArray(params.status) ? params.status[0] : params.status;
   return (
     <main className="min-h-screen bg-[#f2f7f2] text-slate-900">
       <header className="border-b border-[#b5ccb8] bg-[#e8f2e8]">
@@ -50,11 +58,16 @@ export default function ContactUsPage() {
             For active booking or service completion issues, please use the
             in-app customer support agent for fastest help.
           </p>
-          <p className="mt-1 text-xs text-[#5f7962]">
-            Messages from this form are delivered to our internal support inbox.
+          <ContactStatus status={statusValue} />
+          <div className="mt-4">
+            <SupportChat audience="customer" tone="customer" />
+          </div>
+          <p className="mt-6 text-sm text-[#4a6450]">
+            Or email a person. This form is delivered only when email is
+            configured. You will see a success message only after it is sent.
           </p>
 
-          <form action="/api/contact" method="post" className="mt-6 space-y-4">
+          <form action="/api/contact" method="post" className="mt-4 space-y-4">
             <input type="hidden" name="supportType" value="customer" />
             <input type="hidden" name="redirectTo" value="/contact-us" />
             <div>

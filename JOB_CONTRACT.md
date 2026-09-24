@@ -108,6 +108,38 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 
 **Error:** `{ "success": false, "error": "" }` (HTTP 200 so the client can read it) or a functions invoke error. C must not invent a different completion path without updating this contract.
 
+### `support-chat`
+
+Support Q&A for the customer app, the provider app, and the website. Not in-job customer↔provider chat. No new table. Messages are not stored.
+
+Source: `apps/serviceprovider-app/supabase/functions/support-chat/`. The website route `POST /api/support-chat` calls this function when `SUPABASE_URL` and `SUPABASE_ANON_KEY` are both set; otherwise it uses the same prompt against `OPENAI_API_KEY` on the website server. Callers never send the model key.
+
+**Secret:** `OPENAI_API_KEY` on the function (Dashboard → Edge Function secrets, or `supabase secrets set OPENAI_API_KEY=...` from `apps/serviceprovider-app`). Local serve reads `supabase/functions/.env`. Do not put this key in `EXPO_PUBLIC_*` or `NEXT_PUBLIC_*`. If the key is missing, the response is an error and the client must not show a fake reply. Deploy notes: `apps/serviceprovider-app/supabase/functions/support-chat/README.md`.
+
+**Auth:** `verify_jwt = true`. `supabase.functions.invoke` sends the signed-in user JWT or the project anon key. The website server sends `SUPABASE_ANON_KEY`. The body cannot choose the model or the system prompt.
+
+**Request:**
+
+```json
+{
+  "audience": "customer",
+  "channel": "app",
+  "messages": [{ "role": "user", "content": "" }]
+}
+```
+
+`audience` is `customer` or `provider`. `channel` is `app` or `website` (default `app`). `messages` is 1–12 entries, each `user` or `assistant`, each at most 1500 characters. The last entry must be `role: "user"`.
+
+**Success (HTTP 200):** `{ "reply": "", "escalate": false }`
+
+`escalate: true` means a person has to follow up. The function does not send email. The website contact form (`POST /api/contact`) is the email escalation path and must not report success when SMTP is not configured.
+
+**Missing key (HTTP 503):** `{ "error": "support_unavailable", "message": "" }`
+
+**Other failure (HTTP 400 or 502):** `{ "error": "invalid_request" | "invalid_json" | "support_failed" | "method_not_allowed", "message": "" }`
+
+The assistant may state only the job rules in this file and the customer fee model of a 3% payment processing fee plus a 1% platform fee on the service price. It must not invent cancellation, refund, tax, or any other fee.
+
 ### `create-connect-account`
 
 Exists. Signup / provider profile (D) may call it; only E rewrites it.
