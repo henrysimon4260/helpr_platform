@@ -135,6 +135,7 @@ export const styles = StyleSheet.create({
     borderWidth: 2,
   },
   methodInfo: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -184,6 +185,16 @@ export const styles = StyleSheet.create({
     color: '#0c4309',
     fontSize: 20,
     fontWeight: '700',
+  },
+  methodActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  removeText: {
+    color: '#8C3A3A',
+    fontSize: 13,
+    fontWeight: '600',
   },
   addNewButton: {
     backgroundColor: '#E5DCC9',

@@ -5,7 +5,7 @@ import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { SvgXml } from 'react-native-svg';
 import { PaymentMethodModal } from '../../components/common/PaymentMethodModal';
 import { ModalButtonConfig, useModal } from '../../context/ModalContext';
-import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
+import { deleteSavedPaymentMethod, loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
 import { supabase } from '../../lib/supabase';
 
 interface CustomerData {
@@ -50,6 +50,7 @@ export default function Account() {
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [cardComplete, setCardComplete] = useState(false);
   const [savingPaymentMethod, setSavingPaymentMethod] = useState(false);
+  const [removingPaymentMethodId, setRemovingPaymentMethodId] = useState<string | null>(null);
   const [activePaymentMethodId, setActivePaymentMethodId] = useState<string | null>(null);
   const [cardDetailsSnapshot, setCardDetailsSnapshot] = useState<{
     brand: string | null;
@@ -91,6 +92,8 @@ export default function Account() {
         setActivePaymentMethodId(defaultMethod.id);
       } else if (methods.length > 0) {
         setActivePaymentMethodId(methods[0].id);
+      } else {
+        setActivePaymentMethodId(null);
       }
     } catch (error) {
       console.error('Error loading payment methods:', error);
@@ -548,10 +551,36 @@ export default function Account() {
         text: 'Remove',
         style: 'destructive',
         onPress: () => {
-          setPaymentMethods(prev => prev.filter(pm => pm.id !== id));
+          void confirmRemovePaymentMethod(id);
         },
       },
     ]);
+  };
+
+  const confirmRemovePaymentMethod = async (id: string) => {
+    setRemovingPaymentMethodId(id);
+    try {
+      const result = await deleteSavedPaymentMethod(id);
+      if (!result.ok) {
+        presentModal('Could not remove card', result.error);
+        return;
+      }
+
+      try {
+        await fetchPaymentMethods();
+      } catch (reloadError) {
+        console.error('Card removed but the list failed to reload:', reloadError);
+        presentModal('Removed', 'The card was removed, but the list could not be refreshed. Reopen payment methods.');
+        return;
+      }
+
+      presentModal('Removed', 'Payment method removed.');
+    } catch (error) {
+      console.error('Error removing payment method:', error);
+      presentModal('Could not remove card', 'Failed to remove payment method. It is still saved.');
+    } finally {
+      setRemovingPaymentMethodId(null);
+    }
   };
 
   const chevronIcon = `
@@ -825,6 +854,8 @@ export default function Account() {
           }
         }}
         onSavePaymentMethod={addPaymentMethod}
+        onRemovePaymentMethod={removePaymentMethod}
+        removingPaymentMethodId={removingPaymentMethodId}
         loading={loadingPaymentMethods}
         saving={savingPaymentMethod}
         showModal={(config) => presentModal(config.title, config.message)}

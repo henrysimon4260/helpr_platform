@@ -17,6 +17,8 @@ export interface PaymentMethodModalProps {
     expiryYear?: number | null;
   } | null) => void;
   onSavePaymentMethod: (isDefault?: boolean) => void;
+  onRemovePaymentMethod?: (methodId: string) => void;
+  removingPaymentMethodId?: string | null;
   loading: boolean;
   saving?: boolean;
   showModal: (config: { title: string; message: string; buttons?: { text: string; style?: 'cancel' | 'destructive' | 'default'; onPress?: () => void }[] }) => void;

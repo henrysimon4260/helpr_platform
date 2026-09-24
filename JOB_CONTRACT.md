@@ -61,7 +61,7 @@ Bodies live under `apps/serviceprovider-app/supabase/functions/` (Agent E). Call
 
 `create-payment-intent` and `complete-service` are deployed (ACTIVE) and checked into `apps/serviceprovider-app/supabase/functions/`. Do not change request/response shapes in a screen first.
 
-Other live functions (`save-payment-method`, Plaid/ACH, `sync-stripe-balance`, …) are still deploy-only until a later E feature checks them in.
+`delete-payment-method` and `create-payout` are checked in under `supabase/functions/`. `save-payment-method`, Plaid/ACH, and `sync-stripe-balance` are still deploy-only. Plaid is not wired in the customer app.
 
 ### `create-payment-intent`
 
@@ -115,6 +115,57 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 **Request (both casings accepted):** `email`, `firstName` / `first_name`, `lastName` / `last_name`, `refreshUrl` / `refresh_url`, `returnUrl` / `return_url`.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
+
+### `delete-payment-method`
+
+Invoked by the customer account payment modal (E). Source: `apps/serviceprovider-app/supabase/functions/delete-payment-method/index.ts`.
+
+Requires the signed-in user's JWT (`verify_jwt = true` plus `auth.getUser`). Detaches the caller's Stripe PaymentMethod and deletes that user's `payment_methods` row (`user_id` = auth user id, `stripe_pm_id` = Stripe id).
+
+There is no database constraint linking a saved card to a job. The function still fails closed when:
+
+- this PaymentMethod is on an in-flight paid job's PaymentIntent in `requires_capture`, `requires_confirmation`, `requires_action`, or `processing`, or
+- it is the only saved card and the customer has a `service` with `payment_status = 'paid'` and status `confirmed`, `helpr_otw`, or `in_progress`.
+
+If the jobs lookup fails, nothing is detached.
+
+**Request:** `{ "payment_method_id": "" }` — `payment_methods.id`, or a `pm_…` Stripe id.
+
+**Success:** `{ "success": true, "deleted_id": "" }`
+
+**Error:** `{ "success": false, "error": "", "code"?: "payment_in_progress" | "only_card_in_flight" | "db_delete_failed" }`. Auth failures use HTTP 401. Other results use HTTP 200 so the client can read `error`.
+
+Does not change capture timing, fees, or tax.
+
+### `create-payout`
+
+Invoked by the provider account Withdraw button (E). Source: `apps/serviceprovider-app/supabase/functions/create-payout/index.ts`.
+
+Requires the signed-in provider's JWT. Pays out available Stripe Connect balance to the connected account's default bank via `payouts.create` (`method: standard`) on that Custom account. No new fee. Platform fee stays the existing customer charge (3% processing + 1% platform in select-a-pro). This function does not capture, transfer, or change MCC.
+
+The amount is the Stripe available balance for one source type (card first, because Connect transfers land as card). It is not a percentage of `service_provider.balance`. After a successful payout the function subtracts that amount from `service_provider.balance` (floor at 0).
+
+If the Connect account or bank is missing, or `payouts_enabled` is false, no payout is created. When Stripe can issue an account link, the response includes `onboarding_url` (same `stripe-redirect` helper as `create-connect-account`). If there is no `stripe_account_id`, the response is `connect_account_missing` with no link.
+
+**Request:**
+
+```json
+{
+  "amount_cents": null,
+  "refresh_url": "",
+  "return_url": ""
+}
+```
+
+`amount_cents` is optional. Omit it to withdraw the available source balance. `refresh_url` / `return_url` are optional app deep links used only when building an account link. The function generates its own Stripe idempotency key per request.
+
+**Success:** `{ "success": true, "payout_id": "", "amount": 0, "amount_cents": 0, "currency": "usd", "status": "", "arrival_date": null, "new_balance": 0, "message": "" }`
+
+If the payout succeeded but the balance row did not update: `balance_update_failed: true` and no `new_balance`.
+
+**Error:** `{ "success": false, "error": "", "code"?: "bank_account_missing" | "connect_account_missing" | "funds_pending" | "nothing_available" | "amount_invalid" | "provider_not_found", "onboarding_url"?: "" }`
+
+Plaid / ACH is not wired. There is no Plaid key or product decision in this repo. The customer payment modal must not report a bank account as saved.
 
 ## Adding something new
 

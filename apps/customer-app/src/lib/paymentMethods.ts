@@ -138,3 +138,62 @@ export const setDefaultPaymentMethod = async (
 
   return true;
 };
+
+export type DeletePaymentMethodResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export const deleteSavedPaymentMethod = async (
+  paymentMethodId: string,
+): Promise<DeletePaymentMethodResult> => {
+  if (!paymentMethodId) {
+    return { ok: false, error: 'Missing payment method.' };
+  }
+
+  const { data, error } = await supabase.functions.invoke('delete-payment-method', {
+    body: { payment_method_id: paymentMethodId },
+  });
+
+  if (data && data.success === false) {
+    return {
+      ok: false,
+      error: typeof data.error === 'string' && data.error.trim()
+        ? data.error
+        : 'Failed to remove payment method. It is still saved.',
+    };
+  }
+
+  if (error) {
+    return { ok: false, error: await readInvokeError(error) };
+  }
+
+  if (!data?.success) {
+    return { ok: false, error: 'Failed to remove payment method. It is still saved.' };
+  }
+
+  return { ok: true };
+};
+
+const readInvokeError = async (error: unknown): Promise<string> => {
+  const context = (error as { context?: { json?: () => Promise<unknown> } }).context;
+  if (context && typeof context.json === 'function') {
+    try {
+      const body = (await context.json()) as { error?: unknown; message?: unknown };
+      if (typeof body?.error === 'string' && body.error.trim()) {
+        return body.error;
+      }
+      if (typeof body?.message === 'string' && body.message.trim()) {
+        return body.message;
+      }
+    } catch {
+      // The invoke error body was not JSON.
+    }
+  }
+
+  const message = (error as { message?: string }).message;
+  if (message && message !== 'Edge Function returned a non-2xx status code') {
+    return message;
+  }
+
+  return 'Failed to remove payment method. It is still saved.';
+};

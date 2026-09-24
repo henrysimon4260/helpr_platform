@@ -1,3 +1,5 @@
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -6,6 +8,37 @@ import { SvgXml } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../src/lib/supabase';
 import { useModal } from '../src/contexts/ModalContext';
+
+const payoutErrorMessage = async (
+  data: { error?: unknown; success?: boolean } | null,
+  error: unknown,
+): Promise<string> => {
+  if (typeof data?.error === 'string' && data.error.trim()) {
+    return data.error;
+  }
+
+  const context = (error as { context?: { json?: () => Promise<unknown> } } | null)?.context;
+  if (context && typeof context.json === 'function') {
+    try {
+      const body = (await context.json()) as { error?: unknown; message?: unknown };
+      if (typeof body?.error === 'string' && body.error.trim()) {
+        return body.error;
+      }
+      if (typeof body?.message === 'string' && body.message.trim()) {
+        return body.message;
+      }
+    } catch {
+      // Ignore a non-JSON function error body.
+    }
+  }
+
+  const message = (error as { message?: string } | null)?.message;
+  if (message && message !== 'Edge Function returned a non-2xx status code') {
+    return message;
+  }
+
+  return 'Could not start a payout. Your balance was not changed.';
+};
 
 interface ProviderData {
   service_provider_id: string;
@@ -53,6 +86,7 @@ export default function Account() {
     { id: '1', type: 'card', last4: '4242', brand: 'Visa', isDefault: true },
   ]);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
   const { showModal } = useModal();
 
   useEffect(() => {
@@ -638,22 +672,91 @@ export default function Account() {
     setShowAddPayment(false);
   };
 
-  const removePaymentMethod = (id: string) => {
+  const removePaymentMethod = (_id: string) => {
     showModal({
-      title: 'Remove Payment Method',
-      message: 'Are you sure you want to remove this payment method?',
+      title: 'Payment methods',
+      message: 'These rows are not saved cards. Nothing was removed. Customer cards are deleted from the customer account.',
+    });
+  };
+
+  const withdrawFunds = () => {
+    if (withdrawing) return;
+    showModal({
+      title: 'Withdraw Funds',
+      message: 'Pay out your available Stripe balance to your bank?',
       allowBackdropDismiss: false,
       buttons: [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            setPaymentMethods(prev => prev.filter(pm => pm.id !== id));
-          },
-        },
+        { text: 'Withdraw', onPress: () => { void confirmWithdraw(); } },
       ],
     });
+  };
+
+  const confirmWithdraw = async () => {
+    setWithdrawing(true);
+    try {
+      const returnUrl = Linking.createURL('landing');
+      const { data, error } = await supabase.functions.invoke('create-payout', {
+        body: {
+          refresh_url: returnUrl,
+          return_url: returnUrl,
+          refreshUrl: returnUrl,
+          returnUrl,
+        },
+      });
+
+      if (data?.success) {
+        if (typeof data.new_balance === 'number') {
+          setProviderData((prev) => (prev ? { ...prev, balance: data.new_balance } : prev));
+        }
+        showModal({
+          title: 'Withdrawal started',
+          message: typeof data.message === 'string'
+            ? data.message
+            : 'Your payout was sent to your bank.',
+        });
+        return;
+      }
+
+      const message = await payoutErrorMessage(data, error);
+      const onboardingUrl = typeof data?.onboarding_url === 'string' ? data.onboarding_url : null;
+      if (onboardingUrl) {
+        showModal({
+          title: 'Bank account needed',
+          message,
+          allowBackdropDismiss: false,
+          buttons: [
+            { text: 'Not now', style: 'cancel' },
+            {
+              text: 'Add bank account',
+              onPress: () => {
+                void WebBrowser.openAuthSessionAsync(onboardingUrl, returnUrl).catch((openError) => {
+                  console.error('Failed to open Stripe account link:', openError);
+                  showModal({
+                    title: 'Could not open Stripe',
+                    message: 'The bank setup link could not be opened. Your balance was not changed.',
+                  });
+                });
+              },
+            },
+          ],
+        });
+        return;
+      }
+
+      showModal({
+        title: 'Withdrawal failed',
+        message,
+      });
+    } catch (withdrawError) {
+      console.error('Withdraw failed:', withdrawError);
+      showModal({
+        title: 'Withdrawal failed',
+        message: 'Could not start a payout. Your balance was not changed.',
+      });
+    } finally {
+      setWithdrawing(false);
+    }
   };
 
 
@@ -802,15 +905,15 @@ export default function Account() {
       {/* Balance Dashboard */}
       <View style={styles.balanceDashboard}>
         <TouchableOpacity
-          style={styles.withdrawButton}
-          onPress={() => {
-            showModal({
-              title: 'Withdraw Funds',
-              message: 'Withdrawal functionality coming soon!',
-            });
-          }}
+          style={[styles.withdrawButton, withdrawing && { opacity: 0.6 }]}
+          onPress={withdrawFunds}
+          disabled={withdrawing}
         >
-          <Text style={styles.withdrawButtonText}>Withdraw</Text>
+          {withdrawing ? (
+            <ActivityIndicator size="small" color="#0c4309" />
+          ) : (
+            <Text style={styles.withdrawButtonText}>Withdraw</Text>
+          )}
         </TouchableOpacity>
         <Text style={styles.balanceAmount}>
           ${(providerData?.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
