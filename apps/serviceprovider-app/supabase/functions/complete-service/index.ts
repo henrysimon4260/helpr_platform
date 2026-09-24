@@ -210,18 +210,35 @@ serve(async (req) => {
       throw new Error('Payment must be authorized through customer app first. No payment intent found.');
     }
 
-    // Step 3: Update provider balance in database
+    // Step 3: Credit provider balance in one statement.
+    // increment_provider_balance runs
+    //   UPDATE service_provider
+    //   SET balance = coalesce(balance, 0) + p_amount
+    // so concurrent completions add to the locked row instead of writing a stale sum.
+    // p_amount is dollars (providerAmount cents / 100), the same unit as balance.
     const providerAmountDollars = providerAmount / 100;
-    const newBalance = (provider.balance || 0) + providerAmountDollars;
+    const { data: creditedBalance, error: balanceError } = await supabaseClient.rpc(
+      'increment_provider_balance',
+      {
+        p_service_provider_id: service.service_provider_id,
+        p_amount: providerAmountDollars,
+      },
+    );
 
-    const { error: balanceError } = await supabaseClient
-      .from('service_provider')
-      .update({ balance: newBalance })
-      .eq('service_provider_id', service.service_provider_id);
-
-    if (balanceError) {
+    // If the credit fails, payment is already captured and transferred.
+    // Keep the previous response fallback and do not throw.
+    let newBalance = (provider.balance || 0) + providerAmountDollars;
+    if (balanceError || creditedBalance == null || creditedBalance === '') {
       console.error('Failed to update provider balance:', balanceError);
-      // Don't throw - payment already processed
+    } else {
+      const parsedBalance = typeof creditedBalance === 'number'
+        ? creditedBalance
+        : Number(creditedBalance);
+      if (Number.isFinite(parsedBalance)) {
+        newBalance = parsedBalance;
+      } else {
+        console.error('Failed to update provider balance: unexpected balance', creditedBalance);
+      }
     }
 
     // Record transaction in platform_transactions table
