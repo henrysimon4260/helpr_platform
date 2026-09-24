@@ -6,6 +6,13 @@ import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
+import {
+  formatMovingEstimateDetail,
+  formatMovingEstimatePrice,
+  isMovingServiceType,
+  requestMovingEstimate,
+  type MovingEstimate,
+} from '../src/lib/movingEstimate';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
@@ -149,6 +156,9 @@ export default function Landing() {
   const [suggestTimeError, setSuggestTimeError] = useState<string | null>(null);
   const [suggestTimeSubmitting, setSuggestTimeSubmitting] = useState(false);
   const [customerData, setCustomerData] = useState<Record<string, { first_name?: string; last_name?: string }>>({});
+  const [movingEstimates, setMovingEstimates] = useState<Record<string, { status: 'loading' | 'error' | 'ready'; estimate?: MovingEstimate }>>({});
+  const movingEstimateRequests = useRef<Set<string>>(new Set());
+  const landingMountedRef = useRef(true);
 
   const formattedSuggestedTime = useMemo(() => {
     if (!suggestedTimeSelection) {
@@ -165,6 +175,40 @@ export default function Landing() {
       return suggestedTimeSelection.toString();
     }
   }, [suggestedTimeSelection]);
+
+  useEffect(() => {
+    landingMountedRef.current = true;
+    return () => {
+      landingMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const pending = services.filter(service => {
+      if (!isMovingServiceType(service.service_type)) return false;
+      if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) return false;
+      if (!service.start_location?.trim() || !service.end_location?.trim()) return false;
+      return !movingEstimateRequests.current.has(service.service_id);
+    });
+
+    for (const service of pending) {
+      movingEstimateRequests.current.add(service.service_id);
+      setMovingEstimates(prev => ({ ...prev, [service.service_id]: { status: 'loading' } }));
+      void requestMovingEstimate({
+        origin: { address: service.start_location },
+        destination: { address: service.end_location },
+        description: service.description,
+      }).then(result => {
+        if (!landingMountedRef.current) return;
+        setMovingEstimates(prev => ({
+          ...prev,
+          [service.service_id]: result.ok
+            ? { status: 'ready', estimate: result.estimate }
+            : { status: 'error' },
+        }));
+      });
+    }
+  }, [services]);
 
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -923,6 +967,22 @@ export default function Landing() {
     }
 
     const schedulingTypeNormalized = (service.scheduling_type ?? '').toLowerCase();
+    if (
+      isMovingServiceType(service.service_type)
+      && OPEN_FEED_STATUSES.has(normalizedStatus)
+      && service.start_location?.trim()
+      && service.end_location?.trim()
+    ) {
+      const estimateState = movingEstimates[service.service_id];
+      if (!estimateState || estimateState.status === 'loading') {
+        showModal({
+          title: 'Helpr estimate',
+          message: 'Wait for the server estimate before requesting this move.',
+        });
+        return;
+      }
+    }
+
     if (schedulingTypeNormalized === 'asap') {
       setSuggestTimeModalService(service);
       const now = new Date();
@@ -940,6 +1000,7 @@ export default function Landing() {
     serviceRequests,
     showModal,
     submitServiceRequest,
+    movingEstimates,
     supabase,
     setServiceRequests,
     setSuggestTimeError,
@@ -1079,6 +1140,57 @@ export default function Landing() {
     setSuggestTimeError(null);
   }, []);
 
+  const renderMovingEstimate = (service: ServiceRow | null, variant: 'card' | 'panel') => {
+    if (!service || !isMovingServiceType(service.service_type)) {
+      return null;
+    }
+    if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) {
+      return null;
+    }
+    if (!service.start_location?.trim() || !service.end_location?.trim()) {
+      return variant === 'card' ? (
+        <Text style={styles.helprEstimateText}>Pickup and drop-off are required for an estimate</Text>
+      ) : null;
+    }
+
+    const state = movingEstimates[service.service_id];
+    const estimate = state?.status === 'ready' ? state.estimate : undefined;
+    const headline = estimate
+      ? formatMovingEstimatePrice(estimate)
+      : state?.status === 'error'
+        ? 'Unavailable'
+        : 'Loading…';
+    const detail = estimate
+      ? formatMovingEstimateDetail(estimate)
+      : state?.status === 'error'
+        ? 'Server estimate unavailable. Your bid is not a Helpr estimate.'
+        : 'Calculating distance on the server.';
+
+    if (variant === 'card') {
+      const dropOff = service.end_location?.trim();
+      return (
+        <View>
+          {dropOff ? (
+            <Text style={styles.helprEstimateDetail} numberOfLines={1}>{`Drop-off ${dropOff}`}</Text>
+          ) : null}
+          <Text style={styles.helprEstimateText} numberOfLines={2}>
+            {`Helpr estimate ${headline}`}
+          </Text>
+          <Text style={styles.helprEstimateDetail} numberOfLines={2}>{detail}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.bidModalEstimateBox}>
+        <Text style={styles.bidModalEstimateTitle}>Helpr estimate</Text>
+        <Text style={styles.bidModalEstimateValue}>{headline}</Text>
+        <Text style={styles.bidModalEstimateDetail}>{detail}</Text>
+        <Text style={styles.bidModalEstimateDetail}>Review this range before you bid or request the job.</Text>
+      </View>
+    );
+  };
+
   const renderServiceCard = (service: ServiceRow) => {
     const isSelected = selectedService?.service_id === service.service_id;
     const shortLocation = getShortLocation(service);
@@ -1155,6 +1267,7 @@ export default function Landing() {
                 </Text>
               </View>
             </View>
+            {renderMovingEstimate(service, 'card')}
             {!isConfirmed && (
               <Pressable
                 style={styles.descriptionButton}
@@ -1465,6 +1578,7 @@ export default function Landing() {
                 ? 'Let the customer know when you can arrive for this ASAP job.'
                 : 'Let the customer know an alternative time that works better for you.'}
             </Text>
+            {renderMovingEstimate(suggestTimeModalService, 'panel')}
             <View style={styles.suggestTimeSummaryBox}>
               <Text style={styles.suggestTimeSummaryLabel}>Arrival time</Text>
               <Text style={styles.suggestTimeSummaryValue}>{formattedSuggestedTime}</Text>
@@ -1546,6 +1660,7 @@ export default function Landing() {
                 ? formatPrice(modalService.price)
                 : '$0'}
             </Text>
+            {renderMovingEstimate(modalService, 'panel')}
             <View style={styles.bidInputContainer}>
               <TextInput
                 style={styles.bidModalInput}
@@ -1577,6 +1692,7 @@ export default function Landing() {
                 <View style={styles.descriptionModalOverlay}>
                   <View style={styles.descriptionModalContent}>
                     <Text style={styles.descriptionModalTitle}>Service Description</Text>
+                    {renderMovingEstimate(descriptionModalService, 'panel')}
                     <View style={styles.descriptionModalBox}>
                       <ScrollView
                         style={styles.descriptionModalScroll}
@@ -2048,6 +2164,42 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     textTransform: 'uppercase',
     textAlign: 'center',
+  },
+  helprEstimateText: {
+    color: '#0c4309',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  helprEstimateDetail: {
+    color: '#49454F',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  bidModalEstimateBox: {
+    backgroundColor: '#E5DCC9',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  bidModalEstimateTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0c4309',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  bidModalEstimateValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0c4309',
+  },
+  bidModalEstimateDetail: {
+    fontSize: 13,
+    color: '#49454F',
+    marginTop: 4,
   },
   priceLabel: {
     fontSize: 12,

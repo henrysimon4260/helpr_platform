@@ -108,6 +108,54 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 
 **Error:** `{ "success": false, "error": "" }` (HTTP 200 so the client can read it) or a functions invoke error. C must not invent a different completion path without updating this contract.
 
+### `quote-service-price`
+
+Moving jobs only (HLP-59). Source: `apps/serviceprovider-app/supabase/functions/quote-service-price/`. Called by the customer moving composer before scheduling, and by the provider feed before a bid or request. The response is the estimate. Clients must not send a distance or a price and must not display a range they computed themselves.
+
+Driving distance is computed on the server with Google Distance Matrix (`GOOGLE_MAPS_API_KEY`, or `GOOGLE_PLACES_API_KEY` if that is the secret already stored). Price range and job duration come from `OPENAI_API_KEY` (`gpt-4o-mini`). Both secrets are server-side. Unit tests mock maps and the model, so CI does not need the keys. See the function README.
+
+This function does not change capture, tax, Connect MCC, or the platform fee. `complete-service` fee math stays as deployed.
+
+**Request:**
+
+```json
+{
+  "serviceType": "moving",
+  "origin": { "address": "", "latitude": 0, "longitude": 0 },
+  "destination": { "address": "", "latitude": 0, "longitude": 0 },
+  "description": "",
+  "stairs": true,
+  "elevator": false,
+  "floor": 3,
+  "volumeHint": "2 bedroom",
+  "weightHint": "heavy sofa",
+  "crewSize": 2,
+  "needsTruck": true
+}
+```
+
+`origin` and `destination` each need an address or coordinates. Optional metadata may be omitted. `distanceMiles`, `price`, `priceMin`, `priceMax`, and `durationMinutes` on the request are ignored.
+
+**Success:**
+
+```json
+{
+  "serviceType": "moving",
+  "distanceMiles": 0,
+  "drivingDurationMinutes": 0,
+  "priceMin": 0,
+  "priceMax": 0,
+  "suggestedPrice": 0,
+  "durationMinutes": 0,
+  "currency": "usd",
+  "source": "server"
+}
+```
+
+`source` is always `"server"`. `suggestedPrice` is the midpoint the customer job may store on `service.price`. The provider shows `priceMin`–`priceMax` and `durationMinutes` before bidding. Other service types return `{ "error": "" }` and are out of scope.
+
+**Error:** `{ "error": "" }`
+
 ### `create-connect-account`
 
 Exists. Signup / provider profile (D) may call it; only E rewrites it.
