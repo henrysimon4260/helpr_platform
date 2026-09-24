@@ -9,7 +9,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Helpr Services",
-  description: "Book trusted local professionals quickly with transparent pricing.",
+  description: "Book Checkr-cleared local professionals quickly with transparent pricing.",
 };
 
 export default function RootLayout({

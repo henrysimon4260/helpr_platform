@@ -20,8 +20,9 @@ export default function LegalDisclaimer({
       ) : null}
       {includeProOnboardingNotice ? (
         <p>
-          Pro onboarding and activation are subject to verification checks,
-          safety requirements, and acceptance of platform terms.
+          Pros cannot accept paid work until a Checkr background check is
+          clear. Consider results are not approved. Stripe payout verification
+          does not replace the background check.
         </p>
       ) : null}
     </div>

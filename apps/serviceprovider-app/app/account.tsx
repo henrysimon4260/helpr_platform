@@ -5,6 +5,7 @@ import { Asset, ImageLibraryOptions, ImagePickerResponse, launchImageLibrary } f
 import { SvgXml } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../src/lib/supabase';
+import { CheckrStatusCard } from '../src/components/CheckrStatusCard';
 import { useModal } from '../src/contexts/ModalContext';
 
 interface ProviderData {
@@ -15,6 +16,10 @@ interface ProviderData {
   phone: string | null;
   profile_picture_url: string | null;
   balance?: number | null;
+  checkr_status?: string | null;
+  checkr_invitation_url?: string | null;
+  checkr_invitation_expires_at?: string | null;
+  checkr_status_updated_at?: string | null;
 }
 
 export default function Account() {
@@ -817,6 +822,16 @@ export default function Account() {
         </Text>
         <Text style={styles.balanceLabel}>Available Balance</Text>
       </View>
+
+      <CheckrStatusCard
+        status={providerData.checkr_status ?? 'not_started'}
+        invitationUrl={providerData.checkr_invitation_url ?? null}
+        invitationExpiresAt={providerData.checkr_invitation_expires_at ?? null}
+        statusUpdatedAt={providerData.checkr_status_updated_at ?? null}
+        onUpdated={next => {
+          setProviderData(current => current ? { ...current, ...next } : current);
+        }}
+      />
 
       <View style={styles.menuContainer}>
         <TouchableOpacity style={styles.menuItem} onPress={() => setShowPaymentModal(true)}>

@@ -1,0 +1,2 @@
+# Provider JWT required. Checkr credentials stay on the server.
+verify_jwt = true

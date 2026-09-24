@@ -7,6 +7,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
+import { isCheckrClear } from '../src/lib/checkrStatus';
+import { CheckrStatusCard } from '../src/components/CheckrStatusCard';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
 // @ts-ignore - Only for native platforms
@@ -149,6 +151,11 @@ export default function Landing() {
   const [suggestTimeError, setSuggestTimeError] = useState<string | null>(null);
   const [suggestTimeSubmitting, setSuggestTimeSubmitting] = useState(false);
   const [customerData, setCustomerData] = useState<Record<string, { first_name?: string; last_name?: string }>>({});
+  const [checkrStatus, setCheckrStatus] = useState<string | null>(null);
+  const [checkrInvitationUrl, setCheckrInvitationUrl] = useState<string | null>(null);
+  const [checkrExpiresAt, setCheckrExpiresAt] = useState<string | null>(null);
+  const [checkrUpdatedAt, setCheckrUpdatedAt] = useState<string | null>(null);
+  const [checkrLoadError, setCheckrLoadError] = useState(false);
 
   const formattedSuggestedTime = useMemo(() => {
     if (!suggestedTimeSelection) {
@@ -218,6 +225,7 @@ export default function Landing() {
 
       if (!authUser?.id) {
         setProviderId(null);
+        setCheckrStatus(null);
         resetServiceState();
         setServicesLoading(false);
         initialLoadRef.current = true;
@@ -242,6 +250,27 @@ export default function Landing() {
 
       const providerIdentifier = authUser.id;
       setProviderId(providerIdentifier);
+
+      const { data: checkrRow, error: checkrError } = await supabase
+        .from('service_provider')
+        .select('checkr_status, checkr_invitation_url, checkr_invitation_expires_at, checkr_status_updated_at')
+        .eq('service_provider_id', providerIdentifier)
+        .maybeSingle();
+
+      if (checkrError) {
+        console.error('Failed to load Checkr status:', checkrError);
+        setCheckrLoadError(true);
+        setCheckrStatus('not_started');
+        setCheckrInvitationUrl(null);
+        setCheckrExpiresAt(null);
+        setCheckrUpdatedAt(null);
+      } else {
+        setCheckrLoadError(false);
+        setCheckrStatus(checkrRow?.checkr_status ?? 'not_started');
+        setCheckrInvitationUrl(checkrRow?.checkr_invitation_url ?? null);
+        setCheckrExpiresAt(checkrRow?.checkr_invitation_expires_at ?? null);
+        setCheckrUpdatedAt(checkrRow?.checkr_status_updated_at ?? null);
+      }
 
       const statusesToQuery = [
         'finding_pros', 'pending', 'scheduled', 'confirmed', 
@@ -642,6 +671,14 @@ export default function Landing() {
         return false;
       }
 
+      if (!isCheckrClear(checkrStatus)) {
+        showModal({
+          title: 'Background check required',
+          message: 'You cannot accept paid work until Checkr reports clear. A consider, expired, or unfinished check stays blocked.',
+        });
+        return false;
+      }
+
       const bidValue = getEffectiveBidForService(service);
       const numericBid = bidValue ? Number(bidValue) : null;
 
@@ -820,7 +857,7 @@ export default function Landing() {
 
       return true;
     },
-    [providerId, showModal, getEffectiveBidForService, supabase, setServiceRequests, setCustomBids, setServices, setSelectedService, fetchServices],
+    [providerId, checkrStatus, showModal, getEffectiveBidForService, supabase, setServiceRequests, setCustomBids, setServices, setSelectedService, fetchServices],
   );
 
   const handleToggleServiceRequest = useCallback(async (service: ServiceRow) => {
@@ -1369,9 +1406,16 @@ export default function Landing() {
         </Pressable>
       ) : null}
       <View style={styles.header}>
-        <Text style={styles.title}>{feedView === 'in_progress' ? 'In Progress' : 'Available Services'}</Text>
+        <Text style={styles.title}>
+          {feedView === 'in_progress'
+            ? 'In Progress'
+            : !servicesLoading && !isCheckrClear(checkrStatus)
+              ? 'Background Check'
+              : 'Available Services'}
+        </Text>
       </View>
       <View style={styles.GreenHeaderBar} />
+      {feedView === 'available' && !isCheckrClear(checkrStatus) && !servicesLoading ? null : (
       <View style={styles.filterBar}>
         <ScrollView
           horizontal
@@ -1403,6 +1447,7 @@ export default function Landing() {
           </Pressable>
         ) : null}
       </View>
+      )}
       <View style={styles.contentContainer}>
         {servicesLoading ? (
           <View style={styles.loadingContainer}>
@@ -1416,6 +1461,21 @@ export default function Landing() {
               <Text style={styles.retryButtonText}>Try again</Text>
             </Pressable>
           </View>
+        ) : feedView === 'available' && !isCheckrClear(checkrStatus) ? (
+          <CheckrStatusCard
+            status={checkrStatus}
+            invitationUrl={checkrInvitationUrl}
+            invitationExpiresAt={checkrExpiresAt}
+            statusUpdatedAt={checkrUpdatedAt}
+            loadError={checkrLoadError}
+            onUpdated={next => {
+              setCheckrLoadError(false);
+              setCheckrStatus(next.checkr_status);
+              setCheckrInvitationUrl(next.checkr_invitation_url);
+              setCheckrExpiresAt(next.checkr_invitation_expires_at);
+              setCheckrUpdatedAt(next.checkr_status_updated_at);
+            }}
+          />
         ) : sortedServices.length === 0 ? (
           <View style={styles.noServicesContainer}>
             <Text style={styles.noServicesText}>{emptyCopy}</Text>

@@ -16,7 +16,7 @@ const signupSteps = [
     number: "2",
     title: "Background Check",
     description:
-      "Submit your verification details once and we will guide you through each checkpoint. This keeps the platform safe, boosts customer confidence, and helps your profile get approved faster.",
+      "Complete a Checkr background check before you go live. You cannot see open jobs or accept paid work until Checkr reports clear. A consider, suspended, failed, or expired check stays blocked.",
     circleColor: "bg-[#6f8452]",
   },
   {
