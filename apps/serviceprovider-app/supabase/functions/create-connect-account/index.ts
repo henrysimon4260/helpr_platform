@@ -260,9 +260,12 @@ Deno.serve(async (req) => {
         ...(ssnLast4 && { ssn_last_4: ssnLast4 }),
       },
       business_profile: {
-        // MCC 7299 = Miscellaneous Recreation Services (covers general gig/service work)
+        // MCC 1799 = Special Trade Services (Stripe: special_trade_services).
+        // One code for Helpr's mixed residential work: home improvement, wall
+        // mounting, furniture assembly, plus on-site cleaning and moving.
+        // https://docs.stripe.com/connect/setting-mcc
         // Pre-filled so user never sees industry selection
-        mcc: '7299',
+        mcc: '1799',
         // Pre-fill product description
         product_description: 'Home services and task assistance provided through the Helpr platform',
       },
