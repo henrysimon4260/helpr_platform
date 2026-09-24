@@ -29,6 +29,8 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
   setCardComplete,
   setCardDetailsSnapshot,
   onSavePaymentMethod,
+  onRemovePaymentMethod,
+  removingPaymentMethodId = null,
   loading,
   saving = false,
   showModal,
@@ -121,8 +123,8 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                   style={styles.plaidOption}
                   onPress={() =>
                     showModal({
-                      title: 'Coming Soon',
-                      message: 'Plaid/ACH integration will be available soon! Pay with lower fees.',
+                      title: 'Bank transfer not available',
+                      message: 'ACH via Plaid is not wired. Tapping this does not save a bank account.',
                     })
                   }
                 >
@@ -130,7 +132,7 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                     <Image source={require('../../../assets/icons/PMIcon.png')} style={styles.plaidLogo} resizeMode="contain" />
                     <View style={styles.plaidTextContainer}>
                       <Text style={styles.plaidTitle}>Bank Transfer (ACH)</Text>
-                      <Text style={styles.plaidSubtitle}>Save up to 2.9%</Text>
+                      <Text style={styles.plaidSubtitle}>Not connected</Text>
                     </View>
                     <Text style={styles.plaidArrow}>›</Text>
                   </View>
@@ -184,12 +186,14 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                   {savedPaymentMethods.map((method) => {
                     const isSelected = method.id === activePaymentMethodId;
                     return (
-                      <Pressable
+                      <View
                         key={method.id}
                         style={[styles.methodItem, isSelected && styles.methodItemSelected]}
-                        onPress={() => onSelectPaymentMethod(method.id)}
                       >
-                        <View style={styles.methodInfo}>
+                        <Pressable
+                          style={styles.methodInfo}
+                          onPress={() => onSelectPaymentMethod(method.id)}
+                        >
                           <View style={styles.methodIconWrapper}>
                             <Image source={getCardBrandIcon(method.brand)} style={styles.methodIcon} resizeMode="contain" />
                           </View>
@@ -206,11 +210,26 @@ export const PaymentMethodModal: React.FC<PaymentMethodModalProps> = ({
                               •••• {method.last4} · Expires {method.expiryMonth}/{method.expiryYear}
                             </Text>
                           </View>
+                        </Pressable>
+                        <View style={styles.methodActions}>
+                          {isSelected && (
+                            <Text style={styles.checkmarkIcon}>✓</Text>
+                          )}
+                          {onRemovePaymentMethod && (
+                            <Pressable
+                              onPress={() => onRemovePaymentMethod(method.id)}
+                              disabled={removingPaymentMethodId === method.id}
+                              hitSlop={8}
+                            >
+                              {removingPaymentMethodId === method.id ? (
+                                <ActivityIndicator size="small" color="#0c4309" />
+                              ) : (
+                                <Text style={styles.removeText}>Remove</Text>
+                              )}
+                            </Pressable>
+                          )}
                         </View>
-                        {isSelected && (
-                          <Text style={styles.checkmarkIcon}>✓</Text>
-                        )}
-                      </Pressable>
+                      </View>
                     );
                   })}
                 </View>

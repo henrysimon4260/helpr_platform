@@ -1,0 +1,3 @@
+# Provider session required. The platform rejects missing or invalid JWTs
+# before the handler runs; the handler also calls auth.getUser.
+verify_jwt = true
