@@ -1,0 +1,3 @@
+# Callers must send the project anon key or a signed-in user JWT.
+# OPENAI_API_KEY is read only from the function environment, never from the body.
+verify_jwt = true
