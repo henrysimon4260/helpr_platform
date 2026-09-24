@@ -7,6 +7,7 @@ import LottieView from 'lottie-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { animationFrameForStatus } from '../../lib/helpr-core/status';
 import { supabase } from '../../lib/supabase';
 import { markCompletedServiceAsViewed } from '../../lib/viewedCompletedServices';
 
@@ -108,12 +109,6 @@ const ensureRouteEndpoints = (
 };
 
 const LOTTIE_FRAME_RATE = 29.97;
-const STATUS_FRAME_MAP: Record<string, number> = {
-  confirmed: 0,
-  helpr_otw: 20,
-  in_progress: 50,
-  completed: 70,
-};
 
 export default function ServiceDetails() {
   const router = useRouter();
@@ -449,10 +444,7 @@ export default function ServiceDetails() {
     return null;
   };
 
-  const getAnimationFrame = (status: string | null | undefined) => {
-    const normalized = (status ?? '').toLowerCase();
-    return STATUS_FRAME_MAP[normalized] ?? 0;
-  };
+  const getAnimationFrame = (status: string | null | undefined) => animationFrameForStatus(status);
 
   const currentServiceIdRef = useRef<string | null>(null);
   const currentStatusRef = useRef<string | null>(null);

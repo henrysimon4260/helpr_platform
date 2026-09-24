@@ -7,12 +7,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "bundler",
-    "jsx": "react-native",
-    "baseUrl": ".",
-    "paths": {
-      "@helpr/*": [
-        "packages/*/src"
-      ]
-    }
-  },
+    "jsx": "react-native"
+  }
 }

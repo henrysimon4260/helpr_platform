@@ -12,7 +12,7 @@ Website is an isolated optional lane. Do not touch either mobile app from a webs
 2. **No mid-task app hop.** A session writes one tree. The other tree is a new session with `JOB_CONTRACT.md` attached.
 3. **Primary app first.** D starts on customer. E starts on provider functions. B specifies new statuses before C implements them (or the reverse, but not both at once).
 4. **No drive-by schema.** New columns, statuses, or functions go in `JOB_CONTRACT.md` before either app consumes them.
-5. **Do not extract a monorepo package** while these lanes are running.
+5. **Do not extract a monorepo package** while these lanes are running. Do not add `packages/`. Shared status spellings, the 3% + 1% checkout quote, and service-area boxes live in `shared/helpr-core/` and are copied into each app by `scripts/sync-helpr-core.mjs`. See [`docs/shared-status-fee-zone.md`](docs/shared-status-fee-zone.md).
 6. **Do not align Expo 54/57** as a side quest.
 
 ## Job status machine
