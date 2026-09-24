@@ -33,11 +33,23 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
         ) : (
           <>
             {priceQuote ? (
-              <View style={styles.quoteRow}>
-                <Text style={[styles.quoteText, styles.quotePrice]} numberOfLines={1}>
-                  {priceQuote}
-                </Text>
-                <Text style={styles.estimateText}>est.</Text>
+              <View>
+                <View style={styles.quoteRow}>
+                  <Text
+                    style={[styles.quoteText, styles.quotePrice]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.6}
+                  >
+                    {priceQuote}
+                  </Text>
+                  <Text style={styles.estimateText}>est.</Text>
+                </View>
+                {priceNote ? (
+                  <Text style={styles.noteText} numberOfLines={2}>
+                    {priceNote}
+                  </Text>
+                ) : null}
               </View>
             ) : (
               <>
