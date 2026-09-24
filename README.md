@@ -5,6 +5,14 @@ a tasking app that determines a flat rate and provides a service provider to cus
 run pnpm install from customer-app and service-provider directories
 run npx expo run:ios (may need to rerun if there are port conflicts)
 
+# CI
+
+Pull requests into `dev` run the offline payment and status unit tests (HLP-32). They do not call Stripe or production Supabase. See [docs/ci-offline-payment-status-tests.md](docs/ci-offline-payment-status-tests.md).
+
+```bash
+node scripts/run-offline-payment-status-tests.mjs
+```
+
 # Open Issues
 
 - add functionality for all job types after moving is complete

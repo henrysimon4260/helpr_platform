@@ -1,0 +1,39 @@
+# HLP-32: green gate for offline payment and status unit tests.
+# Does not call Stripe or production Supabase. Secrets are blank on purpose.
+name: Offline payment and status tests
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-payment-status-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Node unit tests (no live Stripe)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STRIPE_SECRET_KEY: ''
+      STRIPE_WEBHOOK_SECRET: ''
+      SUPABASE_URL: ''
+      SUPABASE_SERVICE_ROLE_KEY: ''
+      SUPABASE_ANON_KEY: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run offline payment and status tests
+        run: node scripts/run-offline-payment-status-tests.mjs
