@@ -1,13 +1,11 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { MissingSupabaseEnvError, readSupabaseClientConfig } from './supabaseClientConfig.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-
-const supabaseUrl = Deno.env.get('SUPABASE_URL') || 'https://hecikcopbdhhiilhgmrd.supabase.co'
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
 async function findOrCreateStripeCustomer(
   stripe: Stripe,
@@ -54,6 +52,24 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: 'Stripe is not configured on the server' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
+    }
+
+    let supabaseUrl: string
+    let supabaseServiceKey: string
+    try {
+      const supabaseConfig = readSupabaseClientConfig({
+        get: (name) => Deno.env.get(name),
+      })
+      supabaseUrl = supabaseConfig.url
+      supabaseServiceKey = supabaseConfig.serviceRoleKey
+    } catch (err) {
+      if (err instanceof MissingSupabaseEnvError) {
+        return new Response(
+          JSON.stringify({ error: err.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+      throw err
     }
 
     const stripe = new Stripe(stripeSecretKey, {
