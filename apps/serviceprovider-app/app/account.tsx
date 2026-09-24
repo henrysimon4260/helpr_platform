@@ -75,7 +75,7 @@ export default function Account() {
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError || !user || !user.email) {
+      if (userError || !user) {
         showModal({
           title: 'Error',
           message: 'Please sign in to view your account',
@@ -84,14 +84,26 @@ export default function Account() {
         return;
       }
 
-      const {
-        data: existingProvider,
-        error: providerError,
-      } = await supabase
+      const accountEmail = user.email?.trim() || '';
+
+      const byId = await supabase
         .from('service_provider')
         .select('*')
-        .eq('email', user.email)
+        .eq('service_provider_id', user.id)
         .maybeSingle();
+
+      let existingProvider = byId.data;
+      let providerError = byId.error;
+
+      if (!providerError && !existingProvider && accountEmail) {
+        const byEmail = await supabase
+          .from('service_provider')
+          .select('*')
+          .eq('email', accountEmail)
+          .maybeSingle();
+        existingProvider = byEmail.data;
+        providerError = byEmail.error;
+      }
 
       if (providerError) {
         console.error('Error fetching provider data:', providerError);
@@ -105,10 +117,14 @@ export default function Account() {
       if (!existingProvider) {
         const profileDefaults = {
           service_provider_id: user.id,
-          email: user.email,
-          first_name: user.user_metadata?.first_name ?? '',
-          last_name: user.user_metadata?.last_name ?? '',
-          phone: (user.user_metadata?.phone as string | null) ?? null,
+          email: accountEmail || null,
+          first_name: user.user_metadata?.first_name ?? user.user_metadata?.given_name ?? '',
+          last_name: user.user_metadata?.last_name ?? user.user_metadata?.family_name ?? '',
+          phone: (() => {
+            const raw = user.phone ?? (user.user_metadata?.phone as string | null) ?? '';
+            const digits = String(raw).replace(/\D/g, '');
+            return digits ? Number(digits) : null;
+          })(),
           profile_picture_url: null,
         };
 
@@ -136,8 +152,8 @@ export default function Account() {
               service_provider_id: user.id,
               first_name: profileDefaults.first_name,
               last_name: profileDefaults.last_name,
-              email: profileDefaults.email,
-              phone: profileDefaults.phone,
+              email: profileDefaults.email || '',
+              phone: profileDefaults.phone == null ? null : String(profileDefaults.phone),
               profile_picture_url: profileDefaults.profile_picture_url
             };
         setProviderData(provider);
@@ -159,7 +175,7 @@ export default function Account() {
       setImageLoadError(false); // Reset image error state when loading new data
       setEditFirstName(typedProvider.first_name || '');
       setEditLastName(typedProvider.last_name || '');
-      setEditEmail(typedProvider.email || user.email);
+      setEditEmail(typedProvider.email || accountEmail);
       setEditPhone(typedProvider.phone || '');
     } catch (error) {
       console.error('Unexpected error:', error);

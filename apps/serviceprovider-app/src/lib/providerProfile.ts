@@ -77,7 +77,9 @@ export const ensureServiceProviderProfile = async (
     const preferredFirstName = sanitizeText(options.firstName ?? (authUser?.user_metadata?.first_name as string | null) ?? null);
     const preferredLastName = sanitizeText(options.lastName ?? (authUser?.user_metadata?.last_name as string | null) ?? null);
     const preferredEmail = sanitizeText(options.email ?? authUser?.email ?? (authUser?.user_metadata?.email as string | null) ?? null);
-    const preferredPhone = sanitizePhone(options.phone ?? (authUser?.user_metadata?.phone as string | null) ?? null);
+    const preferredPhone = sanitizePhone(
+      options.phone ?? authUser?.phone ?? (authUser?.user_metadata?.phone as string | null) ?? null,
+    );
 
     const { data: existing, error: existingError } = await supabase
       .from('service_provider')

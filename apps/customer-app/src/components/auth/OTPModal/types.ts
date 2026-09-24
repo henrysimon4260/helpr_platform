@@ -9,4 +9,5 @@ export interface OTPModalProps {
   loading?: boolean;
   title?: string;
   subtitle?: string;
+  verifyLabel?: string;
 }

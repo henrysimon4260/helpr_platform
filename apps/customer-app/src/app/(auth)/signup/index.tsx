@@ -4,6 +4,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, Text, TouchableWi
 import { AuthButton, EmailInput, OTPModal, PasswordInput } from '../../../components/auth';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
+import { normalizeE164 } from '../../../components/auth/phone';
 import { supabase } from '../../../lib/supabase';
 import { useSignupStyles } from './signup.styles';
 import { TextInputField } from './TextInputField';
@@ -137,7 +138,7 @@ export default function Signup() {
           first_name: firstName.trim(),
           last_name: lastName.trim(),
           email: email.trim(),
-          phone_number: phone.trim() || null,
+          phone_number: normalizeE164(phone) ?? (phone.trim() || null),
         })
         .select()
         .single();

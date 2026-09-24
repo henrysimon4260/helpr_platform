@@ -108,20 +108,33 @@ export default function Account() {
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError || !user || !user.email) {
+      if (userError || !user) {
         presentModal('Error', 'Please sign in to view your account');
         router.replace('/(auth)/login' as any);
         return;
       }
 
-      const {
-        data: existingCustomer,
-        error: customerError,
-      } = await supabase
-        .from('customer')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
+      const accountEmail = user.email?.trim() || '';
+      const accountPhone = user.phone?.trim() || null;
+
+      let existingCustomer: CustomerData | null = null;
+      let customerError: { message: string } | null = null;
+
+      if (accountEmail) {
+        const byEmail = await supabase.from('customer').select('*').eq('email', accountEmail).maybeSingle();
+        customerError = byEmail.error;
+        existingCustomer = (byEmail.data as CustomerData | null) ?? null;
+      }
+
+      if (!customerError && !existingCustomer && accountPhone) {
+        const byPhone = await supabase.from('customer').select('*').eq('phone_number', accountPhone).maybeSingle();
+        customerError = byPhone.error;
+        existingCustomer = (byPhone.data as CustomerData | null) ?? null;
+      }
+
+      if (existingCustomer && !existingCustomer.email) {
+        existingCustomer = { ...existingCustomer, email: '' };
+      }
 
       if (customerError) {
         console.error('Error fetching customer data:', customerError);
@@ -131,10 +144,10 @@ export default function Account() {
 
       if (!existingCustomer) {
         const profileDefaults = {
-          email: user.email,
-          first_name: user.user_metadata?.first_name ?? '',
-          last_name: user.user_metadata?.last_name ?? '',
-          phone_number: user.user_metadata?.phone_number ?? null,
+          email: accountEmail || null,
+          first_name: user.user_metadata?.first_name ?? user.user_metadata?.given_name ?? '',
+          last_name: user.user_metadata?.last_name ?? user.user_metadata?.family_name ?? '',
+          phone_number: accountPhone ?? user.user_metadata?.phone_number ?? null,
         };
 
         const {
@@ -153,12 +166,12 @@ export default function Account() {
         }
 
         const customer: CustomerData | null = createdCustomer
-          ? (createdCustomer as CustomerData)
+          ? { ...(createdCustomer as CustomerData), email: (createdCustomer as CustomerData).email || '' }
           : {
               customer_id: user.id,
               first_name: profileDefaults.first_name,
               last_name: profileDefaults.last_name,
-              email: profileDefaults.email,
+              email: profileDefaults.email || '',
               phone_number: profileDefaults.phone_number,
             };
         setCustomerData(customer);
@@ -172,7 +185,7 @@ export default function Account() {
       setCustomerData(existingCustomer);
       setEditFirstName(existingCustomer.first_name || '');
       setEditLastName(existingCustomer.last_name || '');
-      setEditEmail(existingCustomer.email || user.email);
+      setEditEmail(existingCustomer.email || accountEmail);
       setEditPhone(existingCustomer.phone_number || '');
     } catch (error) {
       console.error('Unexpected error:', error);

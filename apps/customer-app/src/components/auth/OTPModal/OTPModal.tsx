@@ -15,6 +15,7 @@ export const OTPModal: React.FC<OTPModalProps> = ({
   loading = false,
   title = 'Verify Your Email',
   subtitle,
+  verifyLabel = 'Verify Email',
 }) => {
   const styles = useOTPModalStyles();
   const isValidCode = otpCode.length === 6;
@@ -33,6 +34,8 @@ export const OTPModal: React.FC<OTPModalProps> = ({
             value={otpCode}
             onChangeText={onChangeOTP}
             keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoComplete="sms-otp"
             maxLength={6}
             autoFocus={true}
             placeholderTextColor={styles.placeholderColor}
@@ -46,7 +49,7 @@ export const OTPModal: React.FC<OTPModalProps> = ({
             {loading ? (
               <ActivityIndicator color="white" />
             ) : (
-              <Text style={styles.verifyButtonText}>Verify Email</Text>
+              <Text style={styles.verifyButtonText}>{verifyLabel}</Text>
             )}
           </TouchableOpacity>
 
