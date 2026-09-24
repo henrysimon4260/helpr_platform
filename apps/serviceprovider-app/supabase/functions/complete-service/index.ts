@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import Stripe from 'https://esm.sh/stripe@12.0.0?target=deno';
+import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno';
+import { chargeIdFromLatestCharge } from './chargeId.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,6 +21,7 @@ serve(async (req) => {
 
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
       apiVersion: '2023-10-16',
+      httpClient: Stripe.createFetchHttpClient(),
     });
 
     const { serviceId, platformFeePercent, skipCustomerCharge } = await req.json();
@@ -127,10 +129,9 @@ serve(async (req) => {
     if (hasPaymentIntent && service.payment_intent_id) {
       console.log('Customer payment authorized. Retrieving Payment Intent:', service.payment_intent_id);
       
-      // Get the Payment Intent
-      let paymentIntent = await stripe.paymentIntents.retrieve(service.payment_intent_id, {
-        expand: ['charges'],
-      });
+      // stripe@14 / API 2023-10-16 returns the charge on latest_charge.
+      // Expanding the removed charges list is rejected by this API version.
+      let paymentIntent = await stripe.paymentIntents.retrieve(service.payment_intent_id);
       
       console.log('Payment Intent status:', paymentIntent.status);
       
@@ -140,11 +141,6 @@ serve(async (req) => {
         paymentIntent = await stripe.paymentIntents.capture(service.payment_intent_id);
         console.log('Payment captured to platform balance. Status:', paymentIntent.status);
         console.log('Platform balance will show +$', totalAmountPaid / 100);
-        
-        // Retrieve again with expanded charges
-        paymentIntent = await stripe.paymentIntents.retrieve(service.payment_intent_id, {
-          expand: ['charges'],
-        });
       } else if (paymentIntent.status === 'succeeded') {
         console.log('Payment already captured');
       } else {
@@ -159,16 +155,8 @@ serve(async (req) => {
         throw new Error(`Payment not authorized. Status: ${paymentIntent.status}`);
       }
 
-      // Get the charge ID
-      let chargeIdFromIntent: string | null = null;
-      
-      if (paymentIntent.charges?.data && paymentIntent.charges.data.length > 0) {
-        chargeIdFromIntent = paymentIntent.charges.data[0].id;
-        console.log('Found charge ID from charges array:', chargeIdFromIntent);
-      } else if (paymentIntent.latest_charge) {
-        chargeIdFromIntent = typeof paymentIntent.latest_charge === 'string' 
-          ? paymentIntent.latest_charge 
-          : paymentIntent.latest_charge.id;
+      const chargeIdFromIntent = chargeIdFromLatestCharge(paymentIntent.latest_charge);
+      if (chargeIdFromIntent) {
         console.log('Found charge ID from latest_charge:', chargeIdFromIntent);
       }
       
