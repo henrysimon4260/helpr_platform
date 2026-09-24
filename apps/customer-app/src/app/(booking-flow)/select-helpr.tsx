@@ -9,6 +9,7 @@ import type { ProviderSummary } from '../../components/services/PaymentSummaryMo
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
+import { resolveConfirmAction } from '../../lib/requiresPaymentDraft';
 import { supabase } from '../../lib/supabase';
 
 type ServiceFillRequestRow = {
@@ -146,6 +147,7 @@ const SelectHelpr = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectingProviderId, setSelectingProviderId] = useState<string | null>(null);
   const [serviceSchedulingType, setServiceSchedulingType] = useState<string | null>(null);
+  const [servicePaymentStatus, setServicePaymentStatus] = useState<string | null>(null);
   const [serviceName, setServiceName] = useState<string | null>(null);
   const { showModal } = useModal();
   const { user } = useAuth();
@@ -214,7 +216,7 @@ const SelectHelpr = () => {
 
       const servicePromise = supabase
         .from('service')
-        .select('scheduling_type, service_type')
+        .select('scheduling_type, service_type, payment_status')
         .eq('service_id', serviceId)
         .maybeSingle();
 
@@ -229,6 +231,9 @@ const SelectHelpr = () => {
 
       setServiceSchedulingType(serviceRow?.scheduling_type ?? null);
       setServiceName(serviceRow?.service_type ?? null);
+      setServicePaymentStatus(
+        typeof serviceRow?.payment_status === 'string' ? serviceRow.payment_status : null,
+      );
 
       if (fillError) {
         throw fillError;
@@ -607,6 +612,11 @@ const SelectHelpr = () => {
         return;
       }
 
+      if (resolveConfirmAction({ payment_status: servicePaymentStatus }, 'free') === 'payment') {
+        await handleOpenPaymentSummary(request);
+        return;
+      }
+
       try {
         setSelectingProviderId(request.service_provider_id);
 
@@ -678,7 +688,23 @@ const SelectHelpr = () => {
         setSelectingProviderId(null);
       }
     },
-    [serviceId, showModal],
+    [handleOpenPaymentSummary, serviceId, servicePaymentStatus, showModal],
+  );
+
+  const helprConfirmAction = resolveConfirmAction(
+    { payment_status: servicePaymentStatus },
+    'payment',
+  );
+
+  const handleChooseHelpr = useCallback(
+    (request: ProviderRequestDisplay) => {
+      if (helprConfirmAction === 'free') {
+        void handleSelectProvider(request);
+        return;
+      }
+      void handleOpenPaymentSummary(request);
+    },
+    [handleOpenPaymentSummary, handleSelectProvider, helprConfirmAction],
   );
 
   const renderContent = () => {
@@ -780,10 +806,14 @@ const SelectHelpr = () => {
                       ) : null}
                       <Pressable
                         style={styles.selectButton}
-                        onPress={() => handleOpenPaymentSummary(request)}
+                        onPress={() => handleChooseHelpr(request)}
                         accessibilityRole="button"
                         accessibilityLabel={`Select ${request.firstName}`}
-                        accessibilityHint="Opens payment confirmation for this Helpr"
+                        accessibilityHint={
+                          helprConfirmAction === 'payment'
+                            ? 'Opens payment confirmation for this Helpr'
+                            : 'Confirms this Helpr without a new charge'
+                        }
                       >
                         <Text style={styles.selectButtonText}>Select</Text>
                       </Pressable>
@@ -836,10 +866,14 @@ const SelectHelpr = () => {
                             <Text style={styles.bidValue}>{request.bidLabel}</Text>
                             <Pressable
                               style={styles.selectButton}
-                              onPress={() => handleOpenPaymentSummary(request)}
+                              onPress={() => handleChooseHelpr(request)}
                               accessibilityRole="button"
                               accessibilityLabel={`Select ${request.firstName}`}
-                              accessibilityHint="Opens payment confirmation for this Helpr"
+                              accessibilityHint={
+                                helprConfirmAction === 'payment'
+                                  ? 'Opens payment confirmation for this Helpr'
+                                  : 'Confirms this Helpr without a new charge'
+                              }
                             >
                               <Text style={styles.selectButtonText}>Select</Text>
                             </Pressable>

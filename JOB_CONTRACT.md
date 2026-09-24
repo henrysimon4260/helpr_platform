@@ -116,6 +116,18 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
+## `service.payment_status`
+
+Existing column. Not a new `service.status` and not a product hold (HLP-45). Fee math, tax, Stripe capture, and Connect MCC stay as they are.
+
+| Value | Who writes it | When |
+| --- | --- | --- |
+| omitted / null | Customer composers that do not set `requiresPayment` | Prior open-job scheduling. Scheduler and free confirm keep their previous behavior. |
+| `requires_payment` | Customer app (B) on booked-services insert | The draft flag `requiresPayment` is true (moving sets this on the route). The job is payment-required. Confirm must use the payment path. Do not treat the row as a free confirm. |
+| `paid` | Customer app (B) on select-helpr after `create-payment-intent` succeeds | Unchanged. |
+
+Provider open-job / AutoFill (C) must read `payment_status = 'requires_payment'` and must not claim that row with the free confirm. This session does not change provider screens.
+
 ## Adding something new
 
 Write it in this file first:

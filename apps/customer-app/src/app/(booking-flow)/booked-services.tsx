@@ -6,6 +6,12 @@ import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
+import {
+  PAYMENT_STATUS_PAID,
+  PAYMENT_STATUS_REQUIRES_PAYMENT,
+  applyRequiresPaymentToDraft,
+  resolveSchedulerPaymentGate,
+} from '../../lib/requiresPaymentDraft';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
 import { supabase } from '../../lib/supabase';
 import { clearViewedCompletedServices, hasViewedCompletedService } from '../../lib/viewedCompletedServices';
@@ -25,6 +31,7 @@ type ServiceRow = {
   start_datetime?: string | null;
   end_datetime?: string | null;
   payment_method_type?: string | null;
+  payment_status?: string | null;
   autofill_type?: string | null;
   description?: string | null;
   service_provider_id?: string | null;
@@ -57,6 +64,7 @@ export default function BookedServices() {
   }, [helprFirstNameParam]);
   const serviceIdParam = params.serviceId;
   const temporaryServiceParam = params.temporaryService;
+  const requiresPaymentParam = params.requiresPayment;
   const serviceId = useMemo(() => {
     if (!serviceIdParam) {
       return null;
@@ -875,7 +883,32 @@ export default function BookedServices() {
     [selectedServiceId, serviceId, showModal],
   );
 
+  const persistDraftForScheduling = useCallback(
+    async (targetServiceId: string) => {
+      if (!draftService || draftService.service_id !== targetServiceId) {
+        return true;
+      }
 
+      const gate = resolveSchedulerPaymentGate(draftService, requiresPaymentParam);
+      const row = applyRequiresPaymentToDraft(draftService, requiresPaymentParam);
+      if (gate === 'payment_required' && row.payment_status !== PAYMENT_STATUS_PAID) {
+        row.payment_status = PAYMENT_STATUS_REQUIRES_PAYMENT;
+      }
+
+      const { error } = await supabase.from('service').insert(row);
+      if (error) {
+        console.error('Failed to create service:', error);
+        showModal({
+          title: 'Scheduling failed',
+          message: 'Unable to save your service. Please try again.',
+        });
+        return false;
+      }
+
+      return true;
+    },
+    [draftService, requiresPaymentParam, showModal],
+  );
 
   const isDateInPast = (day: number) => {
     const today = new Date();
@@ -907,17 +940,9 @@ export default function BookedServices() {
 
     const serviceIdForRouting = targetService.service_id;
 
-    // If this is a temporary service, create it in the database first
-    if (draftService && targetService.service_id === draftService.service_id) {
-      const { error } = await supabase.from('service').insert(draftService);
-      if (error) {
-        console.error('Failed to create service:', error);
-        showModal({
-          title: 'Scheduling failed',
-          message: 'Unable to save your service. Please try again.',
-        });
-        return;
-      }
+    const draftSaved = await persistDraftForScheduling(targetService.service_id);
+    if (!draftSaved) {
+      return;
     }
 
     const success = await updateServiceRow({
@@ -937,7 +962,7 @@ export default function BookedServices() {
         params: { serviceId: serviceIdForRouting },
       });
     }
-  }, [draftService, fetchServices, selectedService, showModal, updateServiceRow]);
+  }, [draftService, fetchServices, persistDraftForScheduling, selectedService, showModal, updateServiceRow]);
 
   const handleConfirm = useCallback(async () => {
   const targetService = selectedService || draftService;
@@ -978,19 +1003,11 @@ export default function BookedServices() {
       return;
     }
 
-    // If this is a temporary service, create it in the database first
-    if (draftService && targetService.service_id === draftService.service_id) {
-      const { error } = await supabase.from('service').insert(draftService);
-      if (error) {
-        console.error('Failed to create service:', error);
-        showModal({
-          title: 'Scheduling failed',
-          message: 'Unable to save your service. Please try again.',
-        });
-        return;
-      }
+    const draftSaved = await persistDraftForScheduling(targetService.service_id);
+    if (!draftSaved) {
+      return;
     }
-    
+
     const success = await updateServiceRow({
       scheduling_type: 'scheduled',
       scheduled_date_time: finalDateTime.toISOString(),
@@ -1008,7 +1025,7 @@ export default function BookedServices() {
         params: { serviceId: serviceIdForRouting },
       });
     }
-  }, [draftService, fetchServices, selectedDate, selectedTimeSlot, selectedService, showModal, updateServiceRow]);
+  }, [draftService, fetchServices, persistDraftForScheduling, selectedDate, selectedTimeSlot, selectedService, showModal, updateServiceRow]);
 
   return (
     <View style={styles.container}>
