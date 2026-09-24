@@ -11,6 +11,7 @@ import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
+import { JobPhotoUploadError, resolveJobPhotoUrls } from '../../lib/jobPhotos';
 import { supabase } from '../../lib/supabase';
 
 type PlaceSuggestion = {
@@ -1944,6 +1945,14 @@ export default function homeImprovement() {
     try {
       setIsSubmitting(true);
 
+      const photoUrls = await resolveJobPhotoUrls({
+        client: supabase,
+        userId: user.id,
+        serviceId: targetServiceId,
+        assets: [...attachments, ...detailsPhotos],
+        isEditing: Boolean(isEditing && editServiceId),
+      });
+
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
           location: location.description,
@@ -1951,6 +1960,7 @@ export default function homeImprovement() {
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
           description: normalizedDescription,
+          ...(photoUrls ? { photo_urls: photoUrls } : {}),
         };
 
         const { error } = await supabase
@@ -1998,6 +2008,7 @@ export default function homeImprovement() {
         service_provider_id: null,
         scheduled_date_time: null,
         description: normalizedDescription,
+        ...(photoUrls ? { photo_urls: photoUrls } : {}),
       };
 
       // Don't insert yet - let booked-services.tsx handle the insert when scheduling is confirmed
@@ -2010,15 +2021,23 @@ export default function homeImprovement() {
       });
     } catch (error) {
       console.error('Unexpected scheduling error:', error);
-      showModal({
-        title: 'Scheduling failed',
-        message: 'An unexpected error occurred. Please try again.',
-      });
+      if (error instanceof JobPhotoUploadError) {
+        showModal({
+          title: 'Photo upload failed',
+          message: error.message,
+        });
+      } else {
+        showModal({
+          title: 'Scheduling failed',
+          message: 'An unexpected error occurred. Please try again.',
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }
   }, [
     attachments,
+    detailsPhotos,
     showModal,
     customerId,
     customerLookupError,

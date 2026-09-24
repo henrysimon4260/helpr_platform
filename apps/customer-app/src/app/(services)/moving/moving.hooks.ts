@@ -10,6 +10,7 @@ import { ActionSheetIOS, Alert, Platform, TextInput } from 'react-native';
 import MapView, { LatLng } from 'react-native-maps';
 
 import { AttachmentAsset } from '../../../components/services/AttachmentThumbnails/types';
+import { JobPhotoUploadError, resolveJobPhotoUrls } from '../../../lib/jobPhotos';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../../lib/paymentMethods';
 import { supabase } from '../../../lib/supabase';
 
@@ -1054,6 +1055,7 @@ interface ServiceSubmissionProps {
   isAuto: boolean;
   isPersonal: boolean;
   activePaymentMethod: SavedPaymentMethodSummary | null;
+  attachments: AttachmentAsset[];
   showModal: (config: { title: string; message: string; onDismiss?: () => void }) => void;
   setShowSignInModal: (v: boolean) => void;
   params: any;
@@ -1068,6 +1070,7 @@ export function useServiceSubmission({
   isAuto,
   isPersonal,
   activePaymentMethod,
+  attachments,
   showModal,
   setShowSignInModal,
   params,
@@ -1150,8 +1153,17 @@ export function useServiceSubmission({
         return;
       }
 
+      const serviceId = createUuid();
+      const photoUrls = await resolveJobPhotoUrls({
+        client: supabase,
+        userId: user.id,
+        serviceId,
+        assets: attachments,
+        isEditing: false,
+      });
+
       const payload = {
-        service_id: createUuid(),
+        service_id: serviceId,
         customer_id: resolvedCustomerId,
         date_of_creation: new Date().toISOString(),
         service_type: 'Moving',
@@ -1162,6 +1174,7 @@ export function useServiceSubmission({
         payment_method_type: isPersonal ? 'Personal' : 'Business',
         autofill_type: isAuto ? 'AutoFill' : 'Custom',
         description: trimmedDescription,
+        ...(photoUrls ? { photo_urls: photoUrls } : {}),
       };
 
       router.push({
@@ -1172,8 +1185,12 @@ export function useServiceSubmission({
           requiresPayment: 'true',
         },
       });
-    } catch {
-      showModal({ title: 'Scheduling failed', message: 'An unexpected error occurred.' });
+    } catch (error) {
+      if (error instanceof JobPhotoUploadError) {
+        showModal({ title: 'Photo upload failed', message: error.message });
+      } else {
+        showModal({ title: 'Scheduling failed', message: 'An unexpected error occurred.' });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1188,6 +1205,7 @@ export function useServiceSubmission({
     customerId,
     isPersonal,
     isAuto,
+    attachments,
     showModal,
     setShowSignInModal,
     preserveFormForAuth,

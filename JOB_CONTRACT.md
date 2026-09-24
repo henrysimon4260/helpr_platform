@@ -116,6 +116,19 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
+## Job photos
+
+`service.photo_urls` is `jsonb`, not null, default `[]`. It holds public `https` URLs only. Never write `file://` or other device URIs.
+
+| Who | When |
+| --- | --- |
+| Customer composers (A) | On create, when the customer picked photos. On edit, when they picked new photos. New uploads are appended to URLs already stored on the row. Leaving the picker unchanged does not clear `photo_urls`. |
+| Provider app (C) | Read only. Open-job description (bid) and service details render the URLs. |
+
+Storage bucket: `job-photos` (public read). Object path: `{auth.uid()}/{service_id}/{unique}-{filename}`. Authenticated insert and delete are limited to that caller's first folder. `profile-pictures` stays the avatar bucket.
+
+SQL: `apps/serviceprovider-app/supabase/migrations/20260924030000_job_photos.sql`. Apply it before composers start sending `photo_urls`. No status, fee, tax, or payment change.
+
 ## Adding something new
 
 Write it in this file first:

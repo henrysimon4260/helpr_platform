@@ -7,6 +7,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, LatLng } from 'react-native-maps';
 import * as Location from 'expo-location';
 import LottieView from 'lottie-react-native';
+import { parsePhotoUrls } from '../src/lib/jobPhotoUrls';
 import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
 
@@ -33,6 +34,7 @@ type ServiceData = {
   status?: string | null;
   description?: string | null;
   service_provider_id?: string | null;
+  photo_urls?: unknown;
   customer_id?: string | null;
   provider_rating?: number | null;
   provider_review?: string | null;
@@ -905,6 +907,7 @@ export default function ServiceDetails() {
   }
 
   const onTheWaySubtext = getOnTheWaySubtext(service?.status);
+  const jobPhotoUrls = parsePhotoUrls(service?.photo_urls);
 
   const defaultRegion = {
     latitude: startLocation?.coordinate.latitude ?? 40.7128,
@@ -979,6 +982,27 @@ export default function ServiceDetails() {
             )}
           </MapView>
         </View>
+
+        {jobPhotoUrls.length > 0 ? (
+          <View style={styles.jobPhotosSection}>
+            <Text style={styles.jobPhotosTitle}>Job photos</Text>
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.jobPhotosRow}
+            >
+              {jobPhotoUrls.map(url => (
+                <Image
+                  key={url}
+                  source={{ uri: url }}
+                  style={styles.jobPhoto}
+                  accessibilityLabel="Job photo"
+                />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {/* Service Progress Animation */}
         <View style={styles.animationContainer}>
@@ -1494,5 +1518,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#a11313',
+  },
+  jobPhotosSection: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    backgroundColor: '#FFF8E8',
+  },
+  jobPhotosTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0c4309',
+    marginBottom: 10,
+  },
+  jobPhotosRow: {
+    paddingBottom: 4,
+  },
+  jobPhoto: {
+    width: 140,
+    height: 140,
+    borderRadius: 12,
+    marginRight: 10,
+    backgroundColor: '#F5E7D0',
   },
 });
