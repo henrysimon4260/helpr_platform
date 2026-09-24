@@ -1,3 +1,4 @@
+import { quoteAssemblyJob } from './assembly.ts'
 import { quoteCleaningJob } from './cleaning.ts'
 import { QuoteError, quoteMovingJob } from './estimate.ts'
 
@@ -19,22 +20,24 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== 'POST') {
-    return json({ error: 'POST a cleaning or moving quote.' }, 405)
+    return json({ error: 'POST a moving, cleaning, or furniture assembly quote.' }, 405)
   }
 
   try {
     const body = await req.json()
     const serviceType = body && typeof body === 'object' && typeof body.serviceType === 'string'
-      ? body.serviceType.trim().toLowerCase()
+      ? body.serviceType.trim().toLowerCase().replace(/[\s_-]+/g, '')
       : ''
     const openAiApiKey = Deno.env.get('OPENAI_API_KEY') || ''
     const estimate = serviceType === 'cleaning'
       ? await quoteCleaningJob(body, { openAiApiKey, fetchImpl: fetch })
-      : await quoteMovingJob(body, {
-        mapsApiKey: Deno.env.get('GOOGLE_MAPS_API_KEY') || Deno.env.get('GOOGLE_PLACES_API_KEY') || '',
-        openAiApiKey,
-        fetchImpl: fetch,
-      })
+      : serviceType === 'furnitureassembly' || serviceType === 'assembly'
+        ? await quoteAssemblyJob(body, { openAiApiKey, fetchImpl: fetch })
+        : await quoteMovingJob(body, {
+          mapsApiKey: Deno.env.get('GOOGLE_MAPS_API_KEY') || Deno.env.get('GOOGLE_PLACES_API_KEY') || '',
+          openAiApiKey,
+          fetchImpl: fetch,
+        })
     return json(estimate, 200)
   } catch (error) {
     if (error instanceof QuoteError) {

@@ -7,6 +7,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
 import {
+  formatAssemblyEstimateDetail,
+  formatAssemblyEstimatePrice,
+  isFurnitureAssemblyServiceType,
+  requestAssemblyEstimate,
+  type AssemblyEstimate,
+} from '../src/lib/assemblyEstimate';
+import {
   formatCleaningEstimateDetail,
   formatCleaningEstimatePrice,
   isCleaningServiceType,
@@ -167,6 +174,8 @@ export default function Landing() {
   const movingEstimateRequests = useRef<Set<string>>(new Set());
   const [cleaningEstimates, setCleaningEstimates] = useState<Record<string, { status: 'loading' | 'error' | 'ready'; estimate?: CleaningEstimate }>>({});
   const cleaningEstimateRequests = useRef<Set<string>>(new Set());
+  const [assemblyEstimates, setAssemblyEstimates] = useState<Record<string, { status: 'loading' | 'error' | 'ready'; estimate?: AssemblyEstimate }>>({});
+  const assemblyEstimateRequests = useRef<Set<string>>(new Set());
   const landingMountedRef = useRef(true);
 
   const formattedSuggestedTime = useMemo(() => {
@@ -234,6 +243,30 @@ export default function Landing() {
       }).then(result => {
         if (!landingMountedRef.current) return;
         setCleaningEstimates(prev => ({
+          ...prev,
+          [service.service_id]: result.ok
+            ? { status: 'ready', estimate: result.estimate }
+            : { status: 'error' },
+        }));
+      });
+    }
+  }, [services]);
+
+  useEffect(() => {
+    const pending = services.filter(service => {
+      if (!isFurnitureAssemblyServiceType(service.service_type)) return false;
+      if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) return false;
+      return !assemblyEstimateRequests.current.has(service.service_id);
+    });
+
+    for (const service of pending) {
+      assemblyEstimateRequests.current.add(service.service_id);
+      setAssemblyEstimates(prev => ({ ...prev, [service.service_id]: { status: 'loading' } }));
+      void requestAssemblyEstimate({
+        description: service.description,
+      }).then(result => {
+        if (!landingMountedRef.current) return;
+        setAssemblyEstimates(prev => ({
           ...prev,
           [service.service_id]: result.ok
             ? { status: 'ready', estimate: result.estimate }
@@ -1028,6 +1061,19 @@ export default function Landing() {
         return;
       }
     }
+    if (
+      isFurnitureAssemblyServiceType(service.service_type)
+      && OPEN_FEED_STATUSES.has(normalizedStatus)
+    ) {
+      const estimateState = assemblyEstimates[service.service_id];
+      if (!estimateState || estimateState.status === 'loading') {
+        showModal({
+          title: 'Helpr estimate',
+          message: 'Wait for the server estimate before requesting this furniture assembly.',
+        });
+        return;
+      }
+    }
 
     if (schedulingTypeNormalized === 'asap') {
       setSuggestTimeModalService(service);
@@ -1048,6 +1094,7 @@ export default function Landing() {
     submitServiceRequest,
     movingEstimates,
     cleaningEstimates,
+    assemblyEstimates,
     supabase,
     setServiceRequests,
     setSuggestTimeError,
@@ -1072,12 +1119,25 @@ export default function Landing() {
           return;
         }
       }
+      if (
+        isFurnitureAssemblyServiceType(service.service_type)
+        && OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())
+      ) {
+        const estimateState = assemblyEstimates[service.service_id];
+        if (!estimateState || estimateState.status === 'loading') {
+          showModal({
+            title: 'Helpr estimate',
+            message: 'Wait for the server estimate before bidding on this furniture assembly.',
+          });
+          return;
+        }
+      }
       const initialBid = getEffectiveBidForService(service) ?? '';
       setBidInput(initialBid);
       setModalService(service);
       setAdjustModalVisible(true);
     },
-    [cleaningEstimates, getEffectiveBidForService, showModal],
+    [assemblyEstimates, cleaningEstimates, getEffectiveBidForService, showModal],
   );
 
   const handleAdjustBidCancel = useCallback(() => {
@@ -1293,6 +1353,48 @@ export default function Landing() {
     );
   };
 
+  const renderAssemblyEstimate = (service: ServiceRow | null, variant: 'card' | 'panel') => {
+    if (!service || !isFurnitureAssemblyServiceType(service.service_type)) {
+      return null;
+    }
+    if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) {
+      return null;
+    }
+
+    const state = assemblyEstimates[service.service_id];
+    const estimate = state?.status === 'ready' ? state.estimate : undefined;
+    const headline = estimate
+      ? formatAssemblyEstimatePrice(estimate)
+      : state?.status === 'error'
+        ? 'Unavailable'
+        : 'Loading…';
+    const detail = estimate
+      ? formatAssemblyEstimateDetail(estimate)
+      : state?.status === 'error'
+        ? 'Server estimate unavailable. Your bid is not a Helpr estimate.'
+        : 'Calculating the assembly estimate on the server.';
+
+    if (variant === 'card') {
+      return (
+        <View>
+          <Text style={styles.helprEstimateText} numberOfLines={2}>
+            {`Helpr estimate ${headline}`}
+          </Text>
+          <Text style={styles.helprEstimateDetail} numberOfLines={2}>{detail}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.bidModalEstimateBox}>
+        <Text style={styles.bidModalEstimateTitle}>Helpr estimate</Text>
+        <Text style={styles.bidModalEstimateValue}>{headline}</Text>
+        <Text style={styles.bidModalEstimateDetail}>{detail}</Text>
+        <Text style={styles.bidModalEstimateDetail}>Review this range before you bid or request the job.</Text>
+      </View>
+    );
+  };
+
   const renderServiceCard = (service: ServiceRow) => {
     const isSelected = selectedService?.service_id === service.service_id;
     const shortLocation = getShortLocation(service);
@@ -1371,6 +1473,7 @@ export default function Landing() {
             </View>
             {renderMovingEstimate(service, 'card')}
             {renderCleaningEstimate(service, 'card')}
+            {renderAssemblyEstimate(service, 'card')}
             {!isConfirmed && (
               <Pressable
                 style={styles.descriptionButton}
@@ -1442,6 +1545,19 @@ export default function Landing() {
                   showModal({
                     title: 'Helpr estimate',
                     message: 'Wait for the server estimate before requesting this cleaning.',
+                  });
+                  return;
+                }
+              }
+              if (
+                isFurnitureAssemblyServiceType(service.service_type)
+                && OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())
+              ) {
+                const estimateState = assemblyEstimates[service.service_id];
+                if (!estimateState || estimateState.status === 'loading') {
+                  showModal({
+                    title: 'Helpr estimate',
+                    message: 'Wait for the server estimate before requesting this furniture assembly.',
                   });
                   return;
                 }
@@ -1696,6 +1812,7 @@ export default function Landing() {
             </Text>
             {renderMovingEstimate(suggestTimeModalService, 'panel')}
             {renderCleaningEstimate(suggestTimeModalService, 'panel')}
+            {renderAssemblyEstimate(suggestTimeModalService, 'panel')}
             <View style={styles.suggestTimeSummaryBox}>
               <Text style={styles.suggestTimeSummaryLabel}>Arrival time</Text>
               <Text style={styles.suggestTimeSummaryValue}>{formattedSuggestedTime}</Text>
@@ -1779,6 +1896,7 @@ export default function Landing() {
             </Text>
             {renderMovingEstimate(modalService, 'panel')}
             {renderCleaningEstimate(modalService, 'panel')}
+            {renderAssemblyEstimate(modalService, 'panel')}
             <View style={styles.bidInputContainer}>
               <TextInput
                 style={styles.bidModalInput}
@@ -1812,6 +1930,7 @@ export default function Landing() {
                     <Text style={styles.descriptionModalTitle}>Service Description</Text>
                     {renderMovingEstimate(descriptionModalService, 'panel')}
                     {renderCleaningEstimate(descriptionModalService, 'panel')}
+                    {renderAssemblyEstimate(descriptionModalService, 'panel')}
                     <View style={styles.descriptionModalBox}>
                       <ScrollView
                         style={styles.descriptionModalScroll}
