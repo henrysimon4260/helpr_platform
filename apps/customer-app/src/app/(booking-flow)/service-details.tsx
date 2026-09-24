@@ -54,6 +54,23 @@ type ServiceProviderRatingRow = {
   comment: string | null;
 };
 
+const refreshProviderProfileAggregates = async (providerId?: string | null) => {
+  if (!providerId) {
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('refresh-provider-aggregates', {
+      body: { serviceProviderId: providerId },
+    });
+    if (error || data?.success === false) {
+      console.error('Failed to refresh provider aggregates:', error ?? data?.error);
+    }
+  } catch (refreshError) {
+    console.error('Failed to refresh provider aggregates:', refreshError);
+  }
+};
+
 // Decode polyline from Google Directions API
 const decodePolyline = (encoded: string): LatLng[] => {
   const poly: LatLng[] = [];
@@ -667,6 +684,8 @@ export default function ServiceDetails() {
             setRatingComment(typedRow.comment ?? null);
           }
         }
+
+        await refreshProviderProfileAggregates(service.service_provider_id);
       } catch (error) {
         console.error('Failed to save rating:', error);
         setRating(previousRating);
@@ -747,6 +766,7 @@ export default function ServiceDetails() {
         setRatingComment(typedRow?.comment ?? normalized ?? null);
       }
 
+      await refreshProviderProfileAggregates(service.service_provider_id);
       setCommentModalVisible(false);
     } catch (error) {
       console.error('Failed to save provider comment:', error);

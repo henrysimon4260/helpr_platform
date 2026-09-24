@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@12.0.0?target=deno';
+import { refreshProviderAggregates } from '../_shared/providerAggregates.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,6 +65,10 @@ serve(async (req) => {
 
       if (existingTransaction) {
         console.log('Payment already processed for this service');
+        const aggregate = await refreshProviderAggregates(supabaseClient, service.service_provider_id);
+        if (!aggregate.ok) {
+          console.error('Failed to refresh provider aggregates:', aggregate.error);
+        }
         return new Response(
           JSON.stringify({
             success: true,
@@ -256,6 +261,11 @@ serve(async (req) => {
     if (statusError) {
       console.error('Failed to update service status:', statusError);
       // Don't throw - payment already processed
+    } else {
+      const aggregate = await refreshProviderAggregates(supabaseClient, service.service_provider_id);
+      if (!aggregate.ok) {
+        console.error('Failed to refresh provider aggregates:', aggregate.error);
+      }
     }
 
     return new Response(

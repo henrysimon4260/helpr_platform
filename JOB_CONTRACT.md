@@ -55,6 +55,27 @@ A bid / interest row. One provider per service until deleted.
 
 Shared columns used today: `id`, `service_id`, `customer_id`, `service_provider_id`, `rating` (1–5), `comment` (nullable). Upsert by existing `id` for that service pair; do not insert a second row.
 
+### Provider profile aggregates
+
+`service_provider.rating` and `service_provider.jobs_completed` are derived. Select-a-pro reads them. Signup may insert `rating: null` and `jobs_completed: 0`. Do not write those columns from a screen after signup.
+
+| Column | Value |
+| --- | --- |
+| `jobs_completed` | Count of `service` rows for that `service_provider_id` with `status = 'completed'`. |
+| `rating` | Mean of `service_provider_ratings.rating` values from 1 to 5, rounded to 2 decimal places. `null` when there are no valid ratings. |
+
+Writers (same formula, recompute rather than increment):
+
+- Function `refresh_service_provider_aggregates(p_provider_id text)` recomputes one provider in a single statement. Triggers on `service` (`status`, `service_provider_id`) and `service_provider_ratings` (`rating`, `service_provider_id`) call it. A trigger error does not roll back the job or the rating row. Migration: `apps/serviceprovider-app/supabase/migrations/20260924120000_refresh_provider_aggregates.sql`.
+- `complete-service` calls that function after it sets `completed`, and again when completion was already processed. If the function is not installed yet, it recomputes with the service role. It does not change fee, capture, or transfer behavior. A failed recompute does not fail the payment response.
+- `refresh-provider-aggregates` calls the same function. Customer service details invokes it after a successful provider-rating write. The rating-row trigger still updates the profile if that call fails.
+
+`refresh-provider-aggregates` request: `{ "serviceProviderId": "" }` (`service_provider_id` also accepted).
+
+Success: `{ "success": true, "jobs_completed": 0, "rating": null }`
+
+Error: `{ "success": false, "error": "" }` with HTTP 200.
+
 ## Edge functions
 
 Bodies live under `apps/serviceprovider-app/supabase/functions/` (Agent E). Call sites stay with B and C.
