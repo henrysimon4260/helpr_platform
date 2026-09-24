@@ -141,6 +141,8 @@ export default function Layout() {
         <Stack.Screen name="signup" options={{ animation: 'fade', animationDuration: 100 }} />
         <Stack.Screen name="account" options={{ animation: 'fade', animationDuration: 100 }} />
         <Stack.Screen name="landing" options={{ animation: 'none' }} />
+        <Stack.Screen name="past-services" options={{ animation: 'fade', animationDuration: 100 }} />
+        <Stack.Screen name="ServiceDetails" options={{ animation: 'fade', animationDuration: 100 }} />
         <Stack.Screen name="customer-service-chat" options={{ animation: 'fade', animationDuration: 100 }} />
         </Stack>
       </ModalProvider>
