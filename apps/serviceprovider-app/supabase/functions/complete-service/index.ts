@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'https://esm.sh/stripe@12.0.0?target=deno';
+import { completionFailure } from './failureResponse.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -279,25 +280,11 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Service completion error:', error);
-    
-    let userMessage = 'Unknown error occurred';
-    if (error instanceof Error) {
-      userMessage = error.message;
-    } else if (typeof error === 'string') {
-      userMessage = error;
-    }
+    const failure = completionFailure(error);
 
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: userMessage,
-        details: error instanceof Error ? error.stack : String(error),
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200, // Return 200 so client can read the error
-      }
-    );
+    return new Response(JSON.stringify(failure.body), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: failure.status,
+    });
   }
 });

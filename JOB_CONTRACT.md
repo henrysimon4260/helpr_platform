@@ -104,9 +104,9 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 
 `platformFeePercent` and `skipCustomerCharge` are accepted by the client today; the deployed body requires an existing paid `payment_intent_id` and uses its own fee math (1% platform + 2.9% + $0.30).
 
-**Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, ... }`
+**Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, ... }` (HTTP 200)
 
-**Error:** `{ "success": false, "error": "" }` (HTTP 200 so the client can read it) or a functions invoke error. C must not invent a different completion path without updating this contract.
+**Error:** `{ "success": false, "error": "<safe message>" }` with HTTP 4xx or 5xx, never 200. 4xx for missing or invalid input, unknown service or provider, and payment not ready (`400` / `404` / `409`). 5xx for unexpected server failures and Stripe errors (`500` / `502`). The body never includes `stack`, `details`, Stripe raw objects, or exception dumps. The function logs the full error server-side. C must treat a non-2xx `functions.invoke` result as failure and must not invent a different completion path without updating this contract.
 
 ### `create-connect-account`
 
