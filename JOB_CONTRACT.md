@@ -11,8 +11,8 @@ Use these spellings exactly. Do not substitute aliases (`helpr_otw`, not `on_the
 | Status | Who may write it | When |
 | --- | --- | --- |
 | `finding_pros` | Customer app (A on insert). Provider app (C) when a confirmed provider cancels and returns the job to the open feed. | New job. Also the current provider-cancel path (clears `service_provider_id`). |
-| `pending` | Legacy / unused on write. Provider feed still reads it. | Do not start writing this for new work. |
-| `scheduled` | Legacy / unused on write. Provider feed still reads it. Distinct from `scheduling_type: 'scheduled'`. | Do not start writing this for new work. |
+| `pending` | Nobody. Legacy; do not write. | Not an open-feed status. Provider landing does not query it, so historical rows are not claimable. |
+| `scheduled` | Nobody. Legacy; do not write. Distinct from `scheduling_type: 'scheduled'`. | Not an open-feed status. Provider landing does not query it, so historical rows are not claimable. |
 | `select_service_provider` | Provider app (C) | First non-AutoFill bid while status is `finding_pros`. |
 | `confirmed` | Customer app (B) on select-a-pro. Provider app (C) on AutoFill claim. | Assigns `service_provider_id`, copies bid into `price`, copies `proposed_date_time` into `scheduled_date_time` when present. |
 | `helpr_otw` | Provider app (C) | From `confirmed` via Service Details (“I'm on the way”). |
@@ -23,7 +23,11 @@ There is no `cancelled` status yet. Do not add one in a screen. Agent B specifie
 
 ### Machine
 
-`finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+`finding_pros` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+
+Provider open feed (`landing.tsx` available view) queries `finding_pros` and `select_service_provider` only. The same fetch also loads the signed-in provider’s in-progress rows (`confirmed`, `helpr_otw`, `in_progress`). Legacy `pending` and `scheduled` are omitted from that query. `scheduling_type: 'scheduled'` is a timing field, not `service.status`.
+
+Customer booked services still loads that customer’s own rows with no status filter, so a historical `pending` or `scheduled` row can still appear on the customer list. It is not shown as claimable work on the provider open feed.
 
 ## `service_fill_request`
 

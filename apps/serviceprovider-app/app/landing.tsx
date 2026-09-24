@@ -65,8 +65,6 @@ type ClaimFilter = 'all' | 'autofill' | 'bid';
 
 const OPEN_FEED_STATUSES = new Set([
   'finding_pros',
-  'pending',
-  'scheduled',
   'select_service_provider',
 ]);
 
@@ -244,9 +242,9 @@ export default function Landing() {
       setProviderId(providerIdentifier);
 
       const statusesToQuery = [
-        'finding_pros', 'pending', 'scheduled', 'confirmed', 
+        'finding_pros', 'confirmed',
         'helpr_otw', 'in_progress', 'select_service_provider',
-        'Finding_Pros', 'Pending', 'Scheduled', 'Confirmed',
+        'Finding_Pros', 'Confirmed',
         'Helpr_Otw', 'In_Progress', 'Select_Service_Provider'
       ];
 
@@ -264,7 +262,7 @@ export default function Landing() {
         .filter((service): service is ServiceRow => Boolean(service?.service_id))
         .filter(service => {
           const status = (service.status ?? '').toString().toLowerCase();
-          return status === 'finding_pros' || status === 'pending' || status === 'scheduled' || status === 'confirmed' || status === 'helpr_otw' || status === 'in_progress' || status === 'select_service_provider';
+          return OPEN_FEED_STATUSES.has(status) || IN_PROGRESS_FEED_STATUSES.has(status);
         });
 
       if (visibleServices.length === 0) {
