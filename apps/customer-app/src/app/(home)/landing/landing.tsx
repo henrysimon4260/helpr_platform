@@ -9,6 +9,7 @@ import {
     View,
 } from 'react-native';
 
+import { JobAlertButton } from '../../components/job/JobAlertButton';
 import { CustomServiceCTA } from './components/CustomServiceCTA';
 import { FloatingMenus } from './components/FloatingMenus';
 import { LandingTitle } from './components/LandingTitle';
@@ -55,6 +56,9 @@ export default function LandingScreen() {
             </LandingLayout>
 
             {/* Screen-wide overlay, outside the padded container (true screen edges) */}
+            <View pointerEvents="box-none" style={styles.alertCorner}>
+              <JobAlertButton />
+            </View>
             <View pointerEvents="box-none" style={styles.overlay}>
               <FloatingMenus
                 canRenderLottie={canRenderLottie}

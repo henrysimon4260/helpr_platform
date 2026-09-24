@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
+import { JobAlertButton, useJobAlertBadge } from '../../components/job/JobAlertButton';
+import { JOB_CHAT_PATH } from '../../components/job/useJobParty';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
@@ -69,6 +71,7 @@ export default function BookedServices() {
   const [confirmationModalType, setConfirmationModalType] = useState<'finding_pros' | 'confirmed'>('finding_pros');
   const [confirmedHelprName, setConfirmedHelprName] = useState<string | null>(null);
   const { user, loading: authLoading } = useAuth();
+  const { byService: unreadByService } = useJobAlertBadge();
   const { showModal } = useModal();
   const isFocused = useIsFocused();
 
@@ -719,6 +722,21 @@ export default function BookedServices() {
               >
                 <Text style={styles.showDetailsButtonText}>Details</Text>
               </Pressable>
+              {service.service_provider_id ? (
+                <Pressable
+                  style={styles.messageJobButton}
+                  onPress={() => router.push({
+                    pathname: JOB_CHAT_PATH as never,
+                    params: { serviceId: service.service_id },
+                  })}
+                  accessibilityRole="button"
+                  accessibilityLabel="Message your Helpr"
+                >
+                  <Text style={styles.messageJobButtonText}>
+                    Message{(unreadByService[service.service_id] ?? 0) > 0 ? ` (${unreadByService[service.service_id]})` : ''}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : (
             <View style={styles.priceColumn}>
@@ -1024,6 +1042,9 @@ export default function BookedServices() {
       {/* Main content */}
       <View style={styles.header}>
         <Text style={styles.title}>Booked Services</Text>
+        <View style={styles.headerAlerts}>
+          <JobAlertButton />
+        </View>
       </View>
       <View style={styles.GreenHeaderBar}>
       </View>
@@ -1372,6 +1393,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerAlerts: {
+    position: 'absolute',
+    right: 16,
+    bottom: 14,
+  },
   noServicesContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1402,7 +1428,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0c4309',
     paddingTop: 10,
-    
+    paddingHorizontal: 88,
   },
   GreenHeaderBar:{
     backgroundColor: '#0c4309',
@@ -2056,5 +2082,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0c4309',
     paddingHorizontal: 10,
+  },
+  messageJobButton: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#0c4309',
+  },
+  messageJobButtonText: {
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFF8E8',
   },
 });

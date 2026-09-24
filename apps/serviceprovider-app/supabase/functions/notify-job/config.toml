@@ -1,0 +1,2 @@
+# Called by a signed-in customer or provider after an in-app alert row exists.
+verify_jwt = true

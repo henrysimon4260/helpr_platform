@@ -7,6 +7,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, LatLng } from 'react-native-maps';
 import * as Location from 'expo-location';
 import LottieView from 'lottie-react-native';
+import { JOB_CHAT_PATH } from '../src/components/job/useJobParty';
+import { recordJobNotice } from '../src/lib/jobChat';
+import { describeAlertOutcome, isJobChatUnlocked, statusAlertCopy } from '../src/lib/jobNotifyPolicy';
 import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
 
@@ -498,6 +501,27 @@ export default function ServiceDetails() {
     return null;
   };
 
+  const alertCustomerOfStatus = async (statusToAnnounce: string) => {
+    const copy = statusAlertCopy(statusToAnnounce);
+    if (!service?.customer_id || !user?.id || service.service_provider_id !== user.id || !copy) {
+      return;
+    }
+    const notice = await recordJobNotice({
+      serviceId: service.service_id,
+      recipientRole: 'customer',
+      recipientId: String(service.customer_id),
+      actorRole: 'provider',
+      actorId: user.id,
+      kind: 'status',
+      title: copy.title,
+      body: copy.body,
+      statusValue: statusToAnnounce,
+    });
+    if (!notice.inApp) {
+      Alert.alert('Status saved', describeAlertOutcome('status', notice));
+    }
+  };
+
   const handleUpdateStatus = async () => {
     if (!service) return;
 
@@ -533,6 +557,7 @@ export default function ServiceDetails() {
           console.log('✅ Payment processed successfully:', paymentData);
           console.log(`💰 Provider earned: $${paymentData.provider_amount}`);
           console.log(`🏦 New balance: $${paymentData.new_balance}`);
+          await alertCustomerOfStatus('completed');
         }
       } else {
         // For other status updates, just update the status
@@ -542,6 +567,7 @@ export default function ServiceDetails() {
           .eq('service_id', serviceId);
 
         if (error) throw error;
+        await alertCustomerOfStatus(nextStatus);
       }
 
       // Refresh service data
@@ -926,6 +952,19 @@ export default function ServiceDetails() {
           />
         </Pressable>
         <Text style={styles.headerTitle}>{getStatusTitle(service?.status)}</Text>
+        {isJobChatUnlocked(service?.status, service?.service_provider_id) ? (
+          <Pressable
+            style={styles.messageJobButton}
+            onPress={() => router.push({
+              pathname: JOB_CHAT_PATH as never,
+              params: { serviceId: service?.service_id },
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Message the customer"
+          >
+            <Text style={styles.messageJobButtonText}>Message</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.contentContainer}>
@@ -1281,6 +1320,18 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     textAlign: 'left',
     alignSelf: 'flex-start',
+  },
+  messageJobButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: '#0c4309',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  messageJobButtonText: {
+    color: '#FFF8E8',
+    fontWeight: '700',
   },
   scrollContainer: {
     flex: 1,

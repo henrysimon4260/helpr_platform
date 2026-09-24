@@ -2,6 +2,7 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import * as Linking from 'expo-linking';
 import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
 import { useEffect } from 'react';
+import { JobPushRegistration } from '../components/job/JobPushRegistration';
 import { AuthProvider } from '../context/AuthContext';
 import { ModalProvider } from '../context/ModalContext';
 import { supabase } from '../lib/supabase';
@@ -53,6 +54,7 @@ export default function Layout() {
   return (
     <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
       <AuthProvider>
+        <JobPushRegistration />
         <ModalProvider>
           <Stack
             screenOptions={{

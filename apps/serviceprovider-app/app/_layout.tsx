@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import { router, Stack, useRootNavigationState, useSegments } from 'expo-router';
 import { useEffect } from 'react';
+import { JobPushRegistration } from '../src/components/job/JobPushRegistration';
 import { AuthProvider } from '../src/contexts/AuthContext';
 import { ModalProvider } from '../src/contexts/ModalContext';
 import { supabase } from '../src/lib/supabase';
@@ -130,6 +131,7 @@ export default function Layout() {
 
   return (
     <AuthProvider>
+      <JobPushRegistration />
       <ModalProvider>
         <Stack
           screenOptions={{
@@ -142,6 +144,8 @@ export default function Layout() {
         <Stack.Screen name="account" options={{ animation: 'fade', animationDuration: 100 }} />
         <Stack.Screen name="landing" options={{ animation: 'none' }} />
         <Stack.Screen name="customer-service-chat" options={{ animation: 'fade', animationDuration: 100 }} />
+        <Stack.Screen name="job-chat" options={{ animation: 'fade', animationDuration: 100 }} />
+        <Stack.Screen name="job-alerts" options={{ animation: 'fade', animationDuration: 100 }} />
         </Stack>
       </ModalProvider>
     </AuthProvider>

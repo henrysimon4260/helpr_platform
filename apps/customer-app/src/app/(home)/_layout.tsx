@@ -12,6 +12,8 @@ export default function HomeLayout() {
       <Stack.Screen name="landing" options={{ animation: 'none' }} />
       <Stack.Screen name="account" />
       <Stack.Screen name="customer-service-chat" />
+      <Stack.Screen name="job-chat" />
+      <Stack.Screen name="job-alerts" />
     </Stack>
   );
 }

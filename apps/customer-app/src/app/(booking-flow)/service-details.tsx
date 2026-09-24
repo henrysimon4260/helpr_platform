@@ -7,6 +7,8 @@ import LottieView from 'lottie-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { JOB_CHAT_PATH } from '../../components/job/useJobParty';
+import { isJobChatUnlocked } from '../../lib/jobNotifyPolicy';
 import { supabase } from '../../lib/supabase';
 import { markCompletedServiceAsViewed } from '../../lib/viewedCompletedServices';
 
@@ -786,6 +788,19 @@ export default function ServiceDetails() {
           />
         </Pressable>
         <Text style={styles.headerTitle}>{getStatusTitle(service?.status)}</Text>
+        {isJobChatUnlocked(service?.status, service?.service_provider_id) ? (
+          <Pressable
+            style={styles.messageJobButton}
+            onPress={() => router.push({
+              pathname: JOB_CHAT_PATH as never,
+              params: { serviceId: service?.service_id },
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Message your Helpr"
+          >
+            <Text style={styles.messageJobButtonText}>Message</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.contentContainer}>
@@ -1123,6 +1138,18 @@ const styles = StyleSheet.create({
     color: '#0c4309',
     textAlign: 'left',
     alignSelf: 'flex-start',
+  },
+  messageJobButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: '#0c4309',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  messageJobButtonText: {
+    color: '#FFF8E8',
+    fontWeight: '700',
   },
   scrollContainer: {
     flex: 1,
