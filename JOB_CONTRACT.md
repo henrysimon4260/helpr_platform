@@ -116,6 +116,10 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
+### Provider balance
+
+`complete-service` credits `service_provider.balance` through the `increment_provider_balance(uuid, numeric)` RPC (service role only). The body is one update: `balance = coalesce(balance, 0) + provider_amount`. `provider_amount` and `balance` stay in dollars (`service.price` units), not cents. Capture still runs only when the PaymentIntent status is `requires_capture`.
+
 ## Adding something new
 
 Write it in this file first:
