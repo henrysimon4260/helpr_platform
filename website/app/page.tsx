@@ -17,7 +17,7 @@ const highlights = [
   {
     title: "Trusted Local Pros",
     description:
-      "Every pro on Helpr completes verification steps so quality and reliability stay high.",
+      "Every pro who accepts a job has a clear Checkr background check.",
   },
 ];
 
@@ -85,7 +85,7 @@ export default function Home() {
                 </h1>
                 <p className="mt-2 text-[10px] leading-[1.4] text-[#3f5848] md:mt-4 md:max-w-xl md:text-sm md:leading-[1.6] lg:mt-5 lg:text-base xl:text-lg xl:leading-[1.68]">
                   Moving and Cleaning, Furniture assembly and more. <br/> 
-                  Book vetted pros in one tap with upfront pricing.
+                  Book Checkr-cleared pros in one tap with upfront pricing.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2 md:mt-7 lg:mt-9 md:gap-4">
                   <SlowScrollLink
@@ -237,7 +237,7 @@ export default function Home() {
             </span>
             <span className="flex items-center gap-2">
               <span className="h-1 w-1 rounded-full bg-[#8ae7b8]" />
-              Vetted local pros
+              Checkr-cleared pros
             </span>
           </div>
         </div>

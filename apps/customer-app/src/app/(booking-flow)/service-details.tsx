@@ -7,6 +7,7 @@ import LottieView from 'lottie-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { isCheckrClearStatus, VerifiedBadge } from '../../components/common/VerifiedBadge';
 import { supabase } from '../../lib/supabase';
 import { markCompletedServiceAsViewed } from '../../lib/viewedCompletedServices';
 
@@ -129,6 +130,7 @@ export default function ServiceDetails() {
   const [helprFirstName, setHelprFirstName] = useState<string | null>(null);
   const [helprLastName, setHelprLastName] = useState<string | null>(null);
   const [helprProfileImageUrl, setHelprProfileImageUrl] = useState<string | null>(null);
+  const [helprCheckrClear, setHelprCheckrClear] = useState(false);
   const [rating, setRating] = useState<number>(0);
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingError, setRatingError] = useState<string | null>(null);
@@ -209,17 +211,32 @@ export default function ServiceDetails() {
       }
 
       if (data.service_provider_id) {
-        const { data: providerData, error: providerError } = await supabase
+        let { data: providerData, error: providerError } = await supabase
           .from('service_provider')
-          .select('first_name, last_name, profile_image_url')
+          .select('first_name, last_name, profile_image_url, checkr_status')
           .eq('service_provider_id', data.service_provider_id)
           .single();
+
+        if (providerError) {
+          const fallback = await supabase
+            .from('service_provider')
+            .select('first_name, last_name, profile_image_url')
+            .eq('service_provider_id', data.service_provider_id)
+            .single();
+          providerData = fallback.data;
+          providerError = fallback.error;
+        }
 
         if (!providerError && providerData) {
           setHelprFirstName(providerData.first_name);
           setHelprLastName(providerData.last_name ?? null);
           setHelprProfileImageUrl(providerData.profile_image_url ?? null);
+          setHelprCheckrClear(isCheckrClearStatus(providerData.checkr_status));
+        } else {
+          setHelprCheckrClear(false);
         }
+      } else {
+        setHelprCheckrClear(false);
       }
 
       if (data.start_location) {
@@ -885,9 +902,12 @@ export default function ServiceDetails() {
         {service?.status?.toLowerCase() === 'completed' ? (
           <>
             <View style={styles.reviewSection}>
-              <Text style={styles.reviewTitle}>
-                Leave A Review For {helprFirstName || 'Your Helpr'}
-              </Text>
+              <View style={styles.reviewTitleRow}>
+                <Text style={styles.reviewTitle}>
+                  Leave A Review For {helprFirstName || 'Your Helpr'}
+                </Text>
+                {helprCheckrClear ? <VerifiedBadge /> : null}
+              </View>
               <View style={styles.reviewContentRow}>
               {helprProfileImageUrl ? (
                 <Image
@@ -1250,12 +1270,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff8e8',
     alignSelf: 'center',
   },
+  reviewTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 15,
+    flexWrap: 'wrap',
+  },
   reviewTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: '#0c4309',
-    marginBottom: 15,
-    alignSelf: 'center',
   },
   reviewContentRow: {
     flexDirection: 'row',

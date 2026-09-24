@@ -7,6 +7,7 @@ import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { hasShownSelectProModal, markSelectProModalShown, resetSelectProModalTracker } from '../../lib/selectProModalTracker';
+import { isCheckrClearStatus, VerifiedBadge } from '../../components/common/VerifiedBadge';
 import { supabase } from '../../lib/supabase';
 import { clearViewedCompletedServices, hasViewedCompletedService } from '../../lib/viewedCompletedServices';
 
@@ -35,6 +36,7 @@ type ServiceProviderProfile = {
   first_name: string | null;
   last_name: string | null;
   profile_picture_url: string | null;
+  checkr_status?: string | null;
 };
 
 const EDIT_REQUEST_ICON_XML = `
@@ -247,10 +249,20 @@ export default function BookedServices() {
       );
 
       if (providerIds.length > 0) {
-        const { data: providerRows, error: providerError } = await supabase
+        const providerSelect = 'service_provider_id, first_name, last_name, profile_picture_url, checkr_status';
+        let { data: providerRows, error: providerError } = await supabase
           .from('service_provider')
-          .select('service_provider_id, first_name, last_name, profile_picture_url')
+          .select(providerSelect)
           .in('service_provider_id', providerIds);
+
+        if (providerError) {
+          const fallback = await supabase
+            .from('service_provider')
+            .select('service_provider_id, first_name, last_name, profile_picture_url')
+            .in('service_provider_id', providerIds);
+          providerRows = fallback.data;
+          providerError = fallback.error;
+        }
 
         if (providerError) {
           console.error('Failed to load provider profiles:', providerError);
@@ -266,6 +278,7 @@ export default function BookedServices() {
               first_name: row.first_name ?? null,
               last_name: row.last_name ?? null,
               profile_picture_url: row.profile_picture_url ?? null,
+              checkr_status: row.checkr_status ?? null,
             };
           });
           setProviderProfiles(profiles);
@@ -679,7 +692,10 @@ export default function BookedServices() {
                   )}
                 </View>
                 <View style={styles.confirmedProviderMeta}>
-                  <Text style={styles.confirmedProviderName} numberOfLines={1}>{displayProviderName}</Text>
+                  <View style={styles.confirmedNameRow}>
+                    <Text style={styles.confirmedProviderName} numberOfLines={1}>{displayProviderName}</Text>
+                    {isCheckrClearStatus(profile?.checkr_status) ? <VerifiedBadge /> : null}
+                  </View>
                   <Text style={styles.confirmedProviderSubtitle} numberOfLines={1}>{assignedSubtitle}</Text>
                 </View>
               </View>
@@ -2021,10 +2037,16 @@ const styles = StyleSheet.create({
   confirmedProviderMeta: {
     flexShrink: 1,
   },
+  confirmedNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   confirmedProviderName: {
     color: '#0c4309',
     fontSize: 14,
     fontWeight: '700',
+    flexShrink: 1,
   },
   confirmedProviderSubtitle: {
     color: '#0c4309',

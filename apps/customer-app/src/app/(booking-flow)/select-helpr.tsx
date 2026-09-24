@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PaymentMethodModal } from '../../components/common/PaymentMethodModal';
+import { isCheckrClearStatus, VerifiedBadge } from '../../components/common/VerifiedBadge';
 import { PaymentSummaryModal } from '../../components/services/PaymentSummaryModal';
 import type { ProviderSummary } from '../../components/services/PaymentSummaryModal/types';
 import { useAuth } from '../../context/AuthContext';
@@ -25,6 +26,7 @@ type ServiceProviderRow = {
   profile_picture_url: string | null;
   rating: number | null;
   jobs_completed: number | null;
+  checkr_status?: string | null;
 };
 
 type ProviderRequestDisplay = {
@@ -40,6 +42,7 @@ type ProviderRequestDisplay = {
   jobsCompleted: number | null;
   proposedDateTimeLabel: string | null;
   proposedDateTimeBanner: string | null;
+  checkrClear: boolean;
 };
 
 const parseBid = (rawBid: string | null): number => {
@@ -254,10 +257,22 @@ const SelectHelpr = () => {
         return;
       }
 
-      const { data: providerRows, error: providerError } = await supabase
+      let { data: providerRows, error: providerError } = await supabase
         .from('service_provider')
-        .select('service_provider_id, first_name, last_name, email, profile_picture_url, rating, jobs_completed')
+        .select('service_provider_id, first_name, last_name, email, profile_picture_url, rating, jobs_completed, checkr_status')
         .in('service_provider_id', providerIds);
+
+      if (providerError) {
+        const fallback = await supabase
+          .from('service_provider')
+          .select('service_provider_id, first_name, last_name, email, profile_picture_url, rating, jobs_completed')
+          .in('service_provider_id', providerIds);
+        if (fallback.error) {
+          throw fallback.error;
+        }
+        providerRows = (fallback.data ?? []).map(row => ({ ...row, checkr_status: null }));
+        providerError = null;
+      }
 
       if (providerError) {
         throw providerError;
@@ -287,6 +302,10 @@ const SelectHelpr = () => {
             typeof provider?.jobs_completed === 'number' && !Number.isNaN(provider.jobs_completed) && provider.jobs_completed > 0
               ? provider.jobs_completed
               : null;
+          const checkrClear = isCheckrClearStatus(provider?.checkr_status);
+          if (!checkrClear) {
+            return null;
+          }
 
           return {
             service_provider_id: row.service_provider_id,
@@ -301,8 +320,10 @@ const SelectHelpr = () => {
             jobsCompleted,
             proposedDateTimeLabel,
             proposedDateTimeBanner,
+            checkrClear,
           };
         })
+        .filter((request): request is ProviderRequestDisplay => request !== null)
         .sort((a, b) => a.bid - b.bid);
 
       setRequests(formatted);
@@ -414,6 +435,20 @@ const SelectHelpr = () => {
     setConfirming(true);
 
     try {
+      const { data: gateRow, error: gateError } = await supabase
+        .from('service_provider')
+        .select('checkr_status')
+        .eq('service_provider_id', selectedRequest.service_provider_id)
+        .maybeSingle();
+      if (gateError || !isCheckrClearStatus(gateRow?.checkr_status)) {
+        showModal({
+          title: 'Pro not verified',
+          message: 'This pro cannot be booked until their background check is clear.',
+        });
+        setConfirming(false);
+        return;
+      }
+
       // Find the selected payment method
       const paymentMethod = savedPaymentMethods.find(m => m.id === activePaymentMethodId);
       if (!paymentMethod) {
@@ -610,6 +645,29 @@ const SelectHelpr = () => {
       try {
         setSelectingProviderId(request.service_provider_id);
 
+        if (!request.checkrClear) {
+          showModal({
+            title: 'Pro not verified',
+            message: 'This pro cannot be booked until their background check is clear.',
+          });
+          setSelectingProviderId(null);
+          return;
+        }
+
+        const { data: gateRow, error: gateError } = await supabase
+          .from('service_provider')
+          .select('checkr_status')
+          .eq('service_provider_id', request.service_provider_id)
+          .maybeSingle();
+        if (gateError || !isCheckrClearStatus(gateRow?.checkr_status)) {
+          showModal({
+            title: 'Pro not verified',
+            message: 'This pro cannot be booked until their background check is clear.',
+          });
+          setSelectingProviderId(null);
+          return;
+        }
+
         // Get the proposed_date_time from the service_fill_request
         const { data: fillRequestData, error: fetchError } = await supabase
           .from('service_fill_request')
@@ -757,6 +815,7 @@ const SelectHelpr = () => {
                           {request.firstName}
                         </Text>
                         <View style={styles.providerMetaRow}>
+                          {request.checkrClear ? <VerifiedBadge /> : null}
                           <View style={request.rating ? styles.ratingPill : styles.newBadge}>
                             <Text style={request.rating ? styles.ratingPillText : styles.newBadgeText}>
                               {request.rating ? `⭐️ ${request.rating.toFixed(1)}` : 'New to Helpr'}
@@ -819,6 +878,7 @@ const SelectHelpr = () => {
                                 {request.firstName}
                               </Text>
                               <View style={styles.providerMetaRow}>
+                                {request.checkrClear ? <VerifiedBadge /> : null}
                                 <View style={request.rating ? styles.ratingPill : styles.newBadge}>
                                   <Text style={request.rating ? styles.ratingPillText : styles.newBadgeText}>
                                     {request.rating ? `⭐️ ${request.rating.toFixed(1)}` : 'New to Helpr'}
@@ -1124,6 +1184,8 @@ const styles = StyleSheet.create({
   providerMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
     marginTop: 4,
   },
   ratingPill: {

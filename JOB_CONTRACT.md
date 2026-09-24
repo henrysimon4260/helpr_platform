@@ -116,6 +116,77 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
+## Checkr background check (HLP-50)
+
+Stripe Connect KYC is payout identity only. It does not clear a provider to accept work. Checkr does.
+
+`consider` fails closed. A consider, suspended, expired, canceled, pending, or missing report cannot accept paid work and does not show a customer verified badge. `report.engaged` does not promote a consider result to clear. There is no in-app override.
+
+### `service_provider` Checkr columns
+
+Written only by the service role inside `create-checkr-invitation` and `checkr-webhook`. Client updates are rejected by `private.protect_service_provider_checkr_fields`. Do not set `checkr_status` to `clear` in the dashboard or a seed. A clear value is valid only after a Checkr `report.completed` (or equivalent report payload) whose `result` is `clear` and whose `assessment` is not `review` or `escalated`.
+
+| Column | Meaning |
+| --- | --- |
+| `checkr_candidate_id` | Checkr candidate id. |
+| `checkr_invitation_id` | Latest hosted-apply invitation id. |
+| `checkr_report_id` | Latest report id. |
+| `checkr_invitation_url` | Hosted apply URL for the current invitation. |
+| `checkr_invitation_expires_at` | Invitation expiry from Checkr (invitations last 7 days). |
+| `checkr_package` | Package slug sent to Checkr (`CHECKR_PACKAGE`). |
+| `checkr_work_state` | US state used as the Checkr work location. |
+| `checkr_last_event` | Last webhook or invite event name. |
+| `checkr_status_updated_at` | When `checkr_status` last changed. |
+| `checkr_status` | One of the spellings below. Default `not_started`. |
+
+| `checkr_status` | Who writes it | Go-live |
+| --- | --- | --- |
+| `not_started` | Default. Invite function has not created a candidate yet. | Blocked. |
+| `pending` | Invite function after a candidate + invitation. Webhook on `invitation.*` (except expired/deleted), `report.created`, `report.resumed`. | Blocked. |
+| `clear` | Webhook only, from a report `result` of `clear`. | Allowed. |
+| `consider` | Webhook. Report `result` of `consider`, missing result on a completed report, dispute, adverse action, or assessment `review` / `escalated`. | Blocked. |
+| `suspended` | Webhook `report.suspended` or report `status` `suspended`. | Blocked. |
+| `expired` | Webhook `invitation.expired`. Also the in-app copy when a pending invitation's `checkr_invitation_expires_at` is past. | Blocked. |
+| `canceled` | Webhook `invitation.deleted` or report `status` `canceled`. | Blocked. |
+
+Existing rows gain `checkr_status = 'not_started'` when the migration runs. They stay off the open-job feed until a real Checkr clear. That is intentional.
+
+### Go-live rule
+
+A provider may insert `service_fill_request` or be assigned on `service.service_provider_id` only when `checkr_status = 'clear'`. Enforced in the database by `private.enforce_checkr_clear_on_fill_request` and `private.enforce_checkr_clear_on_assignment`. The provider app also hides the open-job feed and blocks the request button. The customer app shows a verified badge only for `clear`, and will not select a pro who is not clear.
+
+In-progress jobs already assigned stay visible to that provider so a live job is not stranded. New bids and new assignments still fail. `complete-service` is unchanged.
+
+Customer copy says "Verified" only. It does not list Checkr status names.
+
+### `create-checkr-invitation`
+
+Source: `apps/serviceprovider-app/supabase/functions/create-checkr-invitation/index.ts`. Called by the provider app with the user JWT. Creates or reuses a Checkr candidate (`custom_id` = `service_provider_id`), then creates a hosted invitation. Does not collect SSN in Helpr.
+
+**Request:**
+
+```json
+{ "work_state": "CA", "work_city": "" }
+```
+
+`work_state` is a US postal abbreviation. `work_city` is optional. `workState` / `workCity` are accepted aliases.
+
+**Success:** `{ "success": true, "checkr_status": "pending", "invitation_url": "", "invitation_id": "", "candidate_id": "", "expires_at": "" }`
+
+Already clear: `{ "success": true, "checkr_status": "clear", "invitation_url": null }`
+
+**Blocked self-serve retry:** `consider` and `suspended` return HTTP 409 `{ "success": false, "error": "" }`. The provider must contact support. Expired, canceled, and not-started may start a new invitation.
+
+**Not configured:** HTTP 503 `{ "success": false, "error": "Checkr is not configured. Set CHECKR_API_KEY and CHECKR_PACKAGE." }` The function must not invent a clear status.
+
+### `checkr-webhook`
+
+Source: `apps/serviceprovider-app/supabase/functions/checkr-webhook/index.ts`. Public (no Supabase JWT). Checkr signs the raw body with HMAC-SHA256. The function accepts the hex digest in `X-Checkr-Signature` (also `v1=` if present). The HMAC key is `CHECKR_WEBHOOK_SECRET`, or `CHECKR_API_KEY` when the secret is unset (standard Checkr accounts sign with the API key; partner apps sign with the client secret — store that in `CHECKR_WEBHOOK_SECRET`).
+
+Invalid signatures return HTTP 401. A verified event for an unknown candidate returns HTTP 200 so Checkr stops retrying, and writes nothing.
+
+Updates the provider row matched by `checkr_candidate_id`, then `custom_id` / `service_provider_id`, then `checkr_report_id`.
+
 ## Adding something new
 
 Write it in this file first:

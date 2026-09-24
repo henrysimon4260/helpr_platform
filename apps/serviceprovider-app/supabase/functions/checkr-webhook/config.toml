@@ -1,0 +1,2 @@
+# Checkr cannot send a Supabase JWT. The function verifies X-Checkr-Signature.
+verify_jwt = false
