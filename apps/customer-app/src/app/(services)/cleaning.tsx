@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
+import { serviceTypeSlug } from '@helpr/service-type';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { supabase } from '../../lib/supabase';
@@ -1965,6 +1966,7 @@ export default function cleaning() {
 
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
+          service_type: serviceTypeSlug.cleaning,
           location: location.description,
           price: sanitizedPrice,
           payment_method_type: paymentMethodType,
@@ -2005,7 +2007,7 @@ export default function cleaning() {
         service_id: targetServiceId,
         customer_id: resolvedCustomerIdValue,
         date_of_creation: new Date().toISOString(),
-        service_type: 'cleaning',
+        service_type: serviceTypeSlug.cleaning,
         status: 'finding_pros',
         scheduling_type: null,
         location: location.description,

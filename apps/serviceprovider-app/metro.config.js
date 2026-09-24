@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
+const { applyServiceTypeResolver } = require('../../shared/metro-resolve-service-type');
 
 // #region agent log
 const DEBUG_LOG = '/Users/henrysimon/Projects/.cursor/debug-5df5b7.log';
@@ -67,5 +68,5 @@ module.exports = (() => {
     sourceExts: [...resolver.sourceExts, 'svg']
   };
 
-  return config;
+  return applyServiceTypeResolver(config, __dirname);
 })();

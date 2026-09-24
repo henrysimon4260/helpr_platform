@@ -11,6 +11,7 @@ import MapView, { LatLng } from 'react-native-maps';
 
 import { AttachmentAsset } from '../../../components/services/AttachmentThumbnails/types';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../../lib/paymentMethods';
+import { serviceTypeSlug } from '@helpr/service-type';
 import { supabase } from '../../../lib/supabase';
 
 import { CurrentLocationOption, PlaceSuggestion } from './LocationAutocompleteInput';
@@ -1154,7 +1155,7 @@ export function useServiceSubmission({
         service_id: createUuid(),
         customer_id: resolvedCustomerId,
         date_of_creation: new Date().toISOString(),
-        service_type: 'Moving',
+        service_type: serviceTypeSlug.moving,
         status: 'finding_pros',
         start_location: startLocation.description,
         end_location: endLocation.description,

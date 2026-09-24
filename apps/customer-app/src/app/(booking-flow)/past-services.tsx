@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { formatServiceTypeLabel } from '@helpr/service-type';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
@@ -74,8 +75,7 @@ export default function PastServices() {
   useEffect(() => { if (!authLoading) fetchServices(); }, [authLoading, fetchServices]);
 
   const formatServiceType = useCallback((serviceType?: string | null) => {
-    if (!serviceType) return 'Service';
-    return serviceType.charAt(0).toUpperCase() + serviceType.slice(1).toLowerCase();
+    return formatServiceTypeLabel(serviceType);
   }, []);
 
   const getPrimaryLocation = useCallback((service: ServiceRow) => {

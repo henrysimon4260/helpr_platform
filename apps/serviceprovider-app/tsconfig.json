@@ -10,7 +10,8 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@helpr/service-type": ["../../shared/service-type.ts"]
     },
     "types": ["expo/types"]
   },

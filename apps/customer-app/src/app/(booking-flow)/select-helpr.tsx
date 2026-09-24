@@ -6,6 +6,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View
 import { PaymentMethodModal } from '../../components/common/PaymentMethodModal';
 import { PaymentSummaryModal } from '../../components/services/PaymentSummaryModal';
 import type { ProviderSummary } from '../../components/services/PaymentSummaryModal/types';
+import { formatServiceTypeLabel } from '@helpr/service-type';
 import { useAuth } from '../../context/AuthContext';
 import { useModal } from '../../context/ModalContext';
 import { loadPaymentMethods, SavedPaymentMethodSummary, savePaymentMethod, setDefaultPaymentMethod } from '../../lib/paymentMethods';
@@ -228,7 +229,8 @@ const SelectHelpr = () => {
       }
 
       setServiceSchedulingType(serviceRow?.scheduling_type ?? null);
-      setServiceName(serviceRow?.service_type ?? null);
+      const rawServiceType = serviceRow?.service_type ?? null;
+      setServiceName(rawServiceType ? formatServiceTypeLabel(rawServiceType, rawServiceType) : null);
 
       if (fillError) {
         throw fillError;
