@@ -7,6 +7,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
 import {
+  formatCleaningEstimateDetail,
+  formatCleaningEstimatePrice,
+  isCleaningServiceType,
+  requestCleaningEstimate,
+  type CleaningEstimate,
+} from '../src/lib/cleaningEstimate';
+import {
   formatMovingEstimateDetail,
   formatMovingEstimatePrice,
   isMovingServiceType,
@@ -158,6 +165,8 @@ export default function Landing() {
   const [customerData, setCustomerData] = useState<Record<string, { first_name?: string; last_name?: string }>>({});
   const [movingEstimates, setMovingEstimates] = useState<Record<string, { status: 'loading' | 'error' | 'ready'; estimate?: MovingEstimate }>>({});
   const movingEstimateRequests = useRef<Set<string>>(new Set());
+  const [cleaningEstimates, setCleaningEstimates] = useState<Record<string, { status: 'loading' | 'error' | 'ready'; estimate?: CleaningEstimate }>>({});
+  const cleaningEstimateRequests = useRef<Set<string>>(new Set());
   const landingMountedRef = useRef(true);
 
   const formattedSuggestedTime = useMemo(() => {
@@ -201,6 +210,30 @@ export default function Landing() {
       }).then(result => {
         if (!landingMountedRef.current) return;
         setMovingEstimates(prev => ({
+          ...prev,
+          [service.service_id]: result.ok
+            ? { status: 'ready', estimate: result.estimate }
+            : { status: 'error' },
+        }));
+      });
+    }
+  }, [services]);
+
+  useEffect(() => {
+    const pending = services.filter(service => {
+      if (!isCleaningServiceType(service.service_type)) return false;
+      if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) return false;
+      return !cleaningEstimateRequests.current.has(service.service_id);
+    });
+
+    for (const service of pending) {
+      cleaningEstimateRequests.current.add(service.service_id);
+      setCleaningEstimates(prev => ({ ...prev, [service.service_id]: { status: 'loading' } }));
+      void requestCleaningEstimate({
+        description: service.description,
+      }).then(result => {
+        if (!landingMountedRef.current) return;
+        setCleaningEstimates(prev => ({
           ...prev,
           [service.service_id]: result.ok
             ? { status: 'ready', estimate: result.estimate }
@@ -982,6 +1015,19 @@ export default function Landing() {
         return;
       }
     }
+    if (
+      isCleaningServiceType(service.service_type)
+      && OPEN_FEED_STATUSES.has(normalizedStatus)
+    ) {
+      const estimateState = cleaningEstimates[service.service_id];
+      if (!estimateState || estimateState.status === 'loading') {
+        showModal({
+          title: 'Helpr estimate',
+          message: 'Wait for the server estimate before requesting this cleaning.',
+        });
+        return;
+      }
+    }
 
     if (schedulingTypeNormalized === 'asap') {
       setSuggestTimeModalService(service);
@@ -1001,6 +1047,7 @@ export default function Landing() {
     showModal,
     submitServiceRequest,
     movingEstimates,
+    cleaningEstimates,
     supabase,
     setServiceRequests,
     setSuggestTimeError,
@@ -1012,12 +1059,25 @@ export default function Landing() {
 
   const openAdjustBidModal = useCallback(
     (service: ServiceRow) => {
+      if (
+        isCleaningServiceType(service.service_type)
+        && OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())
+      ) {
+        const estimateState = cleaningEstimates[service.service_id];
+        if (!estimateState || estimateState.status === 'loading') {
+          showModal({
+            title: 'Helpr estimate',
+            message: 'Wait for the server estimate before bidding on this cleaning.',
+          });
+          return;
+        }
+      }
       const initialBid = getEffectiveBidForService(service) ?? '';
       setBidInput(initialBid);
       setModalService(service);
       setAdjustModalVisible(true);
     },
-    [getEffectiveBidForService],
+    [cleaningEstimates, getEffectiveBidForService, showModal],
   );
 
   const handleAdjustBidCancel = useCallback(() => {
@@ -1191,6 +1251,48 @@ export default function Landing() {
     );
   };
 
+  const renderCleaningEstimate = (service: ServiceRow | null, variant: 'card' | 'panel') => {
+    if (!service || !isCleaningServiceType(service.service_type)) {
+      return null;
+    }
+    if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) {
+      return null;
+    }
+
+    const state = cleaningEstimates[service.service_id];
+    const estimate = state?.status === 'ready' ? state.estimate : undefined;
+    const headline = estimate
+      ? formatCleaningEstimatePrice(estimate)
+      : state?.status === 'error'
+        ? 'Unavailable'
+        : 'Loading…';
+    const detail = estimate
+      ? formatCleaningEstimateDetail(estimate)
+      : state?.status === 'error'
+        ? 'Server estimate unavailable. Your bid is not a Helpr estimate.'
+        : 'Calculating the cleaning estimate on the server.';
+
+    if (variant === 'card') {
+      return (
+        <View>
+          <Text style={styles.helprEstimateText} numberOfLines={2}>
+            {`Helpr estimate ${headline}`}
+          </Text>
+          <Text style={styles.helprEstimateDetail} numberOfLines={2}>{detail}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.bidModalEstimateBox}>
+        <Text style={styles.bidModalEstimateTitle}>Helpr estimate</Text>
+        <Text style={styles.bidModalEstimateValue}>{headline}</Text>
+        <Text style={styles.bidModalEstimateDetail}>{detail}</Text>
+        <Text style={styles.bidModalEstimateDetail}>Review this range before you bid or request the job.</Text>
+      </View>
+    );
+  };
+
   const renderServiceCard = (service: ServiceRow) => {
     const isSelected = selectedService?.service_id === service.service_id;
     const shortLocation = getShortLocation(service);
@@ -1268,6 +1370,7 @@ export default function Landing() {
               </View>
             </View>
             {renderMovingEstimate(service, 'card')}
+            {renderCleaningEstimate(service, 'card')}
             {!isConfirmed && (
               <Pressable
                 style={styles.descriptionButton}
@@ -1330,6 +1433,19 @@ export default function Landing() {
           <Pressable
             style={styles.suggestTimeBottomBanner}
             onPress={() => {
+              if (
+                isCleaningServiceType(service.service_type)
+                && OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())
+              ) {
+                const estimateState = cleaningEstimates[service.service_id];
+                if (!estimateState || estimateState.status === 'loading') {
+                  showModal({
+                    title: 'Helpr estimate',
+                    message: 'Wait for the server estimate before requesting this cleaning.',
+                  });
+                  return;
+                }
+              }
               setSuggestTimeModalService(service);
               // Set minimum time to 30 minutes after scheduled time
               if (service.scheduled_date_time) {
@@ -1579,6 +1695,7 @@ export default function Landing() {
                 : 'Let the customer know an alternative time that works better for you.'}
             </Text>
             {renderMovingEstimate(suggestTimeModalService, 'panel')}
+            {renderCleaningEstimate(suggestTimeModalService, 'panel')}
             <View style={styles.suggestTimeSummaryBox}>
               <Text style={styles.suggestTimeSummaryLabel}>Arrival time</Text>
               <Text style={styles.suggestTimeSummaryValue}>{formattedSuggestedTime}</Text>
@@ -1661,6 +1778,7 @@ export default function Landing() {
                 : '$0'}
             </Text>
             {renderMovingEstimate(modalService, 'panel')}
+            {renderCleaningEstimate(modalService, 'panel')}
             <View style={styles.bidInputContainer}>
               <TextInput
                 style={styles.bidModalInput}
@@ -1693,6 +1811,7 @@ export default function Landing() {
                   <View style={styles.descriptionModalContent}>
                     <Text style={styles.descriptionModalTitle}>Service Description</Text>
                     {renderMovingEstimate(descriptionModalService, 'panel')}
+                    {renderCleaningEstimate(descriptionModalService, 'panel')}
                     <View style={styles.descriptionModalBox}>
                       <ScrollView
                         style={styles.descriptionModalScroll}

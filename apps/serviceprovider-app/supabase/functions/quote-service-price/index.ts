@@ -1,3 +1,4 @@
+import { quoteCleaningJob } from './cleaning.ts'
 import { QuoteError, quoteMovingJob } from './estimate.ts'
 
 const corsHeaders = {
@@ -18,22 +19,28 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== 'POST') {
-    return json({ error: 'POST a moving quote with origin and destination.' }, 405)
+    return json({ error: 'POST a cleaning or moving quote.' }, 405)
   }
 
   try {
     const body = await req.json()
-    const estimate = await quoteMovingJob(body, {
-      mapsApiKey: Deno.env.get('GOOGLE_MAPS_API_KEY') || Deno.env.get('GOOGLE_PLACES_API_KEY') || '',
-      openAiApiKey: Deno.env.get('OPENAI_API_KEY') || '',
-      fetchImpl: fetch,
-    })
+    const serviceType = body && typeof body === 'object' && typeof body.serviceType === 'string'
+      ? body.serviceType.trim().toLowerCase()
+      : ''
+    const openAiApiKey = Deno.env.get('OPENAI_API_KEY') || ''
+    const estimate = serviceType === 'cleaning'
+      ? await quoteCleaningJob(body, { openAiApiKey, fetchImpl: fetch })
+      : await quoteMovingJob(body, {
+        mapsApiKey: Deno.env.get('GOOGLE_MAPS_API_KEY') || Deno.env.get('GOOGLE_PLACES_API_KEY') || '',
+        openAiApiKey,
+        fetchImpl: fetch,
+      })
     return json(estimate, 200)
   } catch (error) {
     if (error instanceof QuoteError) {
       return json({ error: error.message }, error.status)
     }
     console.error('quote-service-price failed', error)
-    return json({ error: 'Unable to estimate this move right now.' }, 500)
+    return json({ error: 'Unable to estimate this job right now.' }, 500)
   }
 })

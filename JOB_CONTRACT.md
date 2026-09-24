@@ -110,11 +110,11 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 
 ### `quote-service-price`
 
-Moving jobs only (HLP-59). Source: `apps/serviceprovider-app/supabase/functions/quote-service-price/`. Called by the customer moving composer before scheduling, and by the provider feed before a bid or request. The response is the estimate. Clients must not send a distance or a price and must not display a range they computed themselves.
+Moving (HLP-59) and cleaning (HLP-60). Source: `apps/serviceprovider-app/supabase/functions/quote-service-price/`. Called by the customer composer before scheduling, and by the provider feed before a bid or request. The response is the estimate. Clients must not send a price, a duration, or (for moving) a distance, and must not display a range they computed themselves.
 
-Driving distance is computed on the server with Google Distance Matrix (`GOOGLE_MAPS_API_KEY`, or `GOOGLE_PLACES_API_KEY` if that is the secret already stored). Price range and job duration come from `OPENAI_API_KEY` (`gpt-4o-mini`). Both secrets are server-side. Unit tests mock maps and the model, so CI does not need the keys. See the function README.
+Moving distance is computed on the server with Google Distance Matrix (`GOOGLE_MAPS_API_KEY`, or `GOOGLE_PLACES_API_KEY` if that is the secret already stored). Cleaning does not use maps. For both, the price range and job duration come from `OPENAI_API_KEY` (`gpt-4o-mini`). Secrets are server-side. Unit tests mock maps and the model, so CI does not need the keys. See the function README.
 
-This function does not change capture, tax, Connect MCC, or the platform fee. `complete-service` fee math stays as deployed.
+This function does not change capture, tax, Connect MCC, or the platform fee. `complete-service` fee math stays as deployed. Cleaning does not add columns. Home size travels on the quote request and in the job description (`Property size:`).
 
 **Request:**
 
@@ -152,7 +152,43 @@ This function does not change capture, tax, Connect MCC, or the platform fee. `c
 }
 ```
 
-`source` is always `"server"`. `suggestedPrice` is the midpoint the customer job may store on `service.price`. The provider shows `priceMin`–`priceMax` and `durationMinutes` before bidding. Other service types return `{ "error": "" }` and are out of scope.
+`source` is always `"server"`. `suggestedPrice` is the midpoint the customer job may store on `service.price`. The provider shows `priceMin`–`priceMax` and `durationMinutes` before bidding.
+
+**Cleaning request** (`serviceType: "cleaning"`). Home size is required: `squareFeet` and/or `bedrooms` (0 is a studio) and/or `bathrooms`. The server also reads size from `description` when those fields are omitted (`Property size:`, `studio`, `2 bedroom`, `1800 sq ft`). Optional: `condition` (`light` | `average` | `heavy`), `petHair` (boolean), `depth` (`standard` | `deep`; `basic` is accepted as standard), `frequency` (`one_time` | `weekly` | `biweekly` | `monthly`). `price`, `priceMin`, `priceMax`, `suggestedPrice`, and `durationMinutes` on the request are ignored.
+
+```json
+{
+  "serviceType": "cleaning",
+  "squareFeet": 450,
+  "bedrooms": 0,
+  "bathrooms": 1,
+  "condition": "average",
+  "petHair": false,
+  "depth": "standard",
+  "frequency": "one_time",
+  "description": ""
+}
+```
+
+**Cleaning success:**
+
+```json
+{
+  "serviceType": "cleaning",
+  "squareFeet": 450,
+  "bedrooms": 0,
+  "bathrooms": 1,
+  "sizeLabel": "studio, 1 bathroom, 450 sq ft",
+  "priceMin": 0,
+  "priceMax": 0,
+  "suggestedPrice": 0,
+  "durationMinutes": 0,
+  "currency": "usd",
+  "source": "server"
+}
+```
+
+A larger home must come back with a higher range and a longer duration than a studio. The provider feed shows that range before Request or Adjust Bid. Other service types return `{ "error": "" }`.
 
 **Error:** `{ "error": "" }`
 
