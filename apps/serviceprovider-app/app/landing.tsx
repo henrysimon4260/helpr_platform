@@ -5,6 +5,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  IN_PROGRESS_FEED_STATUSES as IN_PROGRESS_FEED_STATUS_LIST,
+  OPEN_FEED_STATUSES as OPEN_FEED_STATUS_LIST,
+} from '../src/lib/helpr-core/status';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
@@ -63,18 +67,8 @@ type FeedView = 'available' | 'in_progress';
 type TimingFilter = 'all' | 'asap' | 'scheduled';
 type ClaimFilter = 'all' | 'autofill' | 'bid';
 
-const OPEN_FEED_STATUSES = new Set([
-  'finding_pros',
-  'pending',
-  'scheduled',
-  'select_service_provider',
-]);
-
-const IN_PROGRESS_FEED_STATUSES = new Set([
-  'confirmed',
-  'helpr_otw',
-  'in_progress',
-]);
+const OPEN_FEED_STATUSES = new Set<string>(OPEN_FEED_STATUS_LIST);
+const IN_PROGRESS_FEED_STATUSES = new Set<string>(IN_PROGRESS_FEED_STATUS_LIST);
 
 const SERVICE_TYPE_OPTIONS = [
   { id: 'all', label: 'All types' },
