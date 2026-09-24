@@ -35,3 +35,7 @@ EXPO_PUBLIC_OPENAI_API_KEY=your-openai-key
 ```
 
 or set `OPENAI_API_KEY` in your shell before running Expo. The value is surfaced at runtime via `Constants.expoConfig.extra.openAiApiKey` and falls back to environment variables. Without it, price estimation and transcription will show a friendly warning and skip the API call.
+
+### Stripe (PaymentSheet)
+
+`src/app/_layout.tsx` reads `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` and passes it to `StripeProvider`. Use the publishable key only (`pk_test_...` or `pk_live_...`). Never put a Stripe secret key (`sk_...`) in the client or in this variable. If it is unset, the value is an empty string and Stripe does not initialize. In development the app logs a warning and keeps running. See `.env.example`.

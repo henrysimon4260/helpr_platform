@@ -6,8 +6,15 @@ import { AuthProvider } from '../context/AuthContext';
 import { ModalProvider } from '../context/ModalContext';
 import { supabase } from '../lib/supabase';
 
-// TODO: Move to environment variable
+// Publishable key only (pk_test_ / pk_live_). Never a secret key (sk_).
+// Expo inlines EXPO_PUBLIC_* at bundle time. Unset becomes ''.
 const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+
+if (__DEV__ && !STRIPE_PUBLISHABLE_KEY) {
+  console.warn(
+    'EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY is not set. Stripe will not initialize. Set the publishable key (pk_...) in .env — never the secret key. See .env.example.'
+  );
+}
 
 export default function Layout() {
   const segments = useSegments();
