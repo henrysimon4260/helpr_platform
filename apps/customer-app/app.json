@@ -11,6 +11,7 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.helpr.customer-app",
+      "usesAppleSignIn": true,
       "backgroundColor": "#0C4309",
       "deploymentTarget": "16.4"
     },
@@ -45,7 +46,8 @@
           "enableGooglePay": false
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true

@@ -10,6 +10,8 @@ export type { EmailInputProps } from './EmailInput';
 export { OTPModal } from './OTPModal';
 export type { OTPModalProps } from './OTPModal';
 
+export { PhoneInput } from './PhoneInput';
+
 export { PasswordInput } from './PasswordInput';
 export type { PasswordInputProps } from './PasswordInput';
 

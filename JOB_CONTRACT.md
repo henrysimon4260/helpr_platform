@@ -116,6 +116,48 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
+## Auth
+
+Identity (D). Both apps consume this. This section does not add `service` columns or statuses.
+
+### Identifier
+
+- Primary sign-in identifier is a phone number in E.164 (`+` and country code, digits only). Supabase phone OTP stores it on `auth.users.phone`.
+- Customer profile `customer.phone_number` stores that same E.164 string.
+- Provider profile `service_provider.phone` keeps the existing numeric shape: the digits of the E.164 value, including the country code and without `+`. Signup already writes a number.
+- Email stays a valid identifier for current password users and for email OTP. Do not drop those sessions.
+
+### Sign-in
+
+| Method | Apps | Session |
+| --- | --- | --- |
+| Phone SMS OTP | Customer and provider | `signInWithOtp({ phone })`, then `verifyOtp({ phone, token, type: 'sms' })` |
+| Email OTP | Customer and provider, fallback | `signInWithOtp({ email })`, then `verifyOtp({ email, token, type: 'email' })`. Signup confirmation stays `type: 'signup'`. |
+| Email + password | Customer and provider, fallback | `signInWithPassword`, unchanged |
+| Apple | Customer and provider | iOS: `expo-apple-authentication` identity token, then `signInWithIdToken({ provider: 'apple', token, nonce })`. Android: Supabase Apple OAuth opened with AuthSession. No invented tokens. |
+| Google | Customer and provider | When `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` / `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` / `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` is set for the platform, Expo AuthSession exchanges a real Google code for an ID token and calls `signInWithIdToken`. Otherwise Supabase Google OAuth + AuthSession, and the session is set only from the redirect payload. |
+
+10-digit numbers are normalized to `+1`. Numbers that already start with `+` are kept when they are 8–15 digits. Other input is rejected.
+
+### Profile rows
+
+After a session exists, create or reuse the profile the same way email signup does today.
+
+- Customer: find `customer` by email, else by `phone_number` (E.164). If missing, insert `first_name`, `last_name`, `email`, `phone_number`. Names come from auth metadata when Apple or Google provided them; otherwise empty strings, matching account auto-create.
+- Provider: `ensureServiceProviderProfile`, keyed by `service_provider_id` = auth user id. Phone passed in is E.164 and stored as digits.
+
+Apple and Google may not include a phone. Leave phone null until the person adds one. Phone-only users may have a null email. `customer.email` and `service_provider.email` need to allow null for that insert to succeed. If a column is still `NOT NULL`, profile setup reports the database error and does not invent an email address.
+
+### Required fields
+
+- Phone sign-in requires a normalizable E.164 number.
+- Email OTP and password still require an email. Password still requires the existing password.
+- Apple and Google require the dashboard provider to be enabled. Native Google ID tokens also require the env client IDs. Missing provider config surfaces the Supabase or Google error. The client does not substitute a token.
+
+### Delete
+
+Unchanged. This change does not add delete-account behavior.
+
 ## Adding something new
 
 Write it in this file first:

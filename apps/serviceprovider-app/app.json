@@ -11,6 +11,7 @@
     "appDir": "+/",
     "ios": {
       "bundleIdentifier": "com.helpr.serviceprovider-app",
+      "usesAppleSignIn": true,
       "devMenu": false,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photo library so you can upload a profile picture.",
@@ -49,7 +50,8 @@
         {
           "addGeneratedScheme": false
         }
-      ]
+      ],
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true

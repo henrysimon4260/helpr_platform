@@ -4,6 +4,7 @@ import { router, Stack, useRootNavigationState, useSegments } from 'expo-router'
 import { useEffect } from 'react';
 import { AuthProvider } from '../src/contexts/AuthContext';
 import { ModalProvider } from '../src/contexts/ModalContext';
+import { establishSessionFromRedirect } from '../src/lib/socialAuth';
 import { supabase } from '../src/lib/supabase';
 
 // Key for storing pending signup data during Stripe onboarding
@@ -38,8 +39,14 @@ export default function Layout() {
         console.log('🔍 URL params:', new URL(url).searchParams.toString());
         console.log('🔍 URL hash:', new URL(url).hash);
 
-        // Give Supabase a moment to process the callback, then check session
+        // Tokens arrive on the redirect URL. Persist them before reading the session.
         setTimeout(async () => {
+          try {
+            await establishSessionFromRedirect(url);
+          } catch (redirectError) {
+            console.log('OAuth redirect had no new tokens yet:', redirectError);
+          }
+
           const { data: { session }, error } = await supabase.auth.getSession();
           if (error) {
             console.error('❌ OAuth callback error:', error);

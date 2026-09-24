@@ -1,20 +1,33 @@
 import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
+import { normalizeE164 } from '../src/lib/phone';
+import { establishSessionFromRedirect, signInWithApple, signInWithGoogle, socialSignInErrorMessage } from '../src/lib/socialAuth';
 import { useModal } from '../src/contexts/ModalContext';
+
+type LoginMode = 'phone' | 'email' | 'password';
+type OtpChannel = 'phone' | 'email';
+
+const ANDROID_PACKAGE = 'com.helpr.serviceprovider_app';
 
 export default function Login() {
   console.log('Login screen rendered');
 
+  const [mode, setMode] = useState<LoginMode>('phone');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [socialProvider, setSocialProvider] = useState<'apple' | 'google' | null>(null);
   const [showOTPVerification, setShowOTPVerification] = useState(false);
   const [otpCode, setOtpCode] = useState('');
+  const [otpChannel, setOtpChannel] = useState<OtpChannel>('phone');
+  const [otpDestination, setOtpDestination] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const completingRef = useRef(false);
   const { showModal, hideModal } = useModal();
   const params = useLocalSearchParams();
 
@@ -44,6 +57,75 @@ export default function Login() {
       }
     }
   }, [showModal, params.error, params.message, params.warning]);
+
+  const finishSignIn = useCallback(async (explicitPhone?: string | null) => {
+    if (completingRef.current) return;
+    completingRef.current = true;
+    try {
+      const { data: userResponse } = await supabase.auth.getUser();
+      const user = userResponse.user;
+      const metadata = (user?.user_metadata ?? {}) as {
+        first_name?: string;
+        last_name?: string;
+        given_name?: string;
+        family_name?: string;
+        phone?: string;
+      };
+      const ensureResult = await ensureServiceProviderProfile({
+        userId: user?.id,
+        email: user?.email ?? null,
+        firstName: metadata.given_name || metadata.first_name,
+        lastName: metadata.family_name || metadata.last_name,
+        phone: explicitPhone || user?.phone || metadata.phone,
+      });
+
+      if (!ensureResult.success) {
+        if (ensureResult.errorType === 'auth_missing') {
+          completingRef.current = false;
+          showModal({
+            title: 'Authentication Error',
+            message: 'Your session has expired. Please sign in again.',
+          });
+          return;
+        }
+        showModal({
+          title: 'Profile setup',
+          message: 'You are signed in. We could not save your provider profile yet. You can finish setup from account settings.',
+        });
+      } else if (ensureResult.stripeError) {
+        showModal({
+          title: 'Payment Setup Warning',
+          message: 'Your account was created, but payment setup did not finish. You can complete it later from account settings.',
+        });
+      }
+
+      setShowOTPVerification(false);
+      router.replace('/landing');
+    } catch (error) {
+      completingRef.current = false;
+      showModal({ title: 'Sign in', message: socialSignInErrorMessage(error) });
+    }
+  }, [showModal]);
+
+  useEffect(() => {
+    const handleUrl = async (url: string) => {
+      if (!url.includes('auth/callback')) return;
+      try {
+        await establishSessionFromRedirect(url);
+        await finishSignIn();
+      } catch (error) {
+        showModal({ title: 'Sign in', message: socialSignInErrorMessage(error) });
+      }
+    };
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleUrl(url);
+    });
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl(url);
+    });
+    return () => subscription.remove();
+  }, [finishSignIn, showModal]);
 
   const signInWithEmail = async () => {
     // Validate inputs
@@ -82,40 +164,57 @@ export default function Login() {
       });
     } else {
       console.log('✅ Password sign in successful, user:', passwordData.user?.email);
-
-      const userMetadata = (passwordData.user?.user_metadata ?? {}) as {
-        first_name?: string;
-        last_name?: string;
-        phone?: string;
-      };
-      const ensureResult = await ensureServiceProviderProfile({
-        userId: passwordData.user?.id,
-        email: passwordData.user?.email ?? email.trim(),
-        firstName: userMetadata.first_name,
-        lastName: userMetadata.last_name,
-        phone: userMetadata.phone,
-      });
-
-      if (!ensureResult.success) {
-        console.warn('⚠️ Failed to ensure provider profile after sign-in:', ensureResult.error);
-        if (ensureResult.errorType === 'auth_missing') {
-          showModal({
-            title: 'Authentication Error',
-            message: 'Your session has expired. Please sign in again.',
-          });
-          return;
-        }
-      } else if (ensureResult.stripeError) {
-        console.warn('⚠️ Stripe account creation failed:', ensureResult.stripeError);
-        // Show a warning but don't block the login
-        showModal({
-          title: 'Payment Setup Warning',
-          message: 'Your account was created successfully, but there was an issue setting up payment processing. You can complete this setup later from your account settings.',
-        });
-      }
-      router.replace('/landing');
+      await finishSignIn(passwordData.user?.phone);
     }
     setAuthLoading(false);
+  };
+
+  const sendPhoneCode = async () => {
+    const normalized = normalizeE164(phone);
+    if (!normalized) {
+      showModal({
+        title: 'Check your number',
+        message: 'Enter a phone number with country code, or a 10-digit US number.',
+      });
+      return;
+    }
+
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({ phone: normalized });
+    setAuthLoading(false);
+    if (error) {
+      showModal({ title: 'Could not send code', message: error.message });
+      return;
+    }
+
+    setOtpChannel('phone');
+    setOtpDestination(normalized);
+    setOtpCode('');
+    setShowOTPVerification(true);
+  };
+
+  const sendEmailCode = async () => {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      showModal({ title: 'Validation Error', message: 'Please enter your email address.' });
+      return;
+    }
+
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: trimmed,
+      options: { shouldCreateUser: true },
+    });
+    setAuthLoading(false);
+    if (error) {
+      showModal({ title: 'Could not send code', message: error.message });
+      return;
+    }
+
+    setOtpChannel('email');
+    setOtpDestination(trimmed);
+    setOtpCode('');
+    setShowOTPVerification(true);
   };
 
   const signUpWithEmail = async () => {
@@ -126,54 +225,21 @@ export default function Login() {
   const verifyOTP = async () => {
     setAuthLoading(true);
 
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token: otpCode,
-      type: 'email'
-    });
+    const { error } = otpChannel === 'phone'
+      ? await supabase.auth.verifyOtp({ phone: otpDestination, token: otpCode, type: 'sms' })
+      : await supabase.auth.verifyOtp({ email: otpDestination, token: otpCode, type: 'email' });
 
+    setAuthLoading(false);
     if (error) {
       console.error('❌ OTP verification error:', error);
       showModal({
         title: 'Verification Failed',
         message: error.message,
       });
-    } else {
-      console.log('✅ OTP verification successful');
-      const userMetadata = (data?.session?.user?.user_metadata ?? {}) as {
-        first_name?: string;
-        last_name?: string;
-        phone?: string;
-      };
-      const ensureResult = await ensureServiceProviderProfile({
-        userId: data?.session?.user?.id,
-        email,
-        firstName: userMetadata.first_name,
-        lastName: userMetadata.last_name,
-        phone: userMetadata.phone,
-      });
-      if (!ensureResult.success) {
-        console.warn('⚠️ Failed to ensure provider profile after OTP verification:', ensureResult.error);
-        if (ensureResult.errorType === 'auth_missing') {
-          showModal({
-            title: 'Authentication Error',
-            message: 'Your session has expired. Please sign in again.',
-          });
-          return;
-        }
-      } else if (ensureResult.stripeError) {
-        console.warn('⚠️ Stripe account creation failed:', ensureResult.stripeError);
-        // Show a warning but don't block the login
-        showModal({
-          title: 'Payment Setup Warning',
-          message: 'Your account was created successfully, but there was an issue setting up payment processing. You can complete this setup later from your account settings.',
-        });
-      }
-      setShowOTPVerification(false);
-      router.replace('/landing');
+      return;
     }
 
-    setAuthLoading(false);
+    await finishSignIn(otpChannel === 'phone' ? otpDestination : null);
   };
 
   const handleOTPCancel = useCallback(() => {
@@ -196,10 +262,9 @@ export default function Login() {
   }, [hideModal]);
 
   const resendOTP = async () => {
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: email,
-    });
+    const { error } = otpChannel === 'phone'
+      ? await supabase.auth.signInWithOtp({ phone: otpDestination })
+      : await supabase.auth.signInWithOtp({ email: otpDestination, options: { shouldCreateUser: true } });
 
     if (error) {
       showModal({
@@ -209,32 +274,34 @@ export default function Login() {
     } else {
       showModal({
         title: 'Code Sent',
-        message: 'A new verification code has been sent to your email',
+        message: `A new verification code has been sent to ${otpDestination}`,
       });
     }
   };
 
-  const signInWithGoogle = async () => {
-    const redirectUrl = Linking.createURL('auth/callback');
-    console.log('🚀 Starting Google OAuth flow...');
-    console.log('🔗 Redirect URL:', redirectUrl);
+  const signInWithGoogleAccount = async () => {
+    try {
+      setSocialProvider('google');
+      const redirectUrl = Linking.createURL('auth/callback');
+      const result = await signInWithGoogle({ redirectTo: redirectUrl, androidPackage: ANDROID_PACKAGE });
+      if (!result.cancelled) await finishSignIn();
+    } catch (error) {
+      showModal({ title: 'Google sign-in', message: socialSignInErrorMessage(error) });
+    } finally {
+      setSocialProvider(null);
+    }
+  };
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl,
-        skipBrowserRedirect: false,
-      },
-    });
-
-    if (error) {
-      console.error('❌ OAuth error:', error);
-      showModal({
-        title: 'Authentication Error',
-        message: error.message,
-      });
-    } else {
-      console.log('✅ OAuth initiated successfully, data:', data);
+  const signInWithAppleAccount = async () => {
+    try {
+      setSocialProvider('apple');
+      const redirectUrl = Linking.createURL('auth/callback');
+      const result = await signInWithApple(redirectUrl);
+      if (!result.cancelled) await finishSignIn();
+    } catch (error) {
+      showModal({ title: 'Apple sign-in', message: socialSignInErrorMessage(error) });
+    } finally {
+      setSocialProvider(null);
     }
   };
 
@@ -248,39 +315,105 @@ export default function Login() {
           
         </View>
 
+      <Text style={styles.subtitle}>
+        {mode === 'phone'
+          ? "We'll text you a code."
+          : mode === 'email'
+            ? "We'll email you a code."
+            : 'Sign in with your email and password.'}
+      </Text>
+
       <View style={styles.formContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholderTextColor="#49454F"
-        />
+        {mode === 'phone' && (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Phone number"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              textContentType="telephoneNumber"
+              autoComplete="tel"
+              placeholderTextColor="#49454F"
+            />
+            <Text style={styles.hint}>Use +country code, or a 10-digit US number.</Text>
+            <Pressable style={styles.button} onPress={sendPhoneCode} disabled={authLoading}>
+              <Text style={styles.buttonText}>{authLoading ? 'Sending...' : 'Send code'}</Text>
+            </Pressable>
+          </>
+        )}
 
-        <View style={styles.passwordInputContainer}>
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            placeholderTextColor="#49454F"
-          />
-          <TouchableOpacity
-            style={styles.showPasswordButton}
-            onPress={() => setShowPassword(!showPassword)}
-          >
-            <Text style={styles.showPasswordText}>
-              {showPassword ? 'Hide' : 'Show'}
-            </Text>
-          </TouchableOpacity>
+        {mode === 'email' && (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholderTextColor="#49454F"
+            />
+            <Pressable style={styles.button} onPress={sendEmailCode} disabled={authLoading}>
+              <Text style={styles.buttonText}>{authLoading ? 'Sending...' : 'Send code'}</Text>
+            </Pressable>
+          </>
+        )}
+
+        {mode === 'password' && (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholderTextColor="#49454F"
+            />
+
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                placeholderTextColor="#49454F"
+              />
+              <TouchableOpacity
+                style={styles.showPasswordButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Text style={styles.showPasswordText}>
+                  {showPassword ? 'Hide' : 'Show'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <Pressable style={styles.button} onPress={signInWithEmail} disabled={authLoading}>
+              <Text style={styles.buttonText}>{authLoading ? 'Loading...' : 'Sign In'}</Text>
+            </Pressable>
+          </>
+        )}
+
+        <View style={styles.linkRow}>
+          {mode !== 'phone' && (
+            <Pressable onPress={() => setMode('phone')}>
+              <Text style={styles.linkText}>Use phone</Text>
+            </Pressable>
+          )}
+          {mode !== 'email' && (
+            <Pressable onPress={() => setMode('email')}>
+              <Text style={styles.linkText}>Use email code</Text>
+            </Pressable>
+          )}
+          {mode !== 'password' && (
+            <Pressable onPress={() => setMode('password')}>
+              <Text style={styles.linkText}>Use password</Text>
+            </Pressable>
+          )}
         </View>
-
-        <Pressable style={styles.button} onPress={signInWithEmail} disabled={authLoading}>
-          <Text style={styles.buttonText}>{authLoading ? 'Loading...' : 'Sign In'}</Text>
-        </Pressable>
 
         <Pressable style={styles.secondaryButton} onPress={signUpWithEmail} disabled={authLoading}>
           <Text style={styles.secondaryButtonText}>Sign Up</Text>
@@ -292,12 +425,17 @@ export default function Login() {
           <View style={styles.orDividerLine} />
         </View>
 
-        <Pressable style={styles.socialButton} onPress={signInWithGoogle}>
+        <Pressable style={styles.socialButton} onPress={signInWithAppleAccount} disabled={socialProvider !== null}>
+          <Text style={styles.appleMark}></Text>
+          <Text style={styles.socialButtonText}>{socialProvider === 'apple' ? 'Loading...' : 'Continue with Apple'}</Text>
+        </Pressable>
+
+        <Pressable style={[styles.socialButton, styles.socialButtonSpacer]} onPress={signInWithGoogleAccount} disabled={socialProvider !== null}>
           <Image
             source={{ uri: 'https://developers.google.com/identity/images/g-logo.png' }}
             style={styles.socialIcon}
           />
-          <Text style={styles.socialButtonText}>Continue with Google</Text>
+          <Text style={styles.socialButtonText}>{socialProvider === 'google' ? 'Loading...' : 'Continue with Google'}</Text>
         </Pressable>
 
       </View>
@@ -314,9 +452,9 @@ export default function Login() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Verify Your Email</Text>
+            <Text style={styles.modalTitle}>{otpChannel === 'phone' ? 'Verify your phone' : 'Verify your email'}</Text>
             <Text style={styles.modalSubtitle}>
-              We sent a 6-digit code to {email}
+              We sent a 6-digit code to {otpDestination}
             </Text>
             
             <TextInput
@@ -325,6 +463,8 @@ export default function Login() {
               value={otpCode}
               onChangeText={setOtpCode}
               keyboardType="number-pad"
+              textContentType="oneTimeCode"
+              autoComplete="sms-otp"
               maxLength={6}
               autoFocus={true}
             />
@@ -337,7 +477,7 @@ export default function Login() {
               {authLoading ? (
                 <ActivityIndicator color="white" />
               ) : (
-                <Text style={styles.modalButtonText}>Verify Email</Text>
+                <Text style={styles.modalButtonText}>Verify code</Text>
               )}
             </TouchableOpacity>
 
@@ -381,6 +521,40 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
+  },
+  subtitle: {
+    textAlign: 'center',
+    color: '#49454F',
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  hint: {
+    color: '#49454F',
+    fontSize: 12,
+    marginTop: -8,
+    marginBottom: 12,
+    marginLeft: 20,
+  },
+  linkRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 8,
+  },
+  linkText: {
+    color: '#0c4309',
+    fontSize: 14,
+    fontWeight: '500',
+    marginHorizontal: 8,
+    marginBottom: 8,
+  },
+  appleMark: {
+    fontSize: 18,
+    marginRight: 10,
+    color: '#49454F',
+  },
+  socialButtonSpacer: {
+    marginTop: 10,
   },
   input: {
     backgroundColor: '#E5DCC9',
