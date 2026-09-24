@@ -27,6 +27,12 @@ export const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     pointerEvents: 'box-none',
   },
+  alertCorner: {
+    position: 'absolute',
+    top: 54,
+    right: 16,
+    zIndex: 40,
+  },
 });
 
 

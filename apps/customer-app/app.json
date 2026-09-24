@@ -12,7 +12,10 @@
     "ios": {
       "bundleIdentifier": "com.helpr.customer-app",
       "backgroundColor": "#0C4309",
-      "deploymentTarget": "16.4"
+      "deploymentTarget": "16.4",
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
     },
     "android": {
       "package": "com.helpr.customer_app",
@@ -45,7 +48,13 @@
           "enableGooglePay": false
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "color": "#0c4309"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -5,6 +5,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter, useSegments, useLocalSearchParams } from 'expo-router';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { JobAlertButton, useJobAlertBadge } from '../src/components/job/JobAlertButton';
+import { JOB_CHAT_PATH } from '../src/components/job/useJobParty';
+import { recordJobNotice, retractJobNotice } from '../src/lib/jobChat';
+import { cancelAlertCopy, cancelConfirmPrompt, describeAlertOutcome } from '../src/lib/jobNotifyPolicy';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
 import { useAuth } from '../src/contexts/AuthContext';
@@ -129,6 +133,7 @@ export default function Landing() {
   const [claimFilter, setClaimFilter] = useState<ClaimFilter>('all');
   const [canRenderLottie, setCanRenderLottie] = useState(Platform.OS !== 'web');
   const { user, loading: authLoading } = useAuth();
+  const { byService: unreadByService } = useJobAlertBadge();
   const { showModal } = useModal();
   const [servicesLoading, setServicesLoading] = useState(true);
   const [services, setServices] = useState<ServiceRow[]>([]);
@@ -840,7 +845,7 @@ export default function Landing() {
     if (isConfirmed && service.service_provider_id === providerId) {
       showModal({
         title: 'Cancel Confirmed Job',
-        message: 'Are you sure you want to cancel this confirmed job? The customer will be notified.',
+        message: cancelConfirmPrompt(),
         allowBackdropDismiss: false,
         buttons: [
           { text: 'No', style: 'cancel' },
@@ -849,6 +854,22 @@ export default function Landing() {
             style: 'destructive',
             onPress: async () => {
               try {
+                let notice: Awaited<ReturnType<typeof recordJobNotice>> | null = null;
+                if (service.customer_id) {
+                  const copy = cancelAlertCopy();
+                  notice = await recordJobNotice({
+                    serviceId: service.service_id,
+                    recipientRole: 'customer',
+                    recipientId: String(service.customer_id),
+                    actorRole: 'provider',
+                    actorId: providerId,
+                    kind: 'cancel',
+                    title: copy.title,
+                    body: copy.body,
+                    statusValue: 'finding_pros',
+                  });
+                }
+
                 const { error: deleteRequestError } = await supabase
                   .from('service_fill_request')
                   .delete()
@@ -868,6 +889,9 @@ export default function Landing() {
                   .eq('service_id', service.service_id);
 
                 if (updateError) {
+                  if (notice?.notificationId) {
+                    await retractJobNotice(notice.notificationId);
+                  }
                   throw updateError;
                 }
 
@@ -880,7 +904,9 @@ export default function Landing() {
                 await fetchServices();
                 showModal({
                   title: 'Job Cancelled',
-                  message: 'You have been removed from this job.',
+                  message: notice
+                    ? describeAlertOutcome('cancel', notice)
+                    : 'You have been removed from this job, but the customer was not alerted.',
                 });
               } catch (error) {
                 console.error('Failed to cancel confirmed job:', error);
@@ -1180,6 +1206,21 @@ export default function Landing() {
               >
                 <Text style={styles.showDetailsButtonText}>Details</Text>
               </Pressable>
+              {service.service_provider_id === providerId ? (
+                <Pressable
+                  style={styles.messageJobButton}
+                  onPress={() => router.push({
+                    pathname: JOB_CHAT_PATH as never,
+                    params: { serviceId: service.service_id },
+                  })}
+                  accessibilityRole="button"
+                  accessibilityLabel="Message the customer"
+                >
+                  <Text style={styles.messageJobButtonText}>
+                    Message{(unreadByService[service.service_id] ?? 0) > 0 ? ` (${unreadByService[service.service_id]})` : ''}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : (
             <View style={styles.priceColumn}>
@@ -1370,6 +1411,9 @@ export default function Landing() {
       ) : null}
       <View style={styles.header}>
         <Text style={styles.title}>{feedView === 'in_progress' ? 'In Progress' : 'Available Services'}</Text>
+        <View style={styles.headerAlerts}>
+          <JobAlertButton />
+        </View>
       </View>
       <View style={styles.GreenHeaderBar} />
       <View style={styles.filterBar}>
@@ -1727,11 +1771,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerAlerts: {
+    position: 'absolute',
+    right: 16,
+    bottom: 12,
+  },
+  messageJobButton: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#0c4309',
+  },
+  messageJobButtonText: {
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFF8E8',
+  },
   title: {
     fontSize: 18,
     fontWeight: '600',
     color: '#0c4309',
     paddingTop: 10,
+    paddingHorizontal: 88,
   },
   GreenHeaderBar:{
     backgroundColor: '#0c4309',

@@ -116,6 +116,64 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
+## Job chat and alerts (HLP-31)
+
+Customer and assigned provider only. No group thread and no support bot in this thread.
+
+Chat is open only when `service.service_provider_id` is set and `service.status` is `confirmed`, `helpr_otw`, `in_progress`, or `completed`. `finding_pros`, `pending`, `scheduled`, and `select_service_provider` have no chat. After a provider cancel returns the job to `finding_pros` and clears `service_provider_id`, the thread locks again. A later assignment starts a new thread: messages are stored with the provider id from send time, and reads require that id to still be the assigned provider.
+
+There is no `arrived` status. The arrived / start alert uses the existing `in_progress` write.
+
+### `job_messages`
+
+| Column | Meaning |
+| --- | --- |
+| `service_id` | Job. |
+| `service_provider_id` | Assigned provider at send time. |
+| `sender_role` | `customer` or `provider`. |
+| `sender_id` | `customer.customer_id` or `service_provider.service_provider_id` (`auth.uid()` for providers). |
+| `body` | 1–2000 characters. |
+
+**Insert:** the customer who owns the job, or the assigned provider, while chat is open.
+
+### `job_notifications`
+
+The in-app alert. This row is the real send. Push is a second attempt recorded on the same row.
+
+| Column | Meaning |
+| --- | --- |
+| `kind` | `message`, `cancel`, or `status`. |
+| `recipient_role` / `recipient_id` | The other party. |
+| `actor_role` / `actor_id` | Who caused the alert. |
+| `status_value` | For `status`: `helpr_otw`, `in_progress`, or `completed`. For provider cancel: `finding_pros`. |
+| `push_status` | `pending`, `sent`, `degraded`, or `failed`. Clients insert `pending` only. |
+| `push_error` | Machine reason when push did not send. `expo_access_token_missing` and `no_push_token` are degraded, not success. |
+| `read_at` | Set when the recipient opens the job thread or the alert. |
+
+**Insert:** assigned provider may alert the customer for `message`, `status`, or `cancel` while chat is still open (cancel is written before `service_provider_id` is cleared). Customer may alert the provider for `message` only. Unread cancel rows can be deleted by that provider if the cancel update then fails.
+
+### `device_push_tokens`
+
+One Expo push token per owner. Owners read and write only their own rows. Other clients cannot read tokens.
+
+### `notify-job`
+
+Edge function. Source: `apps/serviceprovider-app/supabase/functions/notify-job/index.ts`. Call it after the `job_notifications` insert. It does not create the alert row.
+
+**Request:** `{ "notificationId": "" }` with the caller’s Supabase JWT.
+
+**Response:**
+
+```json
+{ "inApp": true, "pushDelivered": false, "pushStatus": "degraded", "reason": "expo_access_token_missing" }
+```
+
+`pushDelivered` is true only when Expo returns a ticket with `status: "ok"` and `EXPO_ACCESS_TOKEN` is set. Missing token, missing device token, or a non-ok ticket stays `pushDelivered: false`.
+
+Copy in the apps must use that flag. Do not tell the other party they were notified when `pushDelivered` is false. In-app badge copy is the degrade path.
+
+Provider cancel (C, `landing.tsx`) and provider status buttons (C, `ServiceDetails.tsx`: `helpr_otw`, `in_progress`, `completed`) go through `recordJobNotice` in `src/lib/jobChat.ts`, which inserts the alert and invokes `notify-job`. Customer and provider message sends use the same function.
+
 ## Adding something new
 
 Write it in this file first:

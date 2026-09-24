@@ -15,7 +15,8 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photo library so you can upload a profile picture.",
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use your camera to capture a new profile picture.",
-        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use your microphone while recording videos for your profile."
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use your microphone while recording videos for your profile.",
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -48,6 +49,12 @@
         "expo-dev-client",
         {
           "addGeneratedScheme": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0c4309"
         }
       ]
     ],
