@@ -7,6 +7,12 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../src/lib/supabase';
 import { ensureServiceProviderProfile } from '../src/lib/providerProfile';
+import {
+  IN_PROGRESS_FEED_STATUS_QUERY,
+  OPEN_FEED_STATUS_QUERY,
+  resolveProviderFeedScope,
+  SERVICE_FEED_COLUMNS,
+} from '../src/lib/providerFeedScope';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useModal } from '../src/contexts/ModalContext';
 // @ts-ignore - Only for native platforms
@@ -65,8 +71,6 @@ type ClaimFilter = 'all' | 'autofill' | 'bid';
 
 const OPEN_FEED_STATUSES = new Set([
   'finding_pros',
-  'pending',
-  'scheduled',
   'select_service_provider',
 ]);
 
@@ -133,6 +137,7 @@ export default function Landing() {
   const [servicesLoading, setServicesLoading] = useState(true);
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [servicesError, setServicesError] = useState<string | null>(null);
+  const [openFeedNotice, setOpenFeedNotice] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<ServiceRow | null>(null);
   const [providerId, setProviderId] = useState<string | null>(null);
   const [serviceRequests, setServiceRequests] = useState<Record<string, ServiceRequestRow>>({});
@@ -218,6 +223,7 @@ export default function Landing() {
 
       if (!authUser?.id) {
         setProviderId(null);
+        setOpenFeedNotice(null);
         resetServiceState();
         setServicesLoading(false);
         initialLoadRef.current = true;
@@ -243,29 +249,67 @@ export default function Landing() {
       const providerIdentifier = authUser.id;
       setProviderId(providerIdentifier);
 
-      const statusesToQuery = [
-        'finding_pros', 'pending', 'scheduled', 'confirmed', 
-        'helpr_otw', 'in_progress', 'select_service_provider',
-        'Finding_Pros', 'Pending', 'Scheduled', 'Confirmed',
-        'Helpr_Otw', 'In_Progress', 'Select_Service_Provider'
-      ];
-
-      const { data: serviceData, error: serviceError } = await supabase
-        .from('service')
+      // One provider row. select('*') is how optional geo/skill columns are
+      // discovered; the open-job query below does not download the global set.
+      const { data: providerRow, error: providerRowError } = await supabase
+        .from('service_provider')
         .select('*')
-        .in('status', statusesToQuery)
-        .order('date_of_creation', { ascending: true });
+        .eq('service_provider_id', providerIdentifier)
+        .maybeSingle();
 
-      if (serviceError) {
-        throw serviceError;
+      if (providerRowError) {
+        console.warn('Unable to load provider profile for feed scope:', providerRowError);
       }
 
-      const visibleServices = (serviceData ?? [])
-        .filter((service): service is ServiceRow => Boolean(service?.service_id))
-        .filter(service => {
-          const status = (service.status ?? '').toString().toLowerCase();
-          return status === 'finding_pros' || status === 'pending' || status === 'scheduled' || status === 'confirmed' || status === 'helpr_otw' || status === 'in_progress' || status === 'select_service_provider';
-        });
+      const feedScope = resolveProviderFeedScope(
+        providerRowError ? null : (providerRow as Record<string, unknown> | null),
+      );
+      setOpenFeedNotice(feedScope.notice);
+
+      const inProgressQuery = supabase
+        .from('service')
+        .select(SERVICE_FEED_COLUMNS)
+        .in('status', [...IN_PROGRESS_FEED_STATUS_QUERY])
+        .eq('service_provider_id', providerIdentifier)
+        .order('date_of_creation', { ascending: true });
+
+      const openQuery = feedScope.queryOpen
+        ? (() => {
+            const scoped = supabase
+              .from('service')
+              .select(SERVICE_FEED_COLUMNS)
+              .in('status', [...OPEN_FEED_STATUS_QUERY])
+              .or(feedScope.locationOr);
+            const withSkills = feedScope.skillOr ? scoped.or(feedScope.skillOr) : scoped;
+            return withSkills.order('date_of_creation', { ascending: true });
+          })()
+        : null;
+
+      const [openResult, inProgressResult] = await Promise.all([
+        openQuery ?? Promise.resolve({ data: [] as ServiceRow[], error: null }),
+        inProgressQuery,
+      ]);
+
+      if (openResult.error) {
+        throw openResult.error;
+      }
+      if (inProgressResult.error) {
+        throw inProgressResult.error;
+      }
+
+      const mergedServices = new Map<string, ServiceRow>();
+      [...(openResult.data ?? []), ...(inProgressResult.data ?? [])].forEach(row => {
+        if (!row?.service_id) {
+          return;
+        }
+        const service = row as ServiceRow;
+        const status = (service.status ?? '').toString().toLowerCase();
+        if (!OPEN_FEED_STATUSES.has(status) && !IN_PROGRESS_FEED_STATUSES.has(status)) {
+          return;
+        }
+        mergedServices.set(service.service_id, service);
+      });
+      const visibleServices = Array.from(mergedServices.values());
 
       if (visibleServices.length === 0) {
         resetServiceState();
@@ -1337,6 +1381,9 @@ export default function Landing() {
   const emptyCopy = (() => {
     if (feedView === 'in_progress') {
       return filtersActive ? 'No in-progress jobs match these filters' : 'No jobs in progress';
+    }
+    if (openFeedNotice) {
+      return openFeedNotice;
     }
     return filtersActive ? 'No jobs match these filters' : 'No Jobs Available';
   })();

@@ -11,8 +11,8 @@ Use these spellings exactly. Do not substitute aliases (`helpr_otw`, not `on_the
 | Status | Who may write it | When |
 | --- | --- | --- |
 | `finding_pros` | Customer app (A on insert). Provider app (C) when a confirmed provider cancels and returns the job to the open feed. | New job. Also the current provider-cancel path (clears `service_provider_id`). |
-| `pending` | Legacy / unused on write. Provider feed still reads it. | Do not start writing this for new work. |
-| `scheduled` | Legacy / unused on write. Provider feed still reads it. Distinct from `scheduling_type: 'scheduled'`. | Do not start writing this for new work. |
+| `pending` | Nobody. Legacy; do not write. | Not an open-feed status. Provider landing does not query it, so historical rows are not claimable. |
+| `scheduled` | Nobody. Legacy; do not write. Distinct from `scheduling_type: 'scheduled'`. | Not an open-feed status. Provider landing does not query it, so historical rows are not claimable. |
 | `select_service_provider` | Provider app (C) | First non-AutoFill bid while status is `finding_pros`. |
 | `confirmed` | Customer app (B) on select-a-pro. Provider app (C) on AutoFill claim. | Assigns `service_provider_id`, copies bid into `price`, copies `proposed_date_time` into `scheduled_date_time` when present. |
 | `helpr_otw` | Provider app (C) | From `confirmed` via Service Details (“I'm on the way”). |
@@ -23,7 +23,17 @@ There is no `cancelled` status yet. Do not add one in a screen. Agent B specifie
 
 ### Machine
 
-`finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+`finding_pros` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+
+Provider open feed (`landing.tsx` available view) queries `finding_pros` and `select_service_provider` only. Legacy `pending` and `scheduled` are omitted from that query. `scheduling_type: 'scheduled'` is a timing field, not `service.status`.
+
+The available-jobs query is scoped on the server (HLP-48). It does not `select(*)` the global open set and filter in memory.
+
+- **Geo.** The provider row is read once. A populated zone, borough, service area, address, or lat/lng is mapped onto the Helpr service-area zones (the eight bounding boxes). The open query then matches those zones’ names and ZIP prefixes against `location`, `start_location`, and `end_location`. An empty or unmapped geo field fails closed: the open query is not sent. If the row has none of those columns (signup today writes name, email, and phone only), the open query is limited to all eight Helpr zones on the server.
+- **Skills.** When the provider row has a skills / service-type field, the open query also requires `service_type` to match those skills. An empty skills field fails closed. No skills column means the skill predicate is omitted; geo still applies.
+- **In progress.** The same fetch loads the signed-in provider’s rows in `confirmed`, `helpr_otw`, and `in_progress` with `service_provider_id` equal to that provider. That query is not geo- or skill-scoped.
+
+Customer booked services still loads that customer’s own rows with no status filter, so a historical `pending` or `scheduled` row can still appear on the customer list. It is not shown as claimable work on the provider open feed.
 
 ## `service_fill_request`
 
