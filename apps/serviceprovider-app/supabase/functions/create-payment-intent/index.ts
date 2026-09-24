@@ -1,5 +1,11 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import {
+  applySalesTaxToCheckout,
+  readDollars,
+  salesTaxMetadata,
+  serviceTaxAddress,
+} from '../_shared/salesTax.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -85,10 +91,63 @@ Deno.serve(async (req) => {
       )
     }
 
+    if (!service_id || typeof service_id !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'service_id is required to calculate sales tax' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (!supabaseServiceKey) {
+      return new Response(
+        JSON.stringify({ error: 'Sales tax cannot be calculated because the server is not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const { data: service, error: serviceError } = await supabase
+      .from('service')
+      .select('service_type, price, description, location, start_location, end_location')
+      .eq('service_id', service_id)
+      .maybeSingle()
+
+    if (serviceError || !service) {
+      return new Response(
+        JSON.stringify({ error: 'Service not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const { data: fillRequests } = await supabase
+      .from('service_fill_request')
+      .select('bid')
+      .eq('service_id', service_id)
+
+    const serverPricesDollars = [service.price, ...(fillRequests ?? []).map((row) => row.bid)]
+      .map((value) => readDollars(value))
+      .filter((value): value is number => value !== null && value > 0)
+
+    const taxed = applySalesTaxToCheckout({
+      preTaxAmountCents: Math.round(amount),
+      serviceType: typeof service.service_type === 'string' ? service.service_type : null,
+      description: typeof service.description === 'string' ? service.description : null,
+      address: serviceTaxAddress(service),
+      serverPricesDollars,
+    })
+
+    if (!taxed.ok) {
+      return new Response(
+        JSON.stringify({ error: taxed.error, code: taxed.code }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const chargeCents = taxed.chargeCents
+
     // Resolve customer email: use provided email, or look it up from DB
     let email = customer_email
-    if (!email && customer_id && supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    if (!email && customer_id) {
       const { data } = await supabase
         .from('customer')
         .select('email')
@@ -104,7 +163,13 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log('Creating payment intent:', { amount, currency, email, service_id })
+    console.log('Creating payment intent:', {
+      preTaxAmountCents: Math.round(amount),
+      chargeCents,
+      salesTaxCents: taxed.quote.tax_cents,
+      jurisdiction: taxed.quote.jurisdiction,
+      service_id,
+    })
 
     // Find or create a Stripe Customer so the PM can be attached & reused
     const stripeCustomerId = await findOrCreateStripeCustomer(stripe, email)
@@ -116,15 +181,18 @@ Deno.serve(async (req) => {
     // Confirm server-side so the PM stays attached to the customer context.
     // If 3DS is required, status will be 'requires_action' with a client_secret.
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount),
+      amount: chargeCents,
       currency: currency || 'usd',
       customer: stripeCustomerId,
       payment_method: payment_method_id,
       confirm: true,
       return_url: 'helpr://payment-complete',
       metadata: {
-        ...(service_id && { service_id }),
+        service_id,
         ...(customer_id && { customer_id }),
+        pre_tax_amount_cents: String(Math.round(amount)),
+        charge_amount_cents: String(chargeCents),
+        ...salesTaxMetadata(taxed.quote),
       },
     })
 
@@ -135,6 +203,9 @@ Deno.serve(async (req) => {
         clientSecret: paymentIntent.client_secret,
         status: paymentIntent.status,
         paymentIntentId: paymentIntent.id,
+        amount: chargeCents,
+        pre_tax_amount_cents: Math.round(amount),
+        sales_tax: taxed.quote,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
