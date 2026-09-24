@@ -8,6 +8,7 @@ import { AuthButton, EmailInput, OTPModal, PasswordInput } from '../../../compon
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { supabase } from '../../../lib/supabase';
+import { redirectToSavedDraft } from '../redirectToDraft';
 import { Divider } from './Divider';
 import { useLoginStyles } from './login.styles';
 import { SkipLink } from './SkipLink';
@@ -40,20 +41,10 @@ export default function Login() {
 
   const redirectAfterAuth = useCallback(() => {
     const returnTo = getReturnTo();
-    if (returnTo?.path && returnTo.data) {
-      const data = returnTo.data as { params?: Record<string, string> };
-      const params = data?.params;
-      const hasParams = params && Object.keys(params).length > 0;
-      const normalizedPath = returnTo.path.startsWith('/') ? returnTo.path.slice(1) : returnTo.path;
-      if (hasParams) {
-        router.replace({ pathname: normalizedPath as any, params });
-      } else {
-        router.replace(returnTo.path as any);
-      }
-      return;
+    if (!returnTo?.path) {
+      clearReturnTo();
     }
-    clearReturnTo();
-    router.replace('/(home)/landing' as any);
+    redirectToSavedDraft(returnTo);
   }, [clearReturnTo, getReturnTo]);
 
   const handleSignIn = async () => {
@@ -108,7 +99,15 @@ export default function Login() {
         options: { redirectTo: redirectUrl, skipBrowserRedirect: true },
       });
       if (error) throw error;
-      if (data?.url) await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+      if (data?.url) {
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        if (result.type === 'success') {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData.session) {
+            redirectAfterAuth();
+          }
+        }
+      }
     } catch (error) {
       showModal({ title: 'Error', message: error instanceof Error ? error.message : 'An error occurred' });
     }

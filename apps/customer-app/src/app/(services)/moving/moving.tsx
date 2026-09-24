@@ -14,6 +14,8 @@ import {
 } from '../../../components/services';
 import { AttachmentAsset } from '../../../components/services/AttachmentThumbnails/types';
 import { useAuth } from '../../../context/AuthContext';
+import { sanitizeSearchParams } from '../../../context/guestFormDraft';
+import { useGuestFormRestore } from '../../../context/useGuestFormRestore';
 import { useModal } from '../../../context/ModalContext';
 
 import { PaymentMethodModal } from '../../../components/common/PaymentMethodModal';
@@ -29,13 +31,14 @@ import {
   useVoiceInput,
 } from './moving.hooks';
 import { styles } from './moving.styles';
-import { MovingModalQuestion } from './moving.types';
+import { MovingFormState, MovingModalQuestion } from './moving.types';
+import { MOVING_RETURN_PATH } from './moving.utils';
 import { MovingAnalysisModal } from './MovingAnalysisModal';
 import { MovingHeader } from './MovingHeader';
 import { StartLocationSection } from './StartLocationSection';
 
 export default function Moving() {
-  const { user } = useAuth();
+  const { user, setReturnTo } = useAuth();
   const { showModal } = useModal();
   const params = useLocalSearchParams<{ editServiceId?: string; editService?: string }>();
   const mapRef = useRef<MapView | null>(null);
@@ -45,6 +48,7 @@ export default function Moving() {
   const [description, setDescription] = useState('');
   const [attachments, setAttachments] = useState<AttachmentAsset[]>([]);
   const [showSignInModal, setShowSignInModal] = useState(false);
+  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-moving'>(null);
 
   // Toggle states
   const [isAuto, setIsAuto] = useState(false);
@@ -90,6 +94,89 @@ export default function Moving() {
     resetPriceState: priceEstimate.resetPriceState,
     showModal,
   });
+
+  const restoreFormState = useCallback((formState: MovingFormState) => {
+    setDescription(formState.description ?? '');
+    setAttachments(formState.attachments ?? []);
+
+    const nextIsAuto = Boolean(formState.isAuto);
+    setIsAuto(nextIsAuto);
+    slideAnimation.setValue(nextIsAuto ? 1 : 0);
+
+    const nextIsPersonal = formState.isPersonal !== false;
+    setIsPersonal(nextIsPersonal);
+    slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
+
+    setApartmentSize(formState.apartmentSize ?? '');
+    setPackingStatus(formState.packingStatus ?? '');
+    setNeedsTruck(formState.needsTruck ?? '');
+    setBoxesNeeded(formState.boxesNeeded ?? '');
+    setOptionalDetails(formState.optionalDetails ?? '');
+    setPromptingCompleted(Boolean(formState.promptingCompleted));
+
+    locationManagement.restoreLocations({
+      startQuery: formState.startQuery ?? '',
+      endQuery: formState.endQuery ?? '',
+      startLocation: formState.startLocation,
+      endLocation: formState.endLocation,
+    });
+    priceEstimate.restorePrice({
+      priceQuote: formState.priceQuote ?? null,
+      priceNote: formState.priceNote ?? null,
+      priceError: formState.priceError ?? null,
+    });
+  }, [locationManagement, priceEstimate, slideAnimation, slideAnimation2]);
+
+  const preserveFormForAuth = useCallback(() => {
+    const formState: MovingFormState = {
+      startQuery: locationManagement.startQuery,
+      endQuery: locationManagement.endQuery,
+      startLocation: locationManagement.startLocation,
+      endLocation: locationManagement.endLocation,
+      description,
+      isAuto,
+      isPersonal,
+      priceQuote: priceEstimate.priceQuote,
+      priceNote: priceEstimate.priceNote,
+      priceError: priceEstimate.priceError,
+      attachments,
+      apartmentSize,
+      packingStatus,
+      needsTruck,
+      boxesNeeded,
+      furnitureScope: '',
+      optionalDetails,
+      promptingCompleted,
+    };
+    const routeParams = sanitizeSearchParams(params);
+    setReturnTo(MOVING_RETURN_PATH, {
+      formState,
+      action: 'schedule-moving',
+      timestamp: Date.now(),
+      ...(routeParams ? { params: routeParams } : {}),
+    });
+  }, [
+    apartmentSize,
+    attachments,
+    boxesNeeded,
+    description,
+    isAuto,
+    isPersonal,
+    locationManagement.endLocation,
+    locationManagement.endQuery,
+    locationManagement.startLocation,
+    locationManagement.startQuery,
+    needsTruck,
+    optionalDetails,
+    packingStatus,
+    params,
+    priceEstimate.priceError,
+    priceEstimate.priceNote,
+    priceEstimate.priceQuote,
+    promptingCompleted,
+    setReturnTo,
+  ]);
+
   const serviceSubmission = useServiceSubmission({
     user,
     description,
@@ -101,7 +188,17 @@ export default function Moving() {
     activePaymentMethod: paymentManagement.activePaymentMethod,
     showModal,
     setShowSignInModal,
-    params,
+    preserveFormForAuth,
+  });
+
+  useGuestFormRestore<MovingFormState>({
+    path: MOVING_RETURN_PATH,
+    restoreFormState,
+    onResume: action => {
+      if (action === 'schedule-moving') {
+        setPendingResumeAction('schedule-moving');
+      }
+    },
   });
 
   // Toggle handlers with animation
@@ -215,6 +312,22 @@ export default function Moving() {
   useEffect(() => {
     if (user) setShowSignInModal(false);
   }, [user]);
+
+  useEffect(() => {
+    if (!user || pendingResumeAction !== 'schedule-moving' || serviceSubmission.isSubmitting) {
+      return;
+    }
+
+    const handleSchedule = serviceSubmission.handleSchedule;
+    const timeout = setTimeout(() => {
+      setPendingResumeAction(null);
+      void handleSchedule();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [pendingResumeAction, serviceSubmission.handleSchedule, serviceSubmission.isSubmitting, user]);
 
   return (
     <TouchableWithoutFeedback

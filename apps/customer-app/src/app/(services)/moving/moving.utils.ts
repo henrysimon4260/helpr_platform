@@ -7,7 +7,7 @@ import { MovingAnalysisResult, MovingModalQuestion, MovingQuestionsState, Select
 // Constants
 // ============================================================
 
-export const MOVING_RETURN_PATH = 'moving';
+export const MOVING_RETURN_PATH = '/(services)/moving';
 
 export const ALLOWED_SERVICE_ZONES: ServiceZoneBoundingBox[] = [
   { name: 'Manhattan', minLat: 40.6808, maxLat: 40.8820, minLng: -74.0477, maxLng: -73.9070 },

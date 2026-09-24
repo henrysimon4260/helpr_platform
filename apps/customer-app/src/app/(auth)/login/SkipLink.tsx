@@ -3,12 +3,17 @@ import { router } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { useAuth } from '../../../context/AuthContext';
+import { resolveSkipRoute } from '../../../context/guestFormDraft';
+import { loadGuestFormDraft } from '../../../context/guestFormDraftStorage';
+
 interface SkipLinkProps {
   onPress?: () => void;
 }
 
 export const SkipLink: React.FC<SkipLinkProps> = ({ onPress }) => {
   const theme = useTheme();
+  const { getReturnTo, returnToHydrated } = useAuth();
 
   const styles = StyleSheet.create({
     container: {
@@ -27,9 +32,20 @@ export const SkipLink: React.FC<SkipLinkProps> = ({ onPress }) => {
   const handlePress = () => {
     if (onPress) {
       onPress();
-    } else {
-      router.replace('/(home)/landing' as any);
+      return;
     }
+
+    const leave = (draft: ReturnType<typeof getReturnTo>) => {
+      router.replace(resolveSkipRoute(draft) as any);
+    };
+
+    const memory = getReturnTo();
+    if (returnToHydrated || memory?.path) {
+      leave(memory);
+      return;
+    }
+
+    void loadGuestFormDraft().then(leave).catch(() => leave(null));
   };
 
   return (
