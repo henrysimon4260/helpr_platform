@@ -357,6 +357,22 @@ export function useLocationManagement({ showModal, mapRef }: LocationManagementP
     return () => { cancelled = true; };
   }, [endLocation, googlePlacesApiKey, startLocation]);
 
+  const restoreLocations = useCallback((next: {
+    startQuery: string;
+    endQuery: string;
+    startLocation: SelectedLocation | null;
+    endLocation: SelectedLocation | null;
+  }) => {
+    setStartQuery(next.startQuery ?? '');
+    setEndQuery(next.endQuery ?? '');
+    setStartLocation(next.startLocation);
+    setEndLocation(next.endLocation);
+    setStartSuggestions([]);
+    setEndSuggestions([]);
+    setStartLoading(false);
+    setEndLoading(false);
+  }, []);
+
   return {
     startQuery,
     endQuery,
@@ -376,6 +392,7 @@ export function useLocationManagement({ showModal, mapRef }: LocationManagementP
     dismissSuggestions,
     startCurrentLocationOption,
     endCurrentLocationOption,
+    restoreLocations,
   };
 }
 
@@ -513,7 +530,18 @@ export function usePriceEstimate({ showModal }: PriceEstimateProps) {
     }
   }, [openAiApiKey, fetchDrivingInfo]);
 
-  return { priceQuote, priceNote, priceError, isPriceLoading, resetPriceState, fetchPrice };
+  const restorePrice = useCallback((next: {
+    priceQuote: string | null;
+    priceNote: string | null;
+    priceError: string | null;
+  }) => {
+    setPriceQuote(next.priceQuote);
+    setPriceNote(next.priceNote);
+    setPriceError(next.priceError);
+    setIsPriceLoading(false);
+  }, []);
+
+  return { priceQuote, priceNote, priceError, isPriceLoading, resetPriceState, fetchPrice, restorePrice };
 }
 
 // =============================================================================
@@ -1056,7 +1084,7 @@ interface ServiceSubmissionProps {
   activePaymentMethod: SavedPaymentMethodSummary | null;
   showModal: (config: { title: string; message: string; onDismiss?: () => void }) => void;
   setShowSignInModal: (v: boolean) => void;
-  params: any;
+  preserveFormForAuth: () => void;
 }
 
 export function useServiceSubmission({
@@ -1070,7 +1098,7 @@ export function useServiceSubmission({
   activePaymentMethod,
   showModal,
   setShowSignInModal,
-  params,
+  preserveFormForAuth,
 }: ServiceSubmissionProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -1091,10 +1119,6 @@ export function useServiceSubmission({
     })();
     return () => { cancelled = true; };
   }, [user?.email]);
-
-  const preserveFormForAuth = useCallback(() => {
-    // Would save form state to returnTo - simplified here
-  }, []);
 
   const handleSchedule = useCallback(async () => {
     if (isSubmitting) return;

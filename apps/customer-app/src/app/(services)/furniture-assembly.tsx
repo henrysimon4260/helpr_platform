@@ -10,6 +10,7 @@ import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, 
 import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
+import { useGuestFormRestore } from '../../context/useGuestFormRestore';
 import { useModal } from '../../context/ModalContext';
 import { supabase } from '../../lib/supabase';
 
@@ -587,7 +588,7 @@ const LocationAutocompleteInput = React.memo<LocationAutocompleteInputProps>(
 LocationAutocompleteInput.displayName = 'LocationAutocompleteInput';
 
 export default function furnitureAssembly() {
-  const { user, setReturnTo, getReturnTo, clearReturnTo } = useAuth();
+  const { user, setReturnTo } = useAuth();
   const { showModal } = useModal();
   const params = useLocalSearchParams<{ editServiceId?: string | string[]; editService?: string | string[] }>();
   const editServiceId = useMemo(() => {
@@ -972,31 +973,15 @@ export default function furnitureAssembly() {
     };
   }, [loadCurrentLocation]);
 
-  // Restore service details after sign-in
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    const returnTo = getReturnTo();
-    if (!returnTo || returnTo.path !== FURNITURE_ASSEMBLY_RETURN_PATH || !returnTo.data) {
-      return;
-    }
-
-    const payload = returnTo.data as FurnitureAssemblyReturnData;
-
-    if (!payload?.formState) {
-      clearReturnTo();
-      return;
-    }
-
-    restoreFormState(payload.formState);
-    clearReturnTo();
-
-    if (payload.action === 'schedule-furniture-assembly') {
-      setPendingResumeAction('schedule-furniture-assembly');
-    }
-  }, [user, getReturnTo, clearReturnTo, restoreFormState]);
+  useGuestFormRestore({
+    path: FURNITURE_ASSEMBLY_RETURN_PATH,
+    restoreFormState,
+    onResume: action => {
+      if (action === 'schedule-furniture-assembly') {
+        setPendingResumeAction('schedule-furniture-assembly');
+      }
+    },
+  });
 
   useEffect(() => {
     if (user) {

@@ -36,6 +36,8 @@ export type MovingFormState = {
   needsTruck: '' | 'yes' | 'no';
   boxesNeeded: '' | 'yes' | 'no';
   furnitureScope: string;
+  optionalDetails: string;
+  promptingCompleted: boolean;
 };
 
 export type MovingReturnData = {

@@ -5,6 +5,7 @@ import { AuthButton, EmailInput, OTPModal, PasswordInput } from '../../../compon
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { supabase } from '../../../lib/supabase';
+import { redirectToSavedDraft } from '../redirectToDraft';
 import { useSignupStyles } from './signup.styles';
 import { TextInputField } from './TextInputField';
 
@@ -24,20 +25,10 @@ export default function Signup() {
 
   const redirectAfterAuth = useCallback(() => {
     const returnTo = getReturnTo();
-    if (returnTo?.path && returnTo.data) {
-      const data = returnTo.data as { params?: Record<string, string> };
-      const params = data?.params;
-      const hasParams = params && Object.keys(params).length > 0;
-      const normalizedPath = returnTo.path.startsWith('/') ? returnTo.path.slice(1) : returnTo.path;
-      if (hasParams) {
-        router.replace({ pathname: normalizedPath as any, params });
-      } else {
-        router.replace(returnTo.path as any);
-      }
-      return;
+    if (!returnTo?.path) {
+      clearReturnTo();
     }
-    clearReturnTo();
-    router.replace('/(home)/landing' as any);
+    redirectToSavedDraft(returnTo);
   }, [clearReturnTo, getReturnTo]);
 
   const validateSignupInputs = () => {
