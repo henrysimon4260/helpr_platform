@@ -10,7 +10,7 @@ Read [AGENTS.md](AGENTS.md) and [JOB_CONTRACT.md](JOB_CONTRACT.md) before editin
 - One writer per path. Do not share the 4.3k service-form clones, customer `booked-services.tsx`, or provider `landing.tsx`.
 - No mid-task app hop. A session writes `apps/customer-app` **or** `apps/serviceprovider-app`, not both. Cross-app work: update `JOB_CONTRACT.md`, then a new session.
 - Do not invent `service.status` spellings. Use `helpr_otw`, not `on_the_way`. New statuses, columns, or function payloads go in `JOB_CONTRACT.md` first.
-- Do not extract a shared `packages/` module or align Expo 54/57 as a side quest.
+- Do not extract a shared `packages/` module or align Expo 54/57 as a side quest. Status, checkout-fee, and zone source is `shared/helpr-core/` (see `docs/shared-status-fee-zone.md`). Edit that directory and run `node scripts/sync-helpr-core.mjs`. Do not hand-edit the copies.
 - Website is isolated. Do not touch either app from a website session.
 
 Delegate lane work to the project subagents in `.cursor/agents/` (A–F).

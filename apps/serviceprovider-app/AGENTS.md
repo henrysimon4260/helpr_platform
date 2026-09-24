@@ -4,6 +4,8 @@ This tree is Expo 54. Do not hop to `apps/customer-app` in the same session. Cro
 
 Do not align this SDK with customer Expo 57.
 
+Import shared status, checkout-fee, and zone helpers from `src/lib/helpr-core/` (edge functions: `supabase/functions/_shared/helpr-core/`). Those files are byte copies of `shared/helpr-core/`. Edit the canonical file and run `node scripts/sync-helpr-core.mjs`. Do not hand-edit the copy. Details: [`docs/shared-status-fee-zone.md`](../../docs/shared-status-fee-zone.md).
+
 ## Who writes here
 
 | Agent | Role in this tree | Allowlist |

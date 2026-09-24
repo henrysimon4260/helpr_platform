@@ -4,6 +4,8 @@ This tree is Expo 57. Do not hop to `apps/serviceprovider-app` in the same sessi
 
 Do not align this SDK with provider Expo 54.
 
+Import shared status, checkout-fee, and zone helpers from `src/lib/helpr-core/`. Those files are byte copies of `shared/helpr-core/`. Edit the canonical file and run `node scripts/sync-helpr-core.mjs`. Do not hand-edit the copy. Details: [`docs/shared-status-fee-zone.md`](../../docs/shared-status-fee-zone.md).
+
 ## Who writes here
 
 | Agent | Role in this tree | Allowlist |

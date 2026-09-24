@@ -7,6 +7,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, LatLng } from 'react-native-maps';
 import * as Location from 'expo-location';
 import LottieView from 'lottie-react-native';
+import { animationFrameForStatus, nextProviderCheckpointStatus } from '../src/lib/helpr-core/status';
 import { supabase } from '../src/lib/supabase';
 import { useAuth } from '../src/contexts/AuthContext';
 
@@ -107,12 +108,6 @@ const ensureRouteEndpoints = (
 };
 
 const LOTTIE_FRAME_RATE = 29.97;
-const STATUS_FRAME_MAP: Record<string, number> = {
-  confirmed: 0,
-  helpr_otw: 20,
-  in_progress: 50,
-  completed: 70,
-};
 
 export default function ServiceDetails() {
   const router = useRouter();
@@ -457,19 +452,8 @@ export default function ServiceDetails() {
     }
   };
 
-  const getNextStatus = (currentStatus: string | null | undefined) => {
-    const normalized = (currentStatus ?? '').toLowerCase();
-    switch (normalized) {
-      case 'confirmed':
-        return 'helpr_otw';
-      case 'helpr_otw':
-        return 'in_progress';
-      case 'in_progress':
-        return 'completed';
-      default:
-        return null;
-    }
-  };
+  const getNextStatus = (currentStatus: string | null | undefined) =>
+    nextProviderCheckpointStatus(currentStatus);
 
   const getButtonText = (status: string | null | undefined) => {
     const normalized = (status ?? '').toLowerCase();
@@ -570,10 +554,7 @@ export default function ServiceDetails() {
     }
   };
 
-  const getAnimationFrame = (status: string | null | undefined) => {
-    const normalized = (status ?? '').toLowerCase();
-    return STATUS_FRAME_MAP[normalized] ?? 0;
-  };
+  const getAnimationFrame = (status: string | null | undefined) => animationFrameForStatus(status);
 
   const currentServiceIdRef = useRef<string | null>(null);
   const currentStatusRef = useRef<string | null>(null);

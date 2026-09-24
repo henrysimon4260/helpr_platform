@@ -1,24 +1,19 @@
 import Constants from 'expo-constants';
 import { LatLng } from 'react-native-maps';
 import { AttachmentAsset } from '../../../components/services/AttachmentThumbnails/types';
-import { MovingAnalysisResult, MovingModalQuestion, MovingQuestionsState, SelectedLocation, ServiceZoneBoundingBox } from './moving.types';
+import { MovingAnalysisResult, MovingModalQuestion, MovingQuestionsState, SelectedLocation } from './moving.types';
+
+export {
+  ALLOWED_SERVICE_ZONES,
+  isWithinServiceArea,
+  isWithinServiceZone,
+} from '../../../lib/helpr-core/zones';
 
 // ============================================================
 // Constants
 // ============================================================
 
 export const MOVING_RETURN_PATH = 'moving';
-
-export const ALLOWED_SERVICE_ZONES: ServiceZoneBoundingBox[] = [
-  { name: 'Manhattan', minLat: 40.6808, maxLat: 40.8820, minLng: -74.0477, maxLng: -73.9070 },
-  { name: 'Brooklyn', minLat: 40.5512, maxLat: 40.7395, minLng: -74.0530, maxLng: -73.8334 },
-  { name: 'Queens', minLat: 40.5380, maxLat: 40.8007, minLng: -73.9620, maxLng: -73.7004 },
-  { name: 'Bronx', minLat: 40.7850, maxLat: 40.9176, minLng: -73.9330, maxLng: -73.7650 },
-  { name: 'Staten Island', minLat: 40.4810, maxLat: 40.6510, minLng: -74.2557, maxLng: -74.0520 },
-  { name: 'Westchester County', minLat: 40.8940, maxLat: 41.3570, minLng: -74.0770, maxLng: -73.4810 },
-  { name: 'Hudson County', minLat: 40.6500, maxLat: 40.8770, minLng: -74.1200, maxLng: -74.0100 },
-  { name: 'Bergen County', minLat: 40.7900, maxLat: 41.1200, minLng: -74.2050, maxLng: -73.8640 },
-];
 
 export const SPELLED_OUT_NUMBERS = new Set([
   'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
@@ -105,20 +100,6 @@ export const resolveOpenAIApiKey = (): string => {
     keyFromExtras ||
     ''
   );
-};
-
-// ============================================================
-// Service Zone Validation
-// ============================================================
-
-export const isWithinServiceZone = (coordinate: LatLng, zone: ServiceZoneBoundingBox): boolean => {
-  const { latitude, longitude } = coordinate;
-  return latitude >= zone.minLat && latitude <= zone.maxLat && longitude >= zone.minLng && longitude <= zone.maxLng;
-};
-
-export const isWithinServiceArea = (coordinate: LatLng | undefined | null): boolean => {
-  if (!coordinate) return false;
-  return ALLOWED_SERVICE_ZONES.some((zone) => isWithinServiceZone(coordinate, zone));
 };
 
 // ============================================================
