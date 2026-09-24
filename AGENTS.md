@@ -19,7 +19,9 @@ Website is an isolated optional lane. Do not touch either mobile app from a webs
 
 Exact spellings. Do not invent aliases (`helpr_otw`, not `on_the_way`). Who may write each value is in [`JOB_CONTRACT.md`](JOB_CONTRACT.md).
 
-`finding_pros` / `pending` / `scheduled` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+`finding_pros` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
+
+Legacy `pending` and `scheduled` are not written and are not provider open-feed statuses. See [`JOB_CONTRACT.md`](JOB_CONTRACT.md).
 
 ## The six lanes
 
