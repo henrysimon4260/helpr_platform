@@ -9,7 +9,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:quote-service-price": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test supabase/functions/quote-service-price/estimate.test.ts supabase/functions/quote-service-price/cleaning.test.ts supabase/functions/quote-service-price/assembly.test.ts"
+    "test:quote-service-price": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test supabase/functions/quote-service-price/estimate.test.ts supabase/functions/quote-service-price/cleaning.test.ts supabase/functions/quote-service-price/assembly.test.ts supabase/functions/quote-service-price/wallMount.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

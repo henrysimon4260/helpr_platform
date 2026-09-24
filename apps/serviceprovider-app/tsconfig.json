@@ -24,6 +24,7 @@
     "node_modules",
     "supabase/functions/quote-service-price/estimate.test.ts",
     "supabase/functions/quote-service-price/cleaning.test.ts",
-    "supabase/functions/quote-service-price/assembly.test.ts"
+    "supabase/functions/quote-service-price/assembly.test.ts",
+    "supabase/functions/quote-service-price/wallMount.test.ts"
   ]
 }

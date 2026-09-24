@@ -14,6 +14,13 @@ import {
   type AssemblyEstimate,
 } from '../src/lib/assemblyEstimate';
 import {
+  formatWallMountEstimateDetail,
+  formatWallMountEstimatePrice,
+  isWallMountingServiceType,
+  requestWallMountEstimate,
+  type WallMountEstimate,
+} from '../src/lib/wallMountEstimate';
+import {
   formatCleaningEstimateDetail,
   formatCleaningEstimatePrice,
   isCleaningServiceType,
@@ -176,6 +183,8 @@ export default function Landing() {
   const cleaningEstimateRequests = useRef<Set<string>>(new Set());
   const [assemblyEstimates, setAssemblyEstimates] = useState<Record<string, { status: 'loading' | 'error' | 'ready'; estimate?: AssemblyEstimate }>>({});
   const assemblyEstimateRequests = useRef<Set<string>>(new Set());
+  const [wallMountEstimates, setWallMountEstimates] = useState<Record<string, { status: 'loading' | 'error' | 'ready'; estimate?: WallMountEstimate }>>({});
+  const wallMountEstimateRequests = useRef<Set<string>>(new Set());
   const landingMountedRef = useRef(true);
 
   const formattedSuggestedTime = useMemo(() => {
@@ -267,6 +276,30 @@ export default function Landing() {
       }).then(result => {
         if (!landingMountedRef.current) return;
         setAssemblyEstimates(prev => ({
+          ...prev,
+          [service.service_id]: result.ok
+            ? { status: 'ready', estimate: result.estimate }
+            : { status: 'error' },
+        }));
+      });
+    }
+  }, [services]);
+
+  useEffect(() => {
+    const pending = services.filter(service => {
+      if (!isWallMountingServiceType(service.service_type)) return false;
+      if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) return false;
+      return !wallMountEstimateRequests.current.has(service.service_id);
+    });
+
+    for (const service of pending) {
+      wallMountEstimateRequests.current.add(service.service_id);
+      setWallMountEstimates(prev => ({ ...prev, [service.service_id]: { status: 'loading' } }));
+      void requestWallMountEstimate({
+        description: service.description,
+      }).then(result => {
+        if (!landingMountedRef.current) return;
+        setWallMountEstimates(prev => ({
           ...prev,
           [service.service_id]: result.ok
             ? { status: 'ready', estimate: result.estimate }
@@ -1074,6 +1107,19 @@ export default function Landing() {
         return;
       }
     }
+    if (
+      isWallMountingServiceType(service.service_type)
+      && OPEN_FEED_STATUSES.has(normalizedStatus)
+    ) {
+      const estimateState = wallMountEstimates[service.service_id];
+      if (!estimateState || estimateState.status === 'loading') {
+        showModal({
+          title: 'Helpr estimate',
+          message: 'Wait for the server estimate before requesting this wall mounting.',
+        });
+        return;
+      }
+    }
 
     if (schedulingTypeNormalized === 'asap') {
       setSuggestTimeModalService(service);
@@ -1095,6 +1141,7 @@ export default function Landing() {
     movingEstimates,
     cleaningEstimates,
     assemblyEstimates,
+    wallMountEstimates,
     supabase,
     setServiceRequests,
     setSuggestTimeError,
@@ -1132,12 +1179,25 @@ export default function Landing() {
           return;
         }
       }
+      if (
+        isWallMountingServiceType(service.service_type)
+        && OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())
+      ) {
+        const estimateState = wallMountEstimates[service.service_id];
+        if (!estimateState || estimateState.status === 'loading') {
+          showModal({
+            title: 'Helpr estimate',
+            message: 'Wait for the server estimate before bidding on this wall mounting.',
+          });
+          return;
+        }
+      }
       const initialBid = getEffectiveBidForService(service) ?? '';
       setBidInput(initialBid);
       setModalService(service);
       setAdjustModalVisible(true);
     },
-    [assemblyEstimates, cleaningEstimates, getEffectiveBidForService, showModal],
+    [assemblyEstimates, cleaningEstimates, wallMountEstimates, getEffectiveBidForService, showModal],
   );
 
   const handleAdjustBidCancel = useCallback(() => {
@@ -1395,6 +1455,48 @@ export default function Landing() {
     );
   };
 
+  const renderWallMountEstimate = (service: ServiceRow | null, variant: 'card' | 'panel') => {
+    if (!service || !isWallMountingServiceType(service.service_type)) {
+      return null;
+    }
+    if (!OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())) {
+      return null;
+    }
+
+    const state = wallMountEstimates[service.service_id];
+    const estimate = state?.status === 'ready' ? state.estimate : undefined;
+    const headline = estimate
+      ? formatWallMountEstimatePrice(estimate)
+      : state?.status === 'error'
+        ? 'Unavailable'
+        : 'Loading…';
+    const detail = estimate
+      ? formatWallMountEstimateDetail(estimate)
+      : state?.status === 'error'
+        ? 'Server estimate unavailable. Your bid is not a Helpr estimate.'
+        : 'Calculating the wall mounting estimate on the server.';
+
+    if (variant === 'card') {
+      return (
+        <View>
+          <Text style={styles.helprEstimateText} numberOfLines={2}>
+            {`Helpr estimate ${headline}`}
+          </Text>
+          <Text style={styles.helprEstimateDetail} numberOfLines={2}>{detail}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.bidModalEstimateBox}>
+        <Text style={styles.bidModalEstimateTitle}>Helpr estimate</Text>
+        <Text style={styles.bidModalEstimateValue}>{headline}</Text>
+        <Text style={styles.bidModalEstimateDetail}>{detail}</Text>
+        <Text style={styles.bidModalEstimateDetail}>Review this range before you bid or request the job.</Text>
+      </View>
+    );
+  };
+
   const renderServiceCard = (service: ServiceRow) => {
     const isSelected = selectedService?.service_id === service.service_id;
     const shortLocation = getShortLocation(service);
@@ -1474,6 +1576,7 @@ export default function Landing() {
             {renderMovingEstimate(service, 'card')}
             {renderCleaningEstimate(service, 'card')}
             {renderAssemblyEstimate(service, 'card')}
+            {renderWallMountEstimate(service, 'card')}
             {!isConfirmed && (
               <Pressable
                 style={styles.descriptionButton}
@@ -1558,6 +1661,19 @@ export default function Landing() {
                   showModal({
                     title: 'Helpr estimate',
                     message: 'Wait for the server estimate before requesting this furniture assembly.',
+                  });
+                  return;
+                }
+              }
+              if (
+                isWallMountingServiceType(service.service_type)
+                && OPEN_FEED_STATUSES.has((service.status ?? '').toLowerCase())
+              ) {
+                const estimateState = wallMountEstimates[service.service_id];
+                if (!estimateState || estimateState.status === 'loading') {
+                  showModal({
+                    title: 'Helpr estimate',
+                    message: 'Wait for the server estimate before requesting this wall mounting.',
                   });
                   return;
                 }
@@ -1813,6 +1929,7 @@ export default function Landing() {
             {renderMovingEstimate(suggestTimeModalService, 'panel')}
             {renderCleaningEstimate(suggestTimeModalService, 'panel')}
             {renderAssemblyEstimate(suggestTimeModalService, 'panel')}
+            {renderWallMountEstimate(suggestTimeModalService, 'panel')}
             <View style={styles.suggestTimeSummaryBox}>
               <Text style={styles.suggestTimeSummaryLabel}>Arrival time</Text>
               <Text style={styles.suggestTimeSummaryValue}>{formattedSuggestedTime}</Text>
@@ -1897,6 +2014,7 @@ export default function Landing() {
             {renderMovingEstimate(modalService, 'panel')}
             {renderCleaningEstimate(modalService, 'panel')}
             {renderAssemblyEstimate(modalService, 'panel')}
+            {renderWallMountEstimate(modalService, 'panel')}
             <View style={styles.bidInputContainer}>
               <TextInput
                 style={styles.bidModalInput}
@@ -1931,6 +2049,7 @@ export default function Landing() {
                     {renderMovingEstimate(descriptionModalService, 'panel')}
                     {renderCleaningEstimate(descriptionModalService, 'panel')}
                     {renderAssemblyEstimate(descriptionModalService, 'panel')}
+                    {renderWallMountEstimate(descriptionModalService, 'panel')}
                     <View style={styles.descriptionModalBox}>
                       <ScrollView
                         style={styles.descriptionModalScroll}

@@ -1,6 +1,7 @@
 import { quoteAssemblyJob } from './assembly.ts'
 import { quoteCleaningJob } from './cleaning.ts'
 import { QuoteError, quoteMovingJob } from './estimate.ts'
+import { quoteWallMountJob } from './wallMount.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,7 +21,7 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== 'POST') {
-    return json({ error: 'POST a moving, cleaning, or furniture assembly quote.' }, 405)
+    return json({ error: 'POST a moving, cleaning, furniture assembly, or wall mounting quote.' }, 405)
   }
 
   try {
@@ -33,7 +34,9 @@ Deno.serve(async (req) => {
       ? await quoteCleaningJob(body, { openAiApiKey, fetchImpl: fetch })
       : serviceType === 'furnitureassembly' || serviceType === 'assembly'
         ? await quoteAssemblyJob(body, { openAiApiKey, fetchImpl: fetch })
-        : await quoteMovingJob(body, {
+        : serviceType === 'wallmounting' || serviceType === 'wallmount'
+          ? await quoteWallMountJob(body, { openAiApiKey, fetchImpl: fetch })
+          : await quoteMovingJob(body, {
           mapsApiKey: Deno.env.get('GOOGLE_MAPS_API_KEY') || Deno.env.get('GOOGLE_PLACES_API_KEY') || '',
           openAiApiKey,
           fetchImpl: fetch,

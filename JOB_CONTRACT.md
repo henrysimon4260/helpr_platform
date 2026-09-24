@@ -110,11 +110,11 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 
 ### `quote-service-price`
 
-Moving (HLP-59), cleaning (HLP-60), and furniture assembly (HLP-61). Source: `apps/serviceprovider-app/supabase/functions/quote-service-price/`. Called by the customer composer before scheduling, and by the provider feed before a bid or request. The response is the estimate. Clients must not send a price, a duration, or (for moving) a distance, and must not display a range they computed themselves.
+Moving (HLP-59), cleaning (HLP-60), furniture assembly (HLP-61), and wall mounting (HLP-62). Source: `apps/serviceprovider-app/supabase/functions/quote-service-price/`. Called by the customer composer before scheduling, and by the provider feed before a bid or request. The response is the estimate. Clients must not send a price, a duration, or (for moving) a distance, and must not display a range they computed themselves.
 
-Moving distance is computed on the server with Google Distance Matrix (`GOOGLE_MAPS_API_KEY`, or `GOOGLE_PLACES_API_KEY` if that is the secret already stored). Cleaning and furniture assembly do not use maps. The price range and job duration come from `OPENAI_API_KEY` (`gpt-4o-mini`). Secrets are server-side. Unit tests mock maps and the model, so CI does not need the keys. See the function README.
+Moving distance is computed on the server with Google Distance Matrix (`GOOGLE_MAPS_API_KEY`, or `GOOGLE_PLACES_API_KEY` if that is the secret already stored). Cleaning, furniture assembly, and wall mounting do not use maps. The price range and job duration come from `OPENAI_API_KEY` (`gpt-4o-mini`). Secrets are server-side. Unit tests mock maps and the model, so CI does not need the keys. See the function README.
 
-This function does not change capture, tax, Connect MCC, or the platform fee (3% processing + 1% platform, as deployed on `complete-service`). Cleaning and furniture assembly do not add columns. Home size travels on the cleaning quote request and in the job description (`Property size:`). Assembly items travel on the furniture quote request and in the job description (`Assembly items:`).
+This function does not change capture, tax, Connect MCC, or the platform fee (3% processing + 1% platform, as deployed on `complete-service`). Cleaning, furniture assembly, and wall mounting do not add columns. Home size travels on the cleaning quote request and in the job description (`Property size:`). Assembly items travel on the furniture quote request and in the job description (`Assembly items:`). The mounted item travels on the wall-mounting quote request and in the job description (`Mount item:`). Writes use canonical `service_type` `wall-mounting`.
 
 **Request:**
 
@@ -248,7 +248,56 @@ A larger home must come back with a higher range and a longer duration than a st
 }
 ```
 
-`taxableLineItem` is metadata for a later NY sales-tax line (`service_type` plus `amount` or `amount_cents`). Furniture assembly is taxable in NY. This estimate does not calculate tax, change the fee, or choose a rate. A multi-piece or complex fixture (wardrobe) must come back with a higher range and a longer duration than a single simple piece (chair). The provider feed shows that range before Request or Adjust Bid. Other service types return `{ "error": "" }`.
+`taxableLineItem` is metadata for a later NY sales-tax line (`service_type` plus `amount` or `amount_cents`). Furniture assembly is taxable in NY. This estimate does not calculate tax, change the fee, or choose a rate. A multi-piece or complex fixture (wardrobe) must come back with a higher range and a longer duration than a single simple piece (chair). The provider feed shows that range before Request or Adjust Bid.
+
+**Wall mounting request** (`serviceType: "wall-mounting"`; `wall mounting`, `wall_mounting`, and `wall mount` are accepted). The mounted item is required: a name such as `picture frame` or `65 inch TV`, or a sentence in `description` (`Hang a picture frame.` / `Mount a 65 inch TV.`). The server also reads `Mount item: picture frame | type: picture | size: 16 in`. Optional: `itemType` (`picture` | `art` | `shelf` | `mirror` | `tv`), `sizeInches`, `wallType` (`drywall` | `plaster` | `brick` | `concrete` | `tile` | `wood`), `heightFeet`, `studFinding`, and `hardwareIncluded`. The same optionals are read from `Wall type:`, `Mount height:`, `Stud finding:`, and `Hardware included:` in `description`. `price`, `priceMin`, `priceMax`, `suggestedPrice`, `durationMinutes`, and `weightClass` on the request are ignored. Weight class is derived from the item (a picture is light; a 65 inch TV is heavy).
+
+```json
+{
+  "serviceType": "wall-mounting",
+  "item": "65 inch TV",
+  "itemType": "tv",
+  "sizeInches": 65,
+  "wallType": "drywall",
+  "heightFeet": 5,
+  "studFinding": true,
+  "hardwareIncluded": false,
+  "description": ""
+}
+```
+
+**Wall mounting success:**
+
+```json
+{
+  "serviceType": "wall-mounting",
+  "item": {
+    "name": "65 inch TV",
+    "type": "tv",
+    "sizeInches": 65,
+    "weightClass": "heavy"
+  },
+  "itemLabel": "65 inch TV (heavy, 65 in)",
+  "wallType": "drywall",
+  "heightFeet": 5,
+  "studFinding": true,
+  "hardwareIncluded": false,
+  "priceMin": 0,
+  "priceMax": 0,
+  "suggestedPrice": 0,
+  "durationMinutes": 0,
+  "currency": "usd",
+  "source": "server",
+  "taxableLineItem": {
+    "service_type": "wall-mounting",
+    "amount": 0,
+    "amount_cents": 0,
+    "description": "65 inch TV (heavy, 65 in)"
+  }
+}
+```
+
+`taxableLineItem` uses the same shape as furniture assembly (`service_type` plus `amount` or `amount_cents`). Wall mounting is a taxable home-improvement style service in NY. This estimate does not calculate tax, change the fee, or choose a rate. A 65 inch TV must come back with a higher range and a longer duration than a picture. The provider feed shows that range before Request or Adjust Bid. Other service types return `{ "error": "" }`.
 
 **Error:** `{ "error": "" }`
 
