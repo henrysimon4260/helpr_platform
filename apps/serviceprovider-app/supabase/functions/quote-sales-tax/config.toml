@@ -1,0 +1,2 @@
+# Tax quote only. The customer app calls this with the project JWT.
+verify_jwt = true

@@ -80,13 +80,33 @@ Invoked by customer `select-helpr.tsx` (B). Source: `apps/serviceprovider-app/su
 }
 ```
 
-`amount` is integer cents. `customer_email` is optional if `customer_id` can be resolved.
+`amount` is integer cents. It is the existing pre-tax checkout total: accepted price + 3% processing + 1% platform. The client does not send tax. `service_id` is required. `customer_email` is optional if `customer_id` can be resolved.
 
-**Response:** `{ "clientSecret", "status", "paymentIntentId" }`
+Sales tax is computed on the server from the stored service type, description, and address, and from the stored `service.price` or fill-request `bid` that matches `amount`. The 3% and 1% fees are not recalculated and are not part of the taxable base. The PaymentIntent is created for `amount` + sales tax.
 
-B treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet, then writes `confirmed` and `payment_status: 'paid'`.
+Taxability (HLP-58, KB matrix): cleaning, furniture assembly (including disassemble/reassemble), wall mounting, and home improvement are taxable. Pure moving is not. Mixed line items are unbundled. Assembly, cleaning, wall mounting, or packing-as-service bundled under a moving SKU with no separate amount is taxed (fail closed) instead of a silent zero. NJ destination tax is out of scope. Rates live in `supabase/functions/_shared/salesTax.ts` (NYC 8.875%, Yonkers 8.875%, Westchester 8.375%).
 
-**Error:** `{ "error": "" }`
+**Response:** `{ "clientSecret", "status", "paymentIntentId", "amount", "pre_tax_amount_cents", "sales_tax" }`
+
+`amount` is the charged cents (pre-tax total + tax). `sales_tax.line_items` splits taxable and non-taxable portions. `sales_tax` includes `tax_cents`, `taxable_base_cents`, `job_type_codes`, `jurisdiction`, and `fail_closed`.
+
+PaymentIntent metadata: `sales_tax_cents`, `taxable_base_cents`, `nontaxable_base_cents`, `job_type_codes`, `sales_tax_jurisdiction`, `sales_tax_rate_parts`, `sales_tax_fail_closed`, `sales_tax_lines`, `pre_tax_amount_cents`, `charge_amount_cents`.
+
+B treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` for PaymentSheet, then writes `confirmed` and `payment_status: 'paid'`. B should display `sales_tax` from this response; the client must not recompute tax.
+
+**Error:** `{ "error": "", "code": "" }`
+
+### `quote-sales-tax`
+
+Quote-time tax for the same module. Does not create a PaymentIntent. Source: `apps/serviceprovider-app/supabase/functions/quote-sales-tax/index.ts`.
+
+**Request:** `service_type` plus `amount_cents` (or `amount` in dollars), or `line_items[]` of `{ service_type, amount_cents | amount, description }`. Address is `address`, `location`, or `start_location`. Optional `description` is scanned when a moving line has no separate taxable amount.
+
+Client `tax_cents` is ignored.
+
+**Response:** the `sales_tax` object (`line_items`, `tax_cents`, `taxable_base_cents`, `nontaxable_base_cents`, `job_type_codes`, `jurisdiction`, `rate`, `fail_closed`, `resolution`).
+
+**Error:** `{ "error": "", "code": "" }`
 
 ### `complete-service`
 
@@ -103,6 +123,8 @@ Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `c
 ```
 
 `platformFeePercent` and `skipCustomerCharge` are accepted by the client today; the deployed body requires an existing paid `payment_intent_id` and uses its own fee math (1% platform + 2.9% + $0.30).
+
+Sales tax from `create-payment-intent` is part of the Stripe charge only. It is not added to `service.price` and is not part of the provider transfer.
 
 **Success:** `{ "success": true, "provider_amount": 0, "new_balance": 0, ... }`
 
