@@ -25,7 +25,13 @@ There is no `cancelled` status yet. Do not add one in a screen. Agent B specifie
 
 `finding_pros` → `select_service_provider` → `confirmed` → `helpr_otw` → `in_progress` → `completed`
 
-Provider open feed (`landing.tsx` available view) queries `finding_pros` and `select_service_provider` only. The same fetch also loads the signed-in provider’s in-progress rows (`confirmed`, `helpr_otw`, `in_progress`). Legacy `pending` and `scheduled` are omitted from that query. `scheduling_type: 'scheduled'` is a timing field, not `service.status`.
+Provider open feed (`landing.tsx` available view) queries `finding_pros` and `select_service_provider` only. Legacy `pending` and `scheduled` are omitted from that query. `scheduling_type: 'scheduled'` is a timing field, not `service.status`.
+
+The available-jobs query is scoped on the server (HLP-48). It does not `select(*)` the global open set and filter in memory.
+
+- **Geo.** The provider row is read once. A populated zone, borough, service area, address, or lat/lng is mapped onto the Helpr service-area zones (the eight bounding boxes). The open query then matches those zones’ names and ZIP prefixes against `location`, `start_location`, and `end_location`. An empty or unmapped geo field fails closed: the open query is not sent. If the row has none of those columns (signup today writes name, email, and phone only), the open query is limited to all eight Helpr zones on the server.
+- **Skills.** When the provider row has a skills / service-type field, the open query also requires `service_type` to match those skills. An empty skills field fails closed. No skills column means the skill predicate is omitted; geo still applies.
+- **In progress.** The same fetch loads the signed-in provider’s rows in `confirmed`, `helpr_otw`, and `in_progress` with `service_provider_id` equal to that provider. That query is not geo- or skill-scoped.
 
 Customer booked services still loads that customer’s own rows with no status filter, so a historical `pending` or `scheduled` row can still appear on the customer list. It is not shown as claimable work on the provider open feed.
 
