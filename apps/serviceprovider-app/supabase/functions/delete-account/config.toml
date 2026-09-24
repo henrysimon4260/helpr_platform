@@ -1,0 +1,3 @@
+# Caller must be the signed-in user. The function re-checks the JWT
+# with the Auth server and only then uses the service role.
+verify_jwt = true

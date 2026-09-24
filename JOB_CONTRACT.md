@@ -116,6 +116,83 @@ Exists. Signup / provider profile (D) may call it; only E rewrites it.
 
 **Success:** `{ "success": true, "accountId" | "account_id", "onboardingUrl" | "onboarding_url" }`
 
+## Identity
+
+Both apps share one Supabase Auth project. The login identifier is the auth user's email.
+
+| Record | Match | Notes |
+| --- | --- | --- |
+| `customer` | `email` equals the auth email, case-insensitive. `customer_id` is not the auth uid. | More than one row for that email stops deletion. |
+| `service_provider` | `service_provider_id` equals the auth uid. | A row with the same email and a different id is not this login. Deletion stops instead of removing it. |
+
+Create-time fields stay as they are: customer `first_name`, `last_name`, `email`, optional `phone_number`; provider `service_provider_id`, `first_name`, `last_name`, `email`, optional `phone`.
+
+## `delete-account`
+
+Source: `apps/serviceprovider-app/supabase/functions/delete-account/index.ts`. Called by customer `(home)/account.tsx` and provider `app/account.tsx` after a destructive confirm. JWT required (`verify_jwt = true`). The function checks that bearer token with the Auth server, then uses the service role. It does not capture, refund, transfer, or pay out, and it does not change fee or tax math.
+
+**Request:** `{ "confirm": true }`
+
+**Success (200):**
+
+```json
+{
+  "success": true,
+  "deleted": {
+    "auth_user": "deleted",
+    "customer_profile": "deleted | anonymized | none",
+    "provider_profile": "deleted | anonymized | none",
+    "payment_method_rows": 0,
+    "stripe_customers": 0,
+    "stripe_connect_account": "deleted | none",
+    "open_services": 0
+  }
+}
+```
+
+**Blocked (409):** `{ "success": false, "error": "", "code": "open_jobs | unpaid_obligation | unresolved_job | provider_balance | stripe_connect | profile_conflict | no_email" }`
+
+**Other:** `401 unauthorized`, `400 confirmation_required`, `500 delete_failed | not_configured`.
+
+### Fail closed (no writes yet)
+
+- `service.status` is `confirmed`, `helpr_otw`, or `in_progress` (`open_jobs`).
+- A non-`completed` service has `payment_intent_id` set or `payment_status = 'paid'` (`unpaid_obligation`). On confirm, `paid` means a PaymentIntent exists. Capture still happens only in `complete-service`.
+- Any other status (`unresolved_job`).
+- `service_provider.balance` is non-zero, or the Connect account's Stripe available or pending balance is non-zero (`provider_balance`). No payout is created.
+- `accounts.del` is rejected (`stripe_connect`). This platform creates Custom accounts, which Stripe lets the platform delete only when the balance is zero. A refusal stops the whole request.
+
+Open requests with no payment signal may be removed: `finding_pros`, `pending`, `scheduled`, `select_service_provider`.
+
+### Deleted
+
+- Auth user, hard delete via `auth.admin.deleteUser`, after `signOut(jwt, 'global')`. Sessions and refresh tokens are removed. An access JWT already issued stays valid until `exp`. The apps then clear the local session.
+- `payment_methods` rows for the auth uid and the matched profile ids. Saved card ids are detached in Stripe.
+- Stripe Customers whose email is the auth email or the matched profile email. Stripe still keeps charge history for a deleted customer and still returns the deleted customer object.
+- Connect Custom account via `accounts.del` when Stripe allows it.
+- That customer's open services, their fill requests, and ratings on those services.
+- This provider's `service_fill_request` rows.
+- `service_provider_ratings` and `customer_ratings` rows that reference this customer or provider.
+- Objects under `profile-pictures/providers/<id>/`.
+- On the customer's `completed` services: `description`, `start_location`, `end_location`, and `location` cleared.
+
+### Soft-deleted
+
+The profile row is anonymized (`Deleted` / `Account`, email `deleted+<id>@users.invalid`, phone cleared; provider photo and `stripe_account_id` cleared) when a `completed` service or a `platform_transactions` row still references it, or when a hard delete hits a foreign key. The ledger row stays. The name, email, and phone do not.
+
+### Left in place
+
+- `platform_transactions`.
+- `completed` service rows: price, status, `payment_intent_id`, `payment_status`.
+- Stripe charge, transfer, and payout records.
+- Fee math, tax, and capture.
+
+### Deploy
+
+No migration. From `apps/serviceprovider-app`, with the existing `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `STRIPE_SECRET_KEY` secrets:
+
+`supabase functions deploy delete-account`
+
 ## Adding something new
 
 Write it in this file first:
