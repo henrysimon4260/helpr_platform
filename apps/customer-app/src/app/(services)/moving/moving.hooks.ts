@@ -386,134 +386,108 @@ interface PriceEstimateProps {
   showModal: (config: { title: string; message: string }) => void;
 }
 
-interface DrivingInfo {
-  distanceMeters: number;
-  durationSeconds: number;
-  distanceMiles: number;
-  durationMinutes: number;
-}
-
-export function usePriceEstimate({ showModal }: PriceEstimateProps) {
-  const openAiApiKey = useMemo(resolveOpenAIApiKey, []);
-  const googlePlacesApiKey = useMemo(resolveGooglePlacesKey, []);
+export function usePriceEstimate(_props: PriceEstimateProps) {
   const [priceQuote, setPriceQuote] = useState<string | null>(null);
+  const [suggestedPrice, setSuggestedPrice] = useState<number | null>(null);
   const [priceNote, setPriceNote] = useState<string | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
 
   const resetPriceState = useCallback(() => {
     setPriceQuote(null);
+    setSuggestedPrice(null);
     setPriceNote(null);
     setPriceError(null);
     setIsPriceLoading(false);
   }, []);
 
-  // Fetch driving distance and duration from Google Maps Directions API
-  const fetchDrivingInfo = useCallback(async (start: SelectedLocation, end: SelectedLocation): Promise<DrivingInfo | null> => {
-    if (!googlePlacesApiKey) return null;
-
-    try {
-      const params = new URLSearchParams({
-        origin: `${start.coordinate.latitude},${start.coordinate.longitude}`,
-        destination: `${end.coordinate.latitude},${end.coordinate.longitude}`,
-        key: googlePlacesApiKey,
-        mode: 'driving',
-      });
-      const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
-      const data = await response.json();
-
-      if (data.status === 'OK' && data.routes?.[0]?.legs?.[0]) {
-        const leg = data.routes[0].legs[0];
-        const distanceMeters = leg.distance?.value ?? 0;
-        const durationSeconds = leg.duration?.value ?? 0;
-        return {
-          distanceMeters,
-          durationSeconds,
-          distanceMiles: distanceMeters / 1609.344,
-          durationMinutes: durationSeconds / 60,
-        };
-      }
-      return null;
-    } catch (error) {
-      console.warn('Failed to fetch driving info:', error);
-      return null;
-    }
-  }, [googlePlacesApiKey]);
-
-  const fetchPrice = useCallback(async (taskDescription: string, options: { start?: SelectedLocation | null; end?: SelectedLocation | null; needsTruck?: boolean } = {}) => {
-    const { start, end, needsTruck } = options;
+  const fetchPrice = useCallback(async (taskDescription: string, options: {
+    start?: SelectedLocation | null;
+    end?: SelectedLocation | null;
+    needsTruck?: boolean;
+    volumeHint?: string | null;
+    weightHint?: string | null;
+    stairs?: boolean;
+    elevator?: boolean;
+    floor?: number | null;
+    crewSize?: number | null;
+  } = {}) => {
+    const { start, end, needsTruck, volumeHint, weightHint, stairs, elevator, floor, crewSize } = options;
     setIsPriceLoading(true);
     setPriceQuote(null);
+    setSuggestedPrice(null);
     setPriceNote(null);
     setPriceError(null);
 
-    if (!openAiApiKey) {
+    if (!start || !end) {
       setIsPriceLoading(false);
-      setPriceError('Price estimate unavailable (missing OpenAI key).');
+      setPriceError('Add pickup and drop-off before requesting an estimate.');
       return;
     }
 
     try {
-      // Fetch driving info from Google Maps if both locations are provided
-      let drivingInfo: DrivingInfo | null = null;
-      if (start && end) {
-        drivingInfo = await fetchDrivingInfo(start, end);
+      const body: Record<string, unknown> = {
+        serviceType: 'moving',
+        origin: {
+          address: start.description,
+          latitude: start.coordinate.latitude,
+          longitude: start.coordinate.longitude,
+        },
+        destination: {
+          address: end.description,
+          latitude: end.coordinate.latitude,
+          longitude: end.coordinate.longitude,
+        },
+        description: taskDescription,
+      };
+      if (typeof needsTruck === 'boolean') body.needsTruck = needsTruck;
+      if (volumeHint?.trim()) body.volumeHint = volumeHint.trim();
+      if (weightHint?.trim()) body.weightHint = weightHint.trim();
+      if (typeof stairs === 'boolean') body.stairs = stairs;
+      if (typeof elevator === 'boolean') body.elevator = elevator;
+      if (typeof floor === 'number') body.floor = floor;
+      if (typeof crewSize === 'number') body.crewSize = crewSize;
+
+      const { data, error } = await supabase.functions.invoke('quote-service-price', { body });
+      const estimate = data as {
+        source?: string;
+        priceMin?: number;
+        priceMax?: number;
+        suggestedPrice?: number;
+        durationMinutes?: number;
+        distanceMiles?: number;
+        error?: string;
+      } | null;
+      if (
+        error
+        || !estimate
+        || estimate.source !== 'server'
+        || typeof estimate.priceMin !== 'number'
+        || typeof estimate.priceMax !== 'number'
+        || typeof estimate.suggestedPrice !== 'number'
+      ) {
+        throw new Error(estimate?.error || error?.message || 'Failed to fetch price estimate');
       }
 
-      const startDetails = start ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})` : 'not provided';
-      const endDetails = end ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})` : 'not provided';
-      
-      // Include driving info in the prompt if available
-      const drivingDetails = drivingInfo 
-        ? `Driving distance: ${drivingInfo.distanceMiles.toFixed(2)} miles, Estimated driving time: ${Math.round(drivingInfo.durationMinutes)} minutes`
-        : 'Driving distance: not available';
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openAiApiKey}` },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a pricing assistant for moving services. Respond with a JSON object containing a price field. Keep prices in USD, realistic, and constrain price between 200 and 1800 for jobs requiring transportation between locations. Ensure that any moving services going from one place to another are at least $200 without truck and at least $350 if truck is needed. Start around these two prices for studio/1BR jobs in close proximity to each other and increase accordingly for larger places. use the following constraints to determine the cost of something. 1 bedroom is 15% more expensive than studio, 2 bedroom is 15% expensive than 1 bed, and so on for all bedroom sizes. Make sure this holds true for every single transaction, such that it is guaranteed that the prices are subject to apartment size. Provide optimistic, budget-friendly estimates and, when in doubt, lean toward the lower end of the acceptable price range. Take the driving distance and time into account when estimating prices - longer distances should cost more. Make sure that there is a significant difference between jobs requiring a moving truck and those not requiring it. Take the size of the apartment and whether the customer requires help packing into consideration. Make extra sure all of these criteria are met.',
-            },
-            {
-              role: 'user',
-              content: [`Task description: ${taskDescription}`, `Start location: ${startDetails}`, `End location: ${endDetails}`, drivingDetails].join('\n'),
-            },
-          ],
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch price estimate');
-      const data = await response.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (typeof content !== 'string' || content.trim().length === 0) throw new Error('Missing completion content');
-      const parsed = JSON.parse(content);
-      let price = Number(parsed.price);
-      if (!Number.isFinite(price)) throw new Error('Invalid price value');
-
-      // For short drives (<0.5 mile), apply special pricing: base rate + $1 per minute of driving time
-      if (drivingInfo && drivingInfo.distanceMiles < 0.5) {
-        const baseRate = needsTruck ? 350 : 200;
-        const drivingTimeSurcharge = Math.round(drivingInfo.durationMinutes) * 1; // $1 per minute
-        price = baseRate + drivingTimeSurcharge;
-        setPriceNote(`Short distance rate: base + $${drivingTimeSurcharge} (${Math.round(drivingInfo.durationMinutes)} min drive)`);
-      }
-
-      const adjusted = needsTruck ? price * 1.6 : price;
-      setPriceQuote(formatCurrency(Math.max(0, Math.round(adjusted))));
+      const duration = typeof estimate.durationMinutes === 'number' ? Math.round(estimate.durationMinutes) : null;
+      const miles = typeof estimate.distanceMiles === 'number' ? estimate.distanceMiles.toFixed(1) : null;
+      const durationLabel = duration == null
+        ? null
+        : duration < 90
+          ? `about ${duration} min`
+          : `about ${Math.round((duration / 60) * 10) / 10} hr`;
+      setSuggestedPrice(estimate.suggestedPrice);
+      setPriceQuote(`${formatCurrency(estimate.priceMin)}–${formatCurrency(estimate.priceMax)}`);
+      setPriceNote([durationLabel, miles ? `${miles} mi` : null].filter(Boolean).join(' · '));
     } catch (error) {
       console.warn('Failed to fetch price estimate', error);
       setPriceError('Unable to estimate price right now.');
     } finally {
       setIsPriceLoading(false);
     }
-  }, [openAiApiKey, fetchDrivingInfo]);
+  }, []);
 
-  return { priceQuote, priceNote, priceError, isPriceLoading, resetPriceState, fetchPrice };
+  return { priceQuote, suggestedPrice, priceNote, priceError, isPriceLoading, resetPriceState, fetchPrice };
 }
 
 // =============================================================================
@@ -1051,6 +1025,7 @@ interface ServiceSubmissionProps {
   startLocation: SelectedLocation | null;
   endLocation: SelectedLocation | null;
   priceQuote: string | null;
+  suggestedPrice: number | null;
   isAuto: boolean;
   isPersonal: boolean;
   activePaymentMethod: SavedPaymentMethodSummary | null;
@@ -1065,6 +1040,7 @@ export function useServiceSubmission({
   startLocation,
   endLocation,
   priceQuote,
+  suggestedPrice,
   isAuto,
   isPersonal,
   activePaymentMethod,
@@ -1115,9 +1091,7 @@ export function useServiceSubmission({
       return;
     }
 
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    if (!Number.isFinite(priceValue ?? NaN)) {
+    if (!priceQuote || !Number.isFinite(suggestedPrice ?? NaN)) {
       showModal({ title: 'Estimate needed', message: 'Request a quick price estimate before scheduling.' });
       return;
     }
@@ -1158,7 +1132,7 @@ export function useServiceSubmission({
         status: 'finding_pros',
         start_location: startLocation.description,
         end_location: endLocation.description,
-        price: priceValue,
+        price: suggestedPrice,
         payment_method_type: isPersonal ? 'Personal' : 'Business',
         autofill_type: isAuto ? 'AutoFill' : 'Custom',
         description: trimmedDescription,
@@ -1183,6 +1157,7 @@ export function useServiceSubmission({
     startLocation,
     endLocation,
     priceQuote,
+    suggestedPrice,
     user,
     activePaymentMethod,
     customerId,

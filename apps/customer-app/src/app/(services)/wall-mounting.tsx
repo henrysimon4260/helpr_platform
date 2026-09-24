@@ -6,7 +6,7 @@ import * as Location from 'expo-location';
 import { PermissionStatus } from 'expo-modules-core';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { LatLng, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { SvgXml } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
@@ -61,6 +61,18 @@ type LocationAutocompleteInputProps = {
 
 type AttachmentAsset = { uri: string; type: 'photo' | 'video'; name: string };
 
+type WallTypeOption = '' | 'drywall' | 'plaster' | 'brick' | 'concrete' | 'tile' | 'wood';
+type YesNoOption = '' | 'yes' | 'no';
+
+type MountDraft = {
+  mountItem: string;
+  mountSizeInches: string;
+  wallType: WallTypeOption;
+  mountHeightFeet: string;
+  studFinding: YesNoOption;
+  hardwareIncluded: YesNoOption;
+};
+
 type CleaningFormState = {
   locationQuery: string;
   location: SelectedLocation | null;
@@ -68,6 +80,7 @@ type CleaningFormState = {
   isAuto: boolean;
   isPersonal: boolean;
   priceQuote: string | null;
+  suggestedPrice: number | null;
   priceNote: string | null;
   priceError: string | null;
   attachments: AttachmentAsset[];
@@ -80,11 +93,17 @@ type CleaningFormState = {
   specialRequests: string;
   detailsPhotos: AttachmentAsset[];
   suppliesNeeded: string;
+  mountItem: string;
+  mountSizeInches: string;
+  wallType: WallTypeOption;
+  mountHeightFeet: string;
+  studFinding: YesNoOption;
+  hardwareIncluded: YesNoOption;
 };
 
 type CleaningReturnData = {
   formState: CleaningFormState;
-  action?: 'schedule-cleaning';
+  action?: 'schedule-wall-mounting';
   timestamp?: number;
   params?: Record<string, string>;
 };
@@ -176,6 +195,121 @@ const isWithinServiceArea = (coordinate: LatLng | undefined | null): boolean => 
 const formatCurrency = (value: number) => {
   const safeValue = Math.max(0, Math.round(value));
   return `$${safeValue.toLocaleString('en-US')}`;
+};
+
+const WALL_TYPE_OPTIONS: Array<Exclude<WallTypeOption, ''>> = ['drywall', 'plaster', 'brick', 'concrete', 'tile', 'wood'];
+
+const formatDurationLabel = (minutes: number) => {
+  const rounded = Math.max(1, Math.round(minutes));
+  if (rounded < 90) return `about ${rounded} min`;
+  const hours = Math.round((rounded / 60) * 10) / 10;
+  return `about ${hours} hr`;
+};
+
+const stripMountMeta = (text: string) => {
+  return text
+    .replace(/\s*\.?\s*Mount item:\s*[\s\S]*$/i, '')
+    .replace(/\s*\.\s*Wall type:\s*[^.]*/gi, '')
+    .replace(/\s*\.\s*Mount height:\s*[^.]*/gi, '')
+    .replace(/\s*\.\s*Stud finding:\s*[^.]*/gi, '')
+    .replace(/\s*\.\s*Hardware included:\s*[^.]*/gi, '')
+    .replace(/\s*[.]\s*$/g, '')
+    .trim();
+};
+
+const readDraftSize = (value: string): number | null => {
+  const numeric = Number(value.trim());
+  if (!Number.isFinite(numeric)) return null;
+  const rounded = Math.round(numeric);
+  if (rounded < 4 || rounded > 120) return null;
+  return rounded;
+};
+
+const readDraftHeight = (value: string): number | null => {
+  const numeric = Number(value.trim());
+  if (!Number.isFinite(numeric)) return null;
+  const rounded = Math.round(numeric * 10) / 10;
+  if (rounded <= 0 || rounded > 30) return null;
+  return rounded;
+};
+
+const inferMountType = (name: string): string => {
+  const text = name.toLowerCase();
+  if (/\b(?:tv|television|flat\s*screen)\b/.test(text)) return 'tv';
+  if (/\bshel(?:f|ves)\b/.test(text)) return 'shelf';
+  if (/\bmirror\b/.test(text)) return 'mirror';
+  if (/\bart\b/.test(text)) return 'art';
+  if (/\b(?:picture|photo|poster|canvas|frame)\b/.test(text)) return 'picture';
+  return 'other';
+};
+
+const buildMountDescription = (baseText: string, draft: MountDraft) => {
+  const base = stripMountMeta(baseText);
+  const item = draft.mountItem.trim();
+  const clauses: string[] = [];
+  if (item) {
+    const parts = [item, `type: ${inferMountType(item)}`];
+    const size = readDraftSize(draft.mountSizeInches);
+    if (size != null) parts.push(`size: ${size} in`);
+    clauses.push(`Mount item: ${parts.join(' | ')}`);
+  }
+  if (draft.wallType) clauses.push(`Wall type: ${draft.wallType}`);
+  const height = readDraftHeight(draft.mountHeightFeet);
+  if (height != null) clauses.push(`Mount height: ${height} ft`);
+  if (draft.studFinding) clauses.push(`Stud finding: ${draft.studFinding}`);
+  if (draft.hardwareIncluded) clauses.push(`Hardware included: ${draft.hardwareIncluded}`);
+  if (clauses.length === 0) return base;
+  if (!base) return clauses.join('. ');
+  return `${base}. ${clauses.join('. ')}`;
+};
+
+const parseYesNo = (value: string): YesNoOption => {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'yes' || normalized === 'no') return normalized;
+  return '';
+};
+
+const parseMountFromDescription = (text: string): MountDraft | null => {
+  const match = text.match(/\bmount item:\s*([^.]+)/i);
+  if (!match) return null;
+  const parts = match[1].split('|').map(part => part.trim()).filter(Boolean);
+  const fields: Record<string, string> = {};
+  let name = '';
+  for (const part of parts) {
+    const labeled = part.match(/^([a-z][a-z ]{0,24}):\s*(.+)$/i);
+    if (labeled) fields[labeled[1].trim().toLowerCase()] = labeled[2].trim();
+    else if (!name) name = part;
+  }
+  const item = (fields.name || name).trim();
+  if (!item) return null;
+  const sizeMatch = (fields.size || '').match(/(\d+(?:\.\d+)?)/);
+  const wall = text.match(/\bwall type:\s*([^.]+)/i);
+  const height = text.match(/\bmount height:\s*([^.]+)/i);
+  const studs = text.match(/\bstud finding:\s*([^.]+)/i);
+  const hardware = text.match(/\bhardware included:\s*([^.]+)/i);
+  const wallType = (wall?.[1] ?? '').trim().toLowerCase();
+  const heightNumber = height ? height[1].match(/(\d+(?:\.\d+)?)/) : null;
+  return {
+    mountItem: item,
+    mountSizeInches: sizeMatch ? String(Math.round(Number(sizeMatch[1]))) : '',
+    wallType: WALL_TYPE_OPTIONS.includes(wallType as Exclude<WallTypeOption, ''>) ? wallType as WallTypeOption : '',
+    mountHeightFeet: heightNumber ? heightNumber[1] : '',
+    studFinding: parseYesNo(studs?.[1] ?? ''),
+    hardwareIncluded: parseYesNo(hardware?.[1] ?? ''),
+  };
+};
+
+const prefillMountFromText = (text: string): Partial<MountDraft> => {
+  const structured = parseMountFromDescription(text);
+  if (structured) return structured;
+  const tv = text.match(/\b(\d{2,3})\s*(?:["”″]|-?\s*inch(?:es)?)?\s*(?:tv|television)\b/i);
+  if (tv) return { mountItem: `${tv[1]} inch TV`, mountSizeInches: tv[1] };
+  if (/\bpicture\s+frames?\b/i.test(text)) return { mountItem: 'picture frame' };
+  if (/\bshel(?:f|ves)\b/i.test(text)) return { mountItem: 'shelf' };
+  if (/\bmirror\b/i.test(text)) return { mountItem: 'mirror' };
+  if (/\bart(?:work)?\b/i.test(text)) return { mountItem: 'art' };
+  if (/\b(?:picture|poster|canvas|photo)\b/i.test(text)) return { mountItem: 'picture' };
+  return {};
 };
 
 const STREET_SUFFIX_KEYWORDS = new Set([
@@ -671,12 +805,20 @@ export default function cleaning() {
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
   const [description, setDescription] = useState('');
   const [priceQuote, setPriceQuote] = useState<string | null>(null);
+  const [suggestedPrice, setSuggestedPrice] = useState<number | null>(null);
   const [priceNote, setPriceNote] = useState<string | null>(null);
+  const [mountItem, setMountItem] = useState('');
+  const [mountSizeInches, setMountSizeInches] = useState('');
+  const [wallType, setWallType] = useState<WallTypeOption>('');
+  const [mountHeightFeet, setMountHeightFeet] = useState('');
+  const [studFinding, setStudFinding] = useState<YesNoOption>('');
+  const [hardwareIncluded, setHardwareIncluded] = useState<YesNoOption>('');
   const [priceError, setPriceError] = useState<string | null>(null);
   const [isPriceLoading, setIsPriceLoading] = useState(false);
 
   const resetPriceState = useCallback(() => {
     setPriceQuote(null);
+    setSuggestedPrice(null);
     setPriceNote(null);
     setPriceError(null);
     setIsPriceLoading(false);
@@ -688,7 +830,7 @@ export default function cleaning() {
   const [customerLookupError, setCustomerLookupError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
-  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-cleaning'>(null);
+  const [pendingResumeAction, setPendingResumeAction] = useState<null | 'schedule-wall-mounting'>(null);
   const [showcleaningAnalysisModal, setShowcleaningAnalysisModal] = useState(false);
   const [apartmentSize, setApartmentSize] = useState('');
   const [packingStatus, setPackingStatus] = useState<'packed' | 'not-packed' | ''>('');
@@ -718,6 +860,7 @@ export default function cleaning() {
       isAuto,
       isPersonal,
       priceQuote,
+      suggestedPrice,
       priceNote,
       priceError,
       attachments: cloneAttachments(attachments),
@@ -730,17 +873,27 @@ export default function cleaning() {
       specialRequests,
       detailsPhotos: cloneAttachments(detailsPhotos),
       suppliesNeeded,
+      mountItem,
+      mountSizeInches,
+      wallType,
+      mountHeightFeet,
+      studFinding,
+      hardwareIncluded,
     };
   }, [
     apartmentSize,
     attachments,
     boxesNeeded,
     description,
+    hardwareIncluded,
     location,
     locationQuery,
     furnitureScope,
     isAuto,
     isPersonal,
+    mountHeightFeet,
+    mountItem,
+    mountSizeInches,
     needsTruck,
     packingStatus,
     priceError,
@@ -749,7 +902,10 @@ export default function cleaning() {
     cleaningType,
     specialRequests,
     detailsPhotos,
+    studFinding,
+    suggestedPrice,
     suppliesNeeded,
+    wallType,
   ]);
 
   const restoreFormState = useCallback(
@@ -766,8 +922,15 @@ export default function cleaning() {
       setIsPersonal(nextIsPersonal);
       slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
       setPriceQuote(formState.priceQuote ?? null);
+      setSuggestedPrice(typeof formState.suggestedPrice === 'number' ? formState.suggestedPrice : null);
       setPriceNote(formState.priceNote ?? null);
       setPriceError(formState.priceError ?? null);
+      setMountItem(formState.mountItem ?? '');
+      setMountSizeInches(formState.mountSizeInches ?? '');
+      setWallType(formState.wallType ?? '');
+      setMountHeightFeet(formState.mountHeightFeet ?? '');
+      setStudFinding(formState.studFinding ?? '');
+      setHardwareIncluded(formState.hardwareIncluded ?? '');
       setAttachments(cloneAttachments(formState.attachments ?? []));
       setApartmentSize(formState.apartmentSize ?? '');
       setPackingStatus(formState.packingStatus ?? '');
@@ -805,7 +968,7 @@ export default function cleaning() {
 
     const payload: CleaningReturnData = {
       formState,
-      action: 'schedule-cleaning',
+      action: 'schedule-wall-mounting',
       timestamp: Date.now(),
     };
 
@@ -993,8 +1156,8 @@ export default function cleaning() {
     restoreFormState(payload.formState);
     clearReturnTo();
 
-    if (payload.action === 'schedule-cleaning') {
-      setPendingResumeAction('schedule-cleaning');
+    if (payload.action === 'schedule-wall-mounting') {
+      setPendingResumeAction('schedule-wall-mounting');
     }
   }, [user, getReturnTo, clearReturnTo, restoreFormState]);
 
@@ -1189,21 +1352,26 @@ export default function cleaning() {
     setIsPersonal(nextIsPersonal);
     slideAnimation2.setValue(nextIsPersonal ? 0 : 1);
 
-    if (typeof editingPayload.price === 'number' && Number.isFinite(editingPayload.price)) {
-      setPriceQuote(formatCurrency(editingPayload.price));
-    } else {
-      setPriceQuote(null);
-    }
+    setPriceQuote(null);
+    setSuggestedPrice(null);
+    setPriceNote(null);
+    setPriceError(null);
 
     if (typeof editingPayload.description === 'string') {
       const trimmed = editingPayload.description.trim();
       setDescription(trimmed);
+      const parsed = parseMountFromDescription(trimmed);
+      if (parsed) {
+        setMountItem(parsed.mountItem);
+        setMountSizeInches(parsed.mountSizeInches);
+        setWallType(parsed.wallType);
+        setMountHeightFeet(parsed.mountHeightFeet);
+        setStudFinding(parsed.studFinding);
+        setHardwareIncluded(parsed.hardwareIncluded);
+      }
     } else {
       setDescription('');
     }
-
-    setPriceNote(null);
-    setPriceError(null);
 
     let cancelled = false;
 
@@ -1342,116 +1510,87 @@ export default function cleaning() {
     }
   }, [description, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced]);
 
+  useEffect(() => {
+    const saved = lastEnhancedDescriptionRef.current;
+    if (!saved || !/\bmount item:/i.test(saved)) {
+      return;
+    }
+    if (/\bmount item:/i.test(description)) {
+      return;
+    }
+    setMountItem('');
+    setMountSizeInches('');
+    setWallType('');
+    setMountHeightFeet('');
+    setStudFinding('');
+    setHardwareIncluded('');
+    lastEnhancedDescriptionRef.current = null;
+  }, [description]);
+
   const handleDescriptionChange = useCallback((text: string) => {
     setDescription(text);
     resetPriceState();
   }, [resetPriceState]);
 
   const fetchPriceEstimate = useCallback(
-    async (
-      taskDescription: string,
-      options: { start?: SelectedLocation | null; end?: SelectedLocation | null } = {},
-    ) => {
-      const { start, end } = options;
-
+    async (taskDescription: string, draft: MountDraft) => {
       setIsPriceLoading(true);
       setPriceQuote(null);
+      setSuggestedPrice(null);
       setPriceNote(null);
       setPriceError(null);
 
-      if (!openAiApiKey) {
+      if (!draft.mountItem.trim()) {
         setIsPriceLoading(false);
-        setPriceError('Price estimate unavailable (missing OpenAI key).');
+        setPriceError('Name the item you are mounting.');
         return;
       }
 
       try {
-        const startDetails = start
-          ? `${start.description} (lat ${start.coordinate.latitude.toFixed(4)}, lng ${start.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-        const endDetails = end
-          ? `${end.description} (lat ${end.coordinate.latitude.toFixed(4)}, lng ${end.coordinate.longitude.toFixed(4)})`
-          : 'not provided';
-
-        const requestBody = {
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a pricing assistant for cleaning services. Respond with a JSON object containing: price (number), needs_clarification (boolean), clarification_prompt (string, only if needs_clarification is true), safety_concern (boolean), safety_message (string, only if safety_concern is true). Analyze the task description and determine if critical details are missing: 1) degree of cleaning needed (light/medium/deep), 2) which rooms or entire home, 3) property size. If any are unclear, set needs_clarification to true and provide a friendly clarification_prompt asking for the missing details. If the request involves hazardous materials, biohazards, or dangerous conditions, set safety_concern to true with an appropriate safety_message. For complete descriptions, provide price in USD (20-250 range). IMPORTANT: Scale prices significantly based on property size - Studio: $20-40 (basic) / $40-80 (deep), 1-bed: $30-50 (basic) / $60-100 (deep), 2-bed: $45-70 (basic) / $90-130 (deep), 3-bed: $60-90 (basic) / $120-170 (deep), 4+ bed or house: $80-130 (basic) / $150-250 (deep). Always increase price proportionally with more bedrooms. Provide competitive, budget-friendly estimates.',
-            },
-            {
-              role: 'user',
-              content: [
-                `Task description: ${taskDescription}`,
-                `Start location: ${startDetails}`,
-                `End location: ${endDetails}`,
-              ].join('\n'),
-            },
-          ],
+        const body: Record<string, unknown> = {
+          serviceType: 'wall-mounting',
+          item: draft.mountItem.trim(),
+          description: taskDescription,
         };
+        const itemType = inferMountType(draft.mountItem);
+        if (itemType !== 'other') body.itemType = itemType;
+        const size = readDraftSize(draft.mountSizeInches);
+        if (size != null) body.sizeInches = size;
+        if (draft.wallType) body.wallType = draft.wallType;
+        const height = readDraftHeight(draft.mountHeightFeet);
+        if (height != null) body.heightFeet = height;
+        if (draft.studFinding === 'yes') body.studFinding = true;
+        if (draft.studFinding === 'no') body.studFinding = false;
+        if (draft.hardwareIncluded === 'yes') body.hardwareIncluded = true;
+        if (draft.hardwareIncluded === 'no') body.hardwareIncluded = false;
 
-        console.log('🔍 Fetching price estimate with description:', taskDescription);
-        console.log('📝 Full request:', JSON.stringify(requestBody, null, 2));
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || 'Failed to fetch price estimate');
+        const { data, error } = await supabase.functions.invoke('quote-service-price', { body });
+        const estimate = data as {
+          source?: string;
+          serviceType?: string;
+          priceMin?: number;
+          priceMax?: number;
+          suggestedPrice?: number;
+          durationMinutes?: number;
+          error?: string;
+        } | null;
+        if (
+          error
+          || !estimate
+          || estimate.source !== 'server'
+          || estimate.serviceType !== 'wall-mounting'
+          || typeof estimate.priceMin !== 'number'
+          || typeof estimate.priceMax !== 'number'
+          || typeof estimate.suggestedPrice !== 'number'
+        ) {
+          throw new Error(estimate?.error || error?.message || 'Failed to fetch price estimate');
         }
 
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
-
-        if (typeof content !== 'string' || content.trim().length === 0) {
-          throw new Error('Missing completion content');
+        setSuggestedPrice(estimate.suggestedPrice);
+        setPriceQuote(`${formatCurrency(estimate.priceMin)}\u2013${formatCurrency(estimate.priceMax)}`);
+        if (typeof estimate.durationMinutes === 'number') {
+          setPriceNote(formatDurationLabel(estimate.durationMinutes));
         }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(content);
-        } catch (error) {
-          throw new Error('Unable to parse price estimate');
-        }
-
-        // Check for safety concerns first
-        if (parsed.safety_concern === true && parsed.safety_message) {
-          showModal({
-            title: 'Safety Concern',
-            message: parsed.safety_message,
-          });
-          setPriceError('This request may not be suitable for our platform.');
-          return;
-        }
-
-        // Check if clarification is needed
-        if (parsed.needs_clarification === true && parsed.clarification_prompt) {
-          setShowCleaningTypeModal(true);
-          setPriceError('Please select a cleaning type.');
-          return;
-        }
-
-        const price = Number(parsed.price);
-
-        if (!Number.isFinite(price)) {
-          throw new Error('Invalid price value');
-        }
-
-        // Apply 15% discount to make pricing more competitive
-        const discountedPrice = price * 0.85;
-        const sanitizedPrice = Math.max(0, Math.round(discountedPrice));
-
-        setPriceQuote(formatCurrency(sanitizedPrice));
       } catch (error) {
         console.warn('Failed to fetch price estimate', error);
         setPriceError('Unable to estimate price right now.');
@@ -1459,7 +1598,7 @@ export default function cleaning() {
         setIsPriceLoading(false);
       }
     },
-    [openAiApiKey],
+    [],
   );
 
   const checkForPropertySize = useCallback((text: string) => {
@@ -1480,6 +1619,15 @@ export default function cleaning() {
     return hasSqFt || hasRoomCount || (hasPropertyDesc && (hasSizeDesc || hasRoomCount));
   }, []);
 
+  const currentMountDraft = useCallback((): MountDraft => ({
+    mountItem,
+    mountSizeInches,
+    wallType,
+    mountHeightFeet,
+    studFinding,
+    hardwareIncluded,
+  }), [hardwareIncluded, mountHeightFeet, mountItem, mountSizeInches, studFinding, wallType]);
+
   const handleDescriptionSubmit = useCallback(() => {
     if (isPriceLoading || isTranscribing) {
       return;
@@ -1489,6 +1637,7 @@ export default function cleaning() {
 
     if (trimmed.length === 0) {
       setPriceQuote(null);
+      setSuggestedPrice(null);
       setPriceNote(null);
       setPriceError('Add a brief task description to see a price.');
       return;
@@ -1503,56 +1652,54 @@ export default function cleaning() {
     }
 
     Keyboard.dismiss();
-    
-    // Check if cleaning type is already set
-    if (cleaningType) {
-      // Skip to next step based on what's already filled
-      if (checkForPropertySize(description) || apartmentSize) {
-        // Property size is set, check supplies
-        if (suppliesNeeded) {
-          // All main fields set - rebuild description from state to ensure consistency
-          const baseDesc = description
-            .replace(/\.\s*Type:\s*(Basic|Deep)\s*cleaning/gi, '')
-            .replace(/\.\s*Property size:\s*[^.]+/gi, '')
-            .replace(/\.\s*Supplies to bring:\s*[^.]+/gi, '')
-            .replace(/\.\s*Special requests:\s*[^.]+/gi, '')
-            .trim();
-          
-          const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
-          const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-          const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
-          const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-          
-          const rebuiltDescription = `${baseDesc}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
-          
-          console.log('🔄 Rebuilding description:');
-          console.log('  Original:', description);
-          console.log('  Base:', baseDesc);
-          console.log('  cleaningType:', cleaningType);
-          console.log('  apartmentSize:', apartmentSize);
-          console.log('  suppliesNeeded:', suppliesNeeded);
-          console.log('  specialRequests:', specialRequests);
-          console.log('  Rebuilt:', rebuiltDescription);
-          
-          // Update description if it changed
-          if (rebuiltDescription !== description) {
-            setDescription(rebuiltDescription);
-          }
-          
-          fetchPriceEstimate(rebuiltDescription, { start: location, end: location });
-        } else {
-          // Show supplies modal
-          setShowSuppliesModal(true);
-        }
-      } else {
-        // Show apartment size modal
-        setShowApartmentSizeModal(true);
-      }
-    } else {
-      // Show cleaning type modal first
+
+    if (!mountItem.trim()) {
+      const prefill = prefillMountFromText(trimmed);
+      if (prefill.mountItem && !mountItem.trim()) setMountItem(prefill.mountItem);
+      if (prefill.mountSizeInches && !mountSizeInches.trim()) setMountSizeInches(prefill.mountSizeInches);
+      if (prefill.wallType && !wallType) setWallType(prefill.wallType);
+      if (prefill.mountHeightFeet && !mountHeightFeet.trim()) setMountHeightFeet(prefill.mountHeightFeet);
+      if (prefill.studFinding && !studFinding) setStudFinding(prefill.studFinding);
+      if (prefill.hardwareIncluded && !hardwareIncluded) setHardwareIncluded(prefill.hardwareIncluded);
       setShowCleaningTypeModal(true);
+      return;
     }
-  }, [description, location, isPriceLoading, isTranscribing, showModal, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkForPropertySize, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+
+    const draft = currentMountDraft();
+    const enhanced = buildMountDescription(trimmed, draft);
+    lastEnhancedDescriptionRef.current = enhanced;
+    if (enhanced !== description) {
+      setDescription(enhanced);
+    }
+    void fetchPriceEstimate(enhanced, draft);
+  }, [
+    currentMountDraft,
+    description,
+    fetchPriceEstimate,
+    hardwareIncluded,
+    isPriceLoading,
+    isTranscribing,
+    location,
+    mountHeightFeet,
+    mountItem,
+    mountSizeInches,
+    showModal,
+    studFinding,
+    wallType,
+  ]);
+
+  const handleMountDetailsContinue = useCallback(() => {
+    const item = mountItem.trim();
+    if (!item) {
+      return;
+    }
+    setShowCleaningTypeModal(false);
+    const draft = currentMountDraft();
+    const enhanced = buildMountDescription(description, draft);
+    lastEnhancedDescriptionRef.current = enhanced;
+    setDescription(enhanced);
+    void fetchPriceEstimate(enhanced, draft);
+  }, [currentMountDraft, description, fetchPriceEstimate, mountItem]);
 
   const analyzecleaningDescription = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
@@ -1748,20 +1895,6 @@ export default function cleaning() {
     }
   }, [showModal]);
 
-  const handleCleaningTypeSelect = useCallback((type: 'basic' | 'deep') => {
-    setCleaningType(type);
-    setShowCleaningTypeModal(false);
-    
-    // Check if property size is already in description
-    if (checkForPropertySize(description)) {
-      // Skip apartment size modal, go directly to supplies
-      setShowSuppliesModal(true);
-    } else {
-      // Show apartment size modal after selecting cleaning type
-      setShowApartmentSizeModal(true);
-    }
-  }, [description, checkForPropertySize]);
-
   const handleApartmentSizeBack = useCallback(() => {
     setShowApartmentSizeModal(false);
     // Go back to cleaning type modal
@@ -1803,28 +1936,7 @@ export default function cleaning() {
 
   const handleDetailsSubmit = useCallback(() => {
     setShowDetailsModal(false);
-    // Run price estimation with all collected information
-    if (description.trim() && location) {
-      // Check if description is already enhanced to avoid duplication
-      if (checkIfDescriptionAlreadyEnhanced(description)) {
-        // Description already has modal info, just fetch price
-        fetchPriceEstimate(description, { start: location, end: location });
-      } else {
-        // Build enhanced description for the first time
-        const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
-        const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-        const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
-        const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-        
-        const enhancedDescription = `${description}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
-        
-        // Update the description state with the enhanced description
-        setDescription(enhancedDescription);
-        
-        fetchPriceEstimate(enhancedDescription, { start: location, end: location });
-      }
-    }
-  }, [description, location, cleaningType, apartmentSize, suppliesNeeded, specialRequests, checkIfDescriptionAlreadyEnhanced, fetchPriceEstimate]);
+  }, []);
 
   const snapshotLocations = useCallback(() => {
     locationSnapshotRef.current = {
@@ -1854,7 +1966,7 @@ export default function cleaning() {
       snapshotLocations();
       showModal({
         title: 'Add a description',
-        message: 'Please describe what you need help with before scheduling your cleaning service.',
+        message: 'Please describe what you need mounted before scheduling.',
         onDismiss: restoreLocations,
       });
       return;
@@ -1876,14 +1988,18 @@ export default function cleaning() {
       return;
     }
 
-    const priceDigitsRaw = priceQuote?.replace(/[^0-9.]/g, '') ?? '';
-    const priceValue = priceDigitsRaw.length > 0 ? Number(priceDigitsRaw) : null;
-    const sanitizedPrice = Number.isFinite(priceValue ?? NaN) ? priceValue : null;
+    if (!mountItem.trim()) {
+      showModal({
+        title: 'Item needed',
+        message: 'Name what you are mounting, such as a picture or a 65 inch TV, before scheduling.',
+      });
+      return;
+    }
 
-    if (sanitizedPrice === null) {
+    if (!Number.isFinite(suggestedPrice ?? NaN)) {
       showModal({
         title: 'Estimate needed',
-        message: 'Request a quick price estimate before scheduling your cleaning service.',
+        message: 'Request a quick price estimate before scheduling your wall mounting.',
       });
       return;
     }
@@ -1930,13 +2046,14 @@ export default function cleaning() {
       resolvedCustomerIdValue = resolvedCustomerId;
     }
 
-    // Build enhanced description with all collected information
-    const cleaningTypeText = cleaningType === 'basic' ? 'Basic cleaning' : cleaningType === 'deep' ? 'Deep cleaning' : '';
-    const sizeInfo = apartmentSize ? `. Property size: ${apartmentSize}` : '';
-    const suppliesInfo = suppliesNeeded ? `. Supplies to bring: ${suppliesNeeded}` : '';
-    const requestsInfo = specialRequests ? `. Special requests: ${specialRequests}` : '';
-    
-    const normalizedDescription = `${trimmedDescription}${cleaningTypeText ? `. Type: ${cleaningTypeText}` : ''}${sizeInfo}${suppliesInfo}${requestsInfo}`;
+    const normalizedDescription = buildMountDescription(trimmedDescription, {
+      mountItem,
+      mountSizeInches,
+      wallType,
+      mountHeightFeet,
+      studFinding,
+      hardwareIncluded,
+    });
     const paymentMethodType = isPersonal ? 'Personal' : 'Business';
     const autofillType = isAuto ? 'AutoFill' : 'Custom';
     const targetServiceId = isEditing && editServiceId ? editServiceId : createUuid();
@@ -1947,7 +2064,8 @@ export default function cleaning() {
       if (isEditing && editServiceId) {
         const updatePayload: Record<string, unknown> = {
           location: location.description,
-          price: sanitizedPrice,
+          price: suggestedPrice,
+          service_type: 'wall-mounting',
           payment_method_type: paymentMethodType,
           autofill_type: autofillType,
           description: normalizedDescription,
@@ -1959,10 +2077,10 @@ export default function cleaning() {
           .eq('service_id', editServiceId);
 
         if (error) {
-          console.error('Failed to update cleaning service:', error);
+          console.error('Failed to update wall mounting service:', error);
           showModal({
             title: 'Update failed',
-            message: 'Unable to save changes to your cleaning request. Please try again.',
+            message: 'Unable to save changes to your wall mounting request. Please try again.',
           });
           return;
         }
@@ -1986,11 +2104,11 @@ export default function cleaning() {
         service_id: targetServiceId,
         customer_id: resolvedCustomerIdValue,
         date_of_creation: new Date().toISOString(),
-        service_type: 'cleaning',
+        service_type: 'wall-mounting',
         status: 'finding_pros',
         scheduling_type: null,
         location: location.description,
-        price: sanitizedPrice,
+        price: suggestedPrice,
         start_datetime: null,
         end_datetime: null,
         payment_method_type: paymentMethodType,
@@ -2029,21 +2147,23 @@ export default function cleaning() {
     isEditing,
     isPersonal,
     isSubmitting,
-    priceQuote,
+    hardwareIncluded,
+    mountHeightFeet,
+    mountItem,
+    mountSizeInches,
     preserveFormForAuth,
     resolveCustomerId,
     router,
     snapshotLocations,
     restoreLocations,
+    studFinding,
+    suggestedPrice,
     user,
-    cleaningType,
-    apartmentSize,
-    suppliesNeeded,
-    specialRequests,
+    wallType,
   ]);
 
   useEffect(() => {
-    if (!user || pendingResumeAction !== 'schedule-cleaning' || isSubmitting) {
+    if (!user || pendingResumeAction !== 'schedule-wall-mounting' || isSubmitting) {
       return;
     }
 
@@ -2441,14 +2561,21 @@ export default function cleaning() {
                   ) : (
                     <>
                       {priceQuote ? (
-                        <View style={styles.PriceOfServiceQuoteRow}>
-                          <Text
-                            style={[styles.PriceOfServiceQuoteText, styles.PriceOfServiceQuotePrice]}
-                            numberOfLines={1}
-                          >
-                            {priceQuote}
-                          </Text>
-                          <Text style={styles.PriceOfServiceQuoteEstimateText}>est.</Text>
+                        <View>
+                          <View style={styles.PriceOfServiceQuoteRow}>
+                            <Text
+                              style={[styles.PriceOfServiceQuoteText, styles.PriceOfServiceQuotePrice]}
+                              numberOfLines={1}
+                            >
+                              {priceQuote}
+                            </Text>
+                            <Text style={styles.PriceOfServiceQuoteEstimateText}>est.</Text>
+                          </View>
+                          {priceNote ? (
+                            <Text style={styles.PriceOfServiceQuoteNoteText} numberOfLines={2}>
+                              {priceNote}
+                            </Text>
+                          ) : null}
                         </View>
                       ) : (
                         <>
@@ -2472,10 +2599,17 @@ export default function cleaning() {
                   )}
               </View>
             </View>
+            <Pressable onPress={() => setShowCleaningTypeModal(true)} style={styles.mountDetailsLink}>
+              <Text style={styles.mountDetailsLinkText}>
+                {mountItem.trim()
+                  ? `Mounting ${mountItem.trim()}${mountSizeInches.trim() ? `, ${mountSizeInches.trim()} in` : ''}`
+                  : 'Add what you are mounting'}
+              </Text>
+            </Pressable>
             <View style={styles.jobDescriptionContainer}>
               <TextInput
                 style={styles.jobDescriptionText}
-                placeholder="Describe your task...                                         (e.g.  'I need my one bedroom apartment deep cleaned.')"
+                placeholder="Describe the mount...                                         (e.g.  'Hang a picture frame' or 'Mount a 65 inch TV.')"
                 multiline
                 numberOfLines={4}
                 placeholderTextColor="#333333ab"
@@ -2673,7 +2807,7 @@ export default function cleaning() {
             <Text style={styles.signInTitle}>Sign In Required</Text>
             <View style={styles.signInDivider} />
             <Text style={styles.signInMessage}>
-              Please sign in or sign up to schedule a cleaning service.
+              Please sign in or sign up to schedule a wall mounting.
             </Text>
             <View style={styles.signInButtonsRow}>
               <Pressable 
@@ -2707,7 +2841,7 @@ export default function cleaning() {
         </View>
       </Modal>
 
-      {/* Cleaning Type Selection Modal */}
+      {/* Mounted item */}
       <Modal
         visible={showCleaningTypeModal}
         transparent
@@ -2715,42 +2849,97 @@ export default function cleaning() {
         onRequestClose={() => setShowCleaningTypeModal(false)}
       >
         <View style={styles.signInOverlayBackground}>
-          <View style={styles.signInModal}>
-            <Text style={styles.signInTitle}>Select Cleaning Type</Text>
-            <View style={styles.signInDivider} />
-            <Text style={styles.signInMessage}>
-              Please select the type of cleaning you need:
-            </Text>
-            <View style={styles.cleaningTypeOptionsContainer}>
-              <Pressable 
-                style={[styles.cleaningTypeOption, cleaningType === 'basic' && styles.cleaningTypeOptionSelected]}
-                onPress={() => handleCleaningTypeSelect('basic')}
-              >
-                <Text style={[styles.cleaningTypeOptionText, cleaningType === 'basic' && styles.cleaningTypeOptionTextSelected]}>
-                  Basic Cleaning
-                </Text>
-                <Text style={styles.cleaningTypeOptionDescription}>
-                  General tidying, dusting, vacuuming, and surface cleaning
-                </Text>
-              </Pressable>
-              <Pressable 
-                style={[styles.cleaningTypeOption, cleaningType === 'deep' && styles.cleaningTypeOptionSelected]}
-                onPress={() => handleCleaningTypeSelect('deep')}
-              >
-                <Text style={[styles.cleaningTypeOptionText, cleaningType === 'deep' && styles.cleaningTypeOptionTextSelected]}>
-                  Deep Cleaning
-                </Text>
-                <Text style={styles.cleaningTypeOptionDescription}>
-                  Comprehensive cleaning including baseboards, inside appliances, and hard-to-reach areas
-                </Text>
-              </Pressable>
-            </View>
-            <Pressable
-              style={styles.cleaningTypeModalCancelButton}
-              onPress={() => setShowCleaningTypeModal(false)}
-            >
-              <Text style={styles.cleaningTypeModalCancelButtonText}>Cancel</Text>
-            </Pressable>
+          <View style={styles.mountDetailsModal}>
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.mountDetailsScroll}>
+              <Text style={styles.apartmentSizeTitle}>What are you mounting?</Text>
+              <View style={styles.apartmentSizeDivider} />
+              <Text style={styles.apartmentSizeMessage}>
+                The item is required. A picture is a light mount. A 65 inch TV is a heavy mount. Wall type, height, studs, and hardware are optional.
+              </Text>
+              <Text style={styles.mountFieldLabel}>Item</Text>
+              <TextInput
+                style={styles.cleaningAnalysisInput}
+                placeholder="picture frame, floating shelf, 65 inch TV"
+                placeholderTextColor="#7C7160"
+                value={mountItem}
+                onChangeText={setMountItem}
+              />
+              <Text style={styles.mountFieldLabel}>Size in inches (optional)</Text>
+              <TextInput
+                style={styles.cleaningAnalysisInput}
+                placeholder="16 for a picture, 65 for a TV"
+                placeholderTextColor="#7C7160"
+                value={mountSizeInches}
+                onChangeText={setMountSizeInches}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.mountFieldLabel}>Wall type (optional)</Text>
+              <View style={styles.mountChipRow}>
+                {WALL_TYPE_OPTIONS.map(option => (
+                  <Pressable
+                    key={option}
+                    style={[styles.mountChip, wallType === option && styles.mountChipSelected]}
+                    onPress={() => setWallType(wallType === option ? '' : option)}
+                  >
+                    <Text style={[styles.mountChipText, wallType === option && styles.mountChipTextSelected]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.mountFieldLabel}>Height in feet (optional)</Text>
+              <TextInput
+                style={styles.cleaningAnalysisInput}
+                placeholder="5"
+                placeholderTextColor="#7C7160"
+                value={mountHeightFeet}
+                onChangeText={setMountHeightFeet}
+                keyboardType="decimal-pad"
+              />
+              <Text style={styles.mountFieldLabel}>Stud finding (optional)</Text>
+              <View style={styles.mountChipRow}>
+                {(['yes', 'no'] as YesNoOption[]).map(option => (
+                  <Pressable
+                    key={`stud-${option}`}
+                    style={[styles.mountChip, studFinding === option && styles.mountChipSelected]}
+                    onPress={() => setStudFinding(studFinding === option ? '' : option)}
+                  >
+                    <Text style={[styles.mountChipText, studFinding === option && styles.mountChipTextSelected]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.mountFieldLabel}>Hardware included (optional)</Text>
+              <View style={styles.mountChipRow}>
+                {(['yes', 'no'] as YesNoOption[]).map(option => (
+                  <Pressable
+                    key={`hardware-${option}`}
+                    style={[styles.mountChip, hardwareIncluded === option && styles.mountChipSelected]}
+                    onPress={() => setHardwareIncluded(hardwareIncluded === option ? '' : option)}
+                  >
+                    <Text style={[styles.mountChipText, hardwareIncluded === option && styles.mountChipTextSelected]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.apartmentSizeButtonsRow}>
+                <Pressable
+                  style={styles.apartmentSizeBackButton}
+                  onPress={() => setShowCleaningTypeModal(false)}
+                >
+                  <Text style={styles.apartmentSizeBackButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.apartmentSizeContinueButton, !mountItem.trim() && { opacity: 0.5 }]}
+                  onPress={handleMountDetailsContinue}
+                  disabled={!mountItem.trim()}
+                >
+                  <Text style={styles.apartmentSizeContinueButtonText}>See estimate</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -3224,7 +3413,7 @@ const styles = StyleSheet.create({
     color: '#49454F',
   },
   PriceOfServiceQuoteContainer:{
-    width: 120,
+    width: 156,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent',
@@ -3242,7 +3431,7 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   PriceOfServiceQuotePrice: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
     color: '#0c4309',
   },
@@ -4095,6 +4284,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  mountDetailsLink: {
+    alignSelf: 'flex-start',
+    marginLeft: 16,
+    marginBottom: 8,
+  },
+  mountDetailsLinkText: {
+    color: '#0c4309',
+    fontSize: 13,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  mountDetailsModal: {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 20,
+    padding: 20,
+    width: '92%',
+    maxWidth: 420,
+    maxHeight: '86%',
+  },
+  mountDetailsScroll: {
+    flexGrow: 0,
+  },
+  mountFieldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0c4309',
+    marginBottom: 6,
+  },
+  mountChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  mountChip: {
+    borderWidth: 2,
+    borderColor: '#E5DCC9',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  mountChipSelected: {
+    backgroundColor: '#0c4309',
+    borderColor: '#0c4309',
+  },
+  mountChipText: {
+    color: '#0c4309',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  mountChipTextSelected: {
+    color: '#FFFFFF',
   },
   apartmentSizeModal: {
     backgroundColor: '#FFF8E8',

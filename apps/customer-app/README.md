@@ -26,12 +26,12 @@ Autocomplete on the moving screen depends on the Google Places REST API. Provide
 
 `app.config.ts` reads the value at build time and exposes it through `Constants.expoConfig.extra.googlePlacesApiKey`. If the key is missing, the moving screen falls back to manual entry only.
 
-### OpenAI (pricing + voice mode)
+### OpenAI (voice mode) and server quotes
 
-Price estimates and the new speech-to-text workflow call the OpenAI API. Supply a key the same way:
+Moving, cleaning, furniture assembly, and wall mounting price estimates do not call OpenAI from the app. The moving screen sends pickup and drop-off to the `quote-service-price` edge function, which computes driving distance and returns the price range. The cleaning screen sends home size (square feet and/or bedroom and bathroom counts) to the same function. The furniture assembly screen sends the item being assembled (product name, SKU, or type, piece count, and complexity). The wall mounting screen sends the item being mounted (picture, shelf, art, or TV size) plus optional wall type, height, stud finding, and hardware. The server needs `OPENAI_API_KEY`. Moving also needs `GOOGLE_MAPS_API_KEY` (see `apps/serviceprovider-app/supabase/functions/quote-service-price/README.md`). Speech-to-text still calls OpenAI from the app. Supply a key the same way:
 
 ```bash
 EXPO_PUBLIC_OPENAI_API_KEY=your-openai-key
 ```
 
-or set `OPENAI_API_KEY` in your shell before running Expo. The value is surfaced at runtime via `Constants.expoConfig.extra.openAiApiKey` and falls back to environment variables. Without it, price estimation and transcription will show a friendly warning and skip the API call.
+or set `OPENAI_API_KEY` in your shell before running Expo. The value is surfaced at runtime via `Constants.expoConfig.extra.openAiApiKey` and falls back to environment variables. Without it, transcription shows a friendly warning and skips the API call. Other service forms still estimate from the device key; moving, cleaning, furniture assembly, and wall mounting do not.
