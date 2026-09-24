@@ -144,7 +144,6 @@ const SelectHelpr = () => {
   const [loading, setLoading] = useState(true);
   const [requests, setRequests] = useState<ProviderRequestDisplay[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [selectingProviderId, setSelectingProviderId] = useState<string | null>(null);
   const [serviceSchedulingType, setServiceSchedulingType] = useState<string | null>(null);
   const [serviceName, setServiceName] = useState<string | null>(null);
   const { showModal } = useModal();
@@ -340,7 +339,9 @@ const SelectHelpr = () => {
     }
   }, [user?.id]);
 
-  // Handle opening the payment summary modal
+  // HLP-54: selecting a Helpr only opens payment confirmation. The job becomes
+  // `confirmed` in handleConfirmBooking after a successful PaymentIntent.
+  // There is no unpaid confirm handler on this screen.
   const handleOpenPaymentSummary = useCallback(async (request: ProviderRequestDisplay) => {
     setSelectedRequest(request);
     setShowPaymentSummary(true);
@@ -601,86 +602,6 @@ const SelectHelpr = () => {
     }
   }, [selectedRequest, serviceId, activePaymentMethodId, user?.id, savedPaymentMethods, confirmPayment, showModal]);
 
-  const handleSelectProvider = useCallback(
-    async (request: ProviderRequestDisplay) => {
-      if (!serviceId) {
-        return;
-      }
-
-      try {
-        setSelectingProviderId(request.service_provider_id);
-
-        // Get the proposed_date_time from the service_fill_request
-        const { data: fillRequestData, error: fetchError } = await supabase
-          .from('service_fill_request')
-          .select('proposed_date_time')
-          .eq('service_id', serviceId)
-          .eq('service_provider_id', request.service_provider_id)
-          .single();
-
-        if (fetchError) {
-          console.error('Failed to fetch fill request:', fetchError);
-        }
-
-        // Prepare update object
-        const updateData: {
-          service_provider_id: string;
-          status: string;
-          price: number;
-          scheduled_date_time?: string;
-        } = {
-          service_provider_id: request.service_provider_id,
-          status: 'confirmed',
-          price: request.bid,
-        };
-
-        // If there's a proposed_date_time, update the scheduled_date_time
-        if (fillRequestData?.proposed_date_time) {
-          updateData.scheduled_date_time = fillRequestData.proposed_date_time;
-        }
-
-        const { error: updateError } = await supabase
-          .from('service')
-          .update(updateData)
-          .eq('service_id', serviceId);
-
-        if (updateError) {
-          throw updateError;
-        }
-
-        // Delete all service fill requests for this service
-        const { error: deleteError } = await supabase
-          .from('service_fill_request')
-          .delete()
-          .eq('service_id', serviceId);
-
-        if (deleteError) {
-          console.error('Failed to delete service fill requests:', deleteError);
-          // Don't throw - the job is already confirmed, just log the error
-        }
-
-        setSelectingProviderId(null);
-
-        router.replace({
-          pathname: '/(booking-flow)/booked-services' as any,
-          params: { 
-            serviceId,
-            showConfirmedModal: 'true',
-            helprFirstName: request.firstName,
-          },
-        });
-      } catch (selectError) {
-        console.error('Failed to select helpr:', selectError);
-        showModal({
-          title: 'Unable to select Helpr',
-          message: 'Please try again.',
-        });
-        setSelectingProviderId(null);
-      }
-    },
-    [serviceId, showModal],
-  );
-
   const renderContent = () => {
     if (!serviceId) {
       return (
@@ -741,7 +662,6 @@ const SelectHelpr = () => {
               )}
               
               {availableAtRequestedTime.map(request => {
-                const isSelecting = selectingProviderId === request.service_provider_id;
                 return (
                   <View key={request.service_provider_id} style={styles.requestCard}>
                     <View style={styles.requestCardLeft}>
