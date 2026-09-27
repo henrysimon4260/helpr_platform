@@ -256,15 +256,17 @@ export default function Home() {
               <Link href="/">Home</Link>
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us">Customer Support</Link>
-              <a href="#" aria-disabled="true" className="cursor-default opacity-70">
-                Terms
-              </a>
+              <Link href="/terms">Terms</Link>
+              <Link href="/trust-and-safety">Trust &amp; Safety</Link>
               <a href="#" aria-disabled="true" className="cursor-default opacity-70">
                 Privacy
               </a>
             </nav>
           </div>
-          <LegalDisclaimer className="mt-6 border-t border-white/20 pt-4 text-center text-[11px] leading-5 text-[#d5e6d0] [&>p+p]:mt-1" />
+          <LegalDisclaimer
+            className="mt-6 border-t border-white/20 pt-4 text-center text-[11px] leading-5 text-[#d5e6d0] [&>p+p]:mt-1"
+            includeHappinessNotice
+          />
         </div>
       </footer>
     </main>

@@ -13,6 +13,8 @@ export type RouteParams = {
   'past-services': undefined;
   'select-helpr': { serviceId: string };
   'service-details': { serviceId: string };
+  'helpr-happiness': undefined;
+  'happiness-claim': { serviceId: string };
   // Home routes (in (home) group)
   landing: undefined;
   account: undefined;
@@ -38,6 +40,8 @@ export const ROUTES = [
   'past-services',
   'select-helpr',
   'service-details',
+  'helpr-happiness',
+  'happiness-claim',
   'landing',
   'account',
   'customer-service-chat',

@@ -115,6 +115,8 @@ export default function ContactUsForProsPage() {
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us-for-pros">Customer Support</Link>
               <Link href="/contact-us">Homeowner Support</Link>
+              <Link href="/terms">Terms</Link>
+              <Link href="/trust-and-safety">Trust &amp; Safety</Link>
             </nav>
           </div>
           <LegalDisclaimer

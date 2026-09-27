@@ -13,6 +13,8 @@ export default function BookingFlowLayout() {
       <Stack.Screen name="past-services" />
       <Stack.Screen name="select-helpr" />
       <Stack.Screen name="service-details" />
+      <Stack.Screen name="helpr-happiness" />
+      <Stack.Screen name="happiness-claim" />
     </Stack>
   );
 }

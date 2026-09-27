@@ -34,6 +34,7 @@ type ServiceData = {
   description?: string | null;
   service_provider_id?: string | null;
   customer_id?: string | null;
+  payment_status?: string | null;
   provider_rating?: number | null;
   provider_review?: string | null;
   customer_rating?: number | null;
@@ -882,7 +883,7 @@ export default function ServiceDetails() {
           </View>
         </View>
 
-        {service?.status?.toLowerCase() === 'completed' ? (
+        {service && service.status?.toLowerCase() === 'completed' ? (
           <>
             <View style={styles.reviewSection}>
               <Text style={styles.reviewTitle}>
@@ -941,6 +942,28 @@ export default function ServiceDetails() {
               </Text>
             </Pressable>
           </View>
+          {service.payment_status === 'paid' ? (
+            <View style={styles.happinessContainer}>
+              <Pressable
+                style={styles.happinessButton}
+                onPress={() => router.push({
+                  pathname: '/(booking-flow)/happiness-claim' as never,
+                  params: { serviceId: service.service_id },
+                })}
+                accessibilityRole="button"
+                accessibilityLabel="Request Helpr Happiness"
+              >
+                <Text style={styles.happinessButtonText}>Request Helpr Happiness</Text>
+              </Pressable>
+              <Text style={styles.happinessHint}>
+                Discretionary goodwill for this paid job. It is not insurance.
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.happinessHint}>
+              Helpr Happiness requests are only for booked jobs that were paid in the app.
+            </Text>
+          )}
           </>
         ) : null}
       </ScrollView>
@@ -1023,6 +1046,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.2,
+  },
+  happinessContainer: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  happinessButton: {
+    backgroundColor: '#0c4309',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  happinessButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  happinessHint: {
+    marginTop: 8,
+    paddingHorizontal: 24,
+    textAlign: 'center',
+    color: '#1d3a16',
+    fontSize: 12,
+    lineHeight: 17,
   },
   commentPreview: {
     marginTop: 10,

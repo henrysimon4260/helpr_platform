@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 
+import { HelprHappinessNotice } from '../../trust/HelprHappinessNotice';
 import { styles } from './styles';
 import { PaymentSummaryModalProps } from './types';
 
@@ -214,6 +215,8 @@ export const PaymentSummaryModal: React.FC<PaymentSummaryModalProps> = ({
                     <Text style={styles.totalValue}>{formatPrice(total)}</Text>
                   </View>
                 </View>
+
+                <HelprHappinessNotice variant="checkout" />
 
                 {/* Payment Method Selection */}
                 <View style={styles.paymentSection}>
