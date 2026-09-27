@@ -186,9 +186,8 @@ export default function BecomeAProPage() {
               <Link href="/">Home</Link>
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us-for-pros">Customer Support</Link>
-              <a href="#" aria-disabled="true" className="cursor-default opacity-70">
-                Terms
-              </a>
+              <Link href="/terms">Terms</Link>
+              <Link href="/trust-and-safety">Trust &amp; Safety</Link>
               <a href="#" aria-disabled="true" className="cursor-default opacity-70">
                 Privacy
               </a>

@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PaymentMethodModal } from '../../components/common/PaymentMethodModal';
+import { HelprHappinessNotice } from '../../components/trust/HelprHappinessNotice';
 import { PaymentSummaryModal } from '../../components/services/PaymentSummaryModal';
 import type { ProviderSummary } from '../../components/services/PaymentSummaryModal/types';
 import { useAuth } from '../../context/AuthContext';
@@ -874,6 +875,7 @@ const SelectHelpr = () => {
         <Text style={styles.AvailableProsText}>Available Pros</Text>
       </View>
 
+      <HelprHappinessNotice variant="banner" />
       <View style={styles.contentContainer}>{renderContent()}</View>
 
       {/* Payment Summary Modal */}

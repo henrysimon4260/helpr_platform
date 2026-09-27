@@ -2,12 +2,14 @@ type LegalDisclaimerProps = {
   className?: string;
   includeAvailabilityNotice?: boolean;
   includeProOnboardingNotice?: boolean;
+  includeHappinessNotice?: boolean;
 };
 
 export default function LegalDisclaimer({
   className,
   includeAvailabilityNotice = true,
   includeProOnboardingNotice = false,
+  includeHappinessNotice = false,
 }: LegalDisclaimerProps) {
   return (
     <div className={className}>
@@ -22,6 +24,11 @@ export default function LegalDisclaimer({
         <p>
           Pro onboarding and activation are subject to verification checks,
           safety requirements, and acceptance of platform terms.
+        </p>
+      ) : null}
+      {includeHappinessNotice ? (
+        <p>
+          Helpr Happiness is discretionary goodwill, up to $1,000, and is not insurance.
         </p>
       ) : null}
     </div>

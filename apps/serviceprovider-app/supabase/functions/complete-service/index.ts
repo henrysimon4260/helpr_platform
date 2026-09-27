@@ -247,15 +247,24 @@ serve(async (req) => {
       // Don't throw - payment already processed
     }
 
-    // Step 5: Update service status to completed
+    // Step 5: Update service status to completed.
+    // completed_at anchors the Helpr Happiness window. If that column is not
+    // migrated yet, still write status so completion is not blocked.
+    const completedAt = new Date().toISOString();
     const { error: statusError } = await supabaseClient
       .from('service')
-      .update({ status: 'completed' })
+      .update({ status: 'completed', completed_at: completedAt })
       .eq('service_id', serviceId);
 
     if (statusError) {
-      console.error('Failed to update service status:', statusError);
-      // Don't throw - payment already processed
+      console.error('Failed to update service status with completed_at:', statusError);
+      const { error: fallbackStatusError } = await supabaseClient
+        .from('service')
+        .update({ status: 'completed' })
+        .eq('service_id', serviceId);
+      if (fallbackStatusError) {
+        console.error('Failed to update service status:', fallbackStatusError);
+      }
     }
 
     return new Response(

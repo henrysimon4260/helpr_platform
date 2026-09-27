@@ -116,6 +116,8 @@ export default function ContactUsPage() {
               <Link href="/become-a-pro">Become a Pro</Link>
               <Link href="/contact-us">Customer Support</Link>
               <Link href="/contact-us-for-pros">Support for Pros</Link>
+              <Link href="/terms">Terms</Link>
+              <Link href="/trust-and-safety">Trust &amp; Safety</Link>
             </nav>
           </div>
           <LegalDisclaimer className="mt-6 border-t border-[#c3d6c4] pt-4 text-[11px] leading-5 text-[#4d6652] [&>p+p]:mt-1" />

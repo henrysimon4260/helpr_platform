@@ -55,6 +55,105 @@ A bid / interest row. One provider per service until deleted.
 
 Shared columns used today: `id`, `service_id`, `customer_id`, `service_provider_id`, `rating` (1–5), `comment` (nullable). Upsert by existing `id` for that service pair; do not insert a second row.
 
+## Helpr Happiness (discretionary goodwill)
+
+HLP-67. This is **not insurance**. Do not write customer copy that says the customer is insured, that Helpr sells a policy, or that a loss is covered up to a limit. The program name is **Helpr Happiness**. It is discretionary goodwill, secondary to the customer's own homeowner's or renter's insurance.
+
+It is separate from payment refunds and card disputes (HLP-64). A Happiness decision must not change `service.status` or `service.payment_status`.
+
+### Cap and window
+
+| Constant | Value |
+| --- | --- |
+| Cap | `100000` cents (`$1,000`). No other product constant sets a different cap. |
+| Claim window | 30 days, measured from `coalesce(service.completed_at, service.date_of_creation)`. |
+
+`service.completed_at` (`timestamptz`, nullable) is written by `complete-service` when it sets `status` to `completed`. If that write cannot land, completion still sets `status` alone. Until `completed_at` is present, the window falls back to `date_of_creation`.
+
+### Who may file
+
+The customer who owns the job (`customer_id` = `auth.uid()`), and only when all of these are true:
+
+- `service.status` is `completed`
+- `service.payment_status` is `paid`
+- The request is inside the 30-day window
+- One claim row per `service_id`
+- Incident type is `property_damage`, `theft`, or `limited_injury`, and the customer attests it came from the provider's negligence during that booked job
+- The customer acknowledges: not insurance, secondary to their own policy, and the exclusion list
+- Narrative plus evidence (photo paths and/or a written evidence account)
+
+### Exclusions
+
+Ops denies when any of these apply. The same list is shown before the customer pays and on the trust pages.
+
+- Vehicles, boats, aircraft, and anything inside them
+- Cash, gift cards, cryptocurrency, and securities
+- Water, flood, sewage, mold, or weather
+- The ordinary result of the booked job
+- Damage from following the customer's instructions
+- Pre-existing damage or loss
+- Items the customer asked the Helpr to change, repair, move, or discard, when the result matches that request
+- Indirect loss (lost wages, missed work, lodging)
+- Loss outside the booked job
+- A request opened after the claim window
+
+### `helpr_happiness_claim`
+
+Customers insert and read their own rows. They do not update or delete. Operations updates go through the edge function below (service role), which bypasses RLS. A trigger still rejects updates that are not from `service_role` / the database owner.
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Claim id. The client may supply a uuid so evidence paths can be reserved first. |
+| `service_id` | Completed paid job. Unique. |
+| `customer_id` | Auth user id of the customer. Must match the job. |
+| `service_provider_id` | Copied from the job on insert. The client value is ignored. |
+| `incident_type` | `property_damage` / `theft` / `limited_injury`. |
+| `narrative` | What happened. |
+| `amount_requested_cents` | 1 through `100000`. |
+| `evidence_notes` | What the files show, or a written account of the proof. |
+| `evidence_paths` | Object paths in the private bucket `happiness-claim-evidence`, each under `{customer_id}/{claim_id}/`. |
+| `acknowledged_not_insurance` | Must be true. |
+| `acknowledged_secondary` | Must be true. Secondary to the customer's own insurance. |
+| `acknowledged_exclusions` | Must be true. |
+| `negligence_attestation` | Must be true. |
+| `own_coverage_pursued` | Whether the customer asked their own insurer. |
+| `own_coverage_notes` | Required when `own_coverage_pursued` is false. |
+| `status` | `submitted` / `needs_info` / `denied` / `paid`. Insert forces `submitted`. |
+| `outcome` | Null until ops resolves: `approved` / `partial` / `denied` / `needs_info`. |
+| `amount_approved_cents` | Null until a pay decision. Never above the cap or the request. `approve` pays the requested amount. `partial` pays less. A request above the cap cannot be filed. |
+| `payout_method` | `stripe_refund` or `manual`. Null until paid. |
+| `stripe_refund_id` | Set only for a card refund. |
+| `decision_notes` | Ops reason, in language that does not call the program insurance. |
+| `resolved_at` / `resolved_by` | Set when ops resolves. |
+
+`stripe_refund` can refund only up to the amount still refundable on that job's PaymentIntent. It does not send goodwill above the card charge. Use `manual` to record an award that is not a card refund. Manual does not move Stripe money; the row is the book of record after finance sends it (say so in `decision_notes` if it is still outstanding).
+
+### `resolve-happiness-claim`
+
+Ops only. Source: `apps/serviceprovider-app/supabase/functions/resolve-happiness-claim/`. Not called by the customer app.
+
+**Auth:** header `x-helpr-ops-key` matching the server secret `HELPR_OPS_KEY`, or a user JWT whose `app_metadata.role` is `ops`. Do not trust `user_metadata`.
+
+**Request:**
+
+```json
+{
+  "claimId": "",
+  "decision": "approve",
+  "amountApprovedCents": 0,
+  "payoutMethod": "manual",
+  "notes": ""
+}
+```
+
+`decision` is `approve`, `partial`, `deny`, or `needs_info`. `amountApprovedCents` is required for `partial`. `payoutMethod` is required for `approve` and `partial` (`stripe_refund` or `manual`). `notes` is required.
+
+**Success:** `{ "success": true, "status", "outcome", "amountApprovedCents", "stripeRefundId", "payoutMethod" }`
+
+**Error:** `{ "success": false, "error": "" }` with an HTTP 4xx/5xx status. This function does not reuse the `complete-service` habit of returning HTTP 200 for failures.
+
+Playbook: [`docs/helpr-happiness-ops.md`](docs/helpr-happiness-ops.md).
+
 ## Edge functions
 
 Bodies live under `apps/serviceprovider-app/supabase/functions/` (Agent E). Call sites stay with B and C.
@@ -90,7 +189,7 @@ B treats `status === 'succeeded'` as already confirmed, or uses `clientSecret` f
 
 ### `complete-service`
 
-Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `completed`. Source: `apps/serviceprovider-app/supabase/functions/complete-service/index.ts`. Writer of `service.status = 'completed'`.
+Invoked by provider `ServiceDetails.tsx` (C) when advancing `in_progress` → `completed`. Source: `apps/serviceprovider-app/supabase/functions/complete-service/index.ts`. Writer of `service.status = 'completed'` and `service.completed_at` (see Helpr Happiness). If `completed_at` is not in the database yet, the function still writes `status`.
 
 **Request:**
 
