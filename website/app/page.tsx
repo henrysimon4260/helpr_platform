@@ -54,10 +54,10 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Hero: mobile = right-half video crop + compact right-aligned copy; md+ scales up with breakpoints */}
-      <section className="relative h-[min(118svh,920px)] w-full overflow-hidden border-b border-slate-100 bg-white md:h-[128vh] lg:h-[130vh] xl:h-[133vh]">
+      {/* Hero. Below md the 16:9 mockup is cropped to the phone (it sits at ~18.5–48% of the frame). The old full-bleed crop translated the video so only the blank right side was on screen. md+ keeps the wide composition. */}
+      <section className="relative w-full overflow-hidden border-b border-slate-100 bg-white md:h-[128vh] lg:h-[130vh] xl:h-[133vh]">
         <video
-          className="absolute left-0 top-0 h-full w-[200%] -translate-x-1/2 object-cover object-[56%_50%] md:inset-x-0 md:top-auto md:w-full md:translate-x-0 md:object-cover md:[object-position:38%_50%] md:-top-[3%] md:h-[96%] lg:-top-[4%] lg:h-[101%] xl:-top-[5%] xl:h-[103.5%] 2xl:-top-[6%] 2xl:h-[106%]"
+          className="absolute left-0 top-0 hidden h-full w-[200%] -translate-x-1/2 object-cover object-[56%_50%] md:inset-x-0 md:top-auto md:block md:w-full md:translate-x-0 md:object-cover md:[object-position:38%_50%] md:-top-[3%] md:h-[96%] lg:-top-[4%] lg:h-[101%] xl:-top-[5%] xl:h-[103.5%] 2xl:-top-[6%] 2xl:h-[106%]"
           autoPlay
           muted
           playsInline
@@ -68,10 +68,43 @@ export default function Home() {
 
         <div className="pointer-events-none absolute inset-y-0 right-0 hidden bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.55)_38%,rgba(255,255,255,0.88)_72%,rgba(255,255,255,0.96)_100%)] md:block md:w-[52%] lg:w-[50%] xl:w-1/2" />
 
-        {/* Mobile: soften edge between clipped video (left) and text (right); desktop hidden */}
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-[58%] bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.35)_35%,rgba(255,255,255,0.82)_72%,rgba(255,255,255,0.97)_100%)] md:hidden" />
+        <div className="mx-auto flex w-full max-w-7xl flex-col items-center px-5 pb-14 pt-8 md:hidden">
+          <div className="relative w-[min(70vw,250px)] overflow-hidden [aspect-ratio:472/765]">
+            <video
+              className="pointer-events-none absolute left-[-62.7119%] top-[-10.5882%] h-[117.6471%] w-[338.9831%] max-w-none"
+              autoPlay
+              muted
+              playsInline
+              preload="auto"
+              aria-hidden="true"
+            >
+              <source src="/animations/select_helpr_mockup.mp4" type="video/mp4" />
+            </video>
+          </div>
+          <div className="mt-8 w-full max-w-md text-center">
+            <p className="inline-flex rounded-full border border-[#b6d5c5] bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#1d5f3a]">
+              Home Services, On Demand
+            </p>
+            <h1 className="mt-4 text-4xl font-bold leading-[1.05] tracking-[-0.02em] text-slate-900">
+              <span className="block text-[#0e5a2a]">Flat rates.</span>
+              <span className="block">Book instantly.</span>
+            </h1>
+            <p className="mt-4 text-base leading-7 text-[#3f5848]">
+              Moving and Cleaning, Furniture assembly and more. Book vetted
+              pros in one tap with upfront pricing.
+            </p>
+            <div className="mt-6 flex justify-center">
+              <SlowScrollLink
+                href="#download"
+                className="inline-flex items-center justify-center rounded-xl bg-[#0e5a2a] px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(14,90,42,0.22)] transition hover:-translate-y-0.5 hover:bg-[#0a4a23]"
+              >
+                Get the App
+              </SlowScrollLink>
+            </div>
+          </div>
+        </div>
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex h-full items-center pb-16 pt-28 md:items-center md:pb-28 md:pt-24 lg:pb-[7.25rem] xl:pb-32">
+        <div className="pointer-events-none absolute inset-x-0 top-0 hidden h-full items-center pb-16 pt-28 md:flex md:items-center md:pb-28 md:pt-24 lg:pb-[7.25rem] xl:pb-32">
           <div className="pointer-events-auto mx-auto flex w-full max-w-7xl justify-end px-3 sm:px-5 md:justify-start md:px-8 lg:px-10">
             <div className="grid w-full items-center md:grid-cols-[1.35fr_0.65fr] md:gap-10 lg:gap-12 xl:gap-14">
               <div aria-hidden="true" className="hidden md:block" />
